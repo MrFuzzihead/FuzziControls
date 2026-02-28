@@ -1,0 +1,21 @@
+{
+	"modListVersion": 2,
+	"modList": [{
+		"modid": "${modId}",
+		"name": "${modName}",
+		"description": "Enables controller usage in Minecraft.",
+		"version": "${modVersion}",
+		"mcversion": "${minecraftVersion}",
+		"url": "https://github.com/MrFuzzihead/FuzziControls",
+		"updateUrl": "https://github.com/MrFuzzihead/FuzziControls/releases/latest",
+		"authorList": [ "MrFuzzihead" ],
+		"credits": "",
+		"logoFile": "pack.png",
+		"screenshots": [],
+		"parent": "",
+		"requiredMods": [],
+		"dependencies": [],
+		"dependants": [],
+		"useDependencyInformation": false
+	}]
+}
