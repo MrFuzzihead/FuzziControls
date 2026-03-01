@@ -10,13 +10,19 @@ import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
 
-@Mod(modid = FuzziControls.MODID, version = Tags.VERSION, name = "FuzziControls", acceptedMinecraftVersions = "[1.7.10]")
+@Mod(
+    modid = FuzziControls.MODID,
+    version = Tags.VERSION,
+    name = "FuzziControls",
+    acceptedMinecraftVersions = "[1.7.10]")
 public class FuzziControls {
 
     public static final String MODID = "fuzzicontrols";
     public static final Logger LOG = LogManager.getLogger(MODID);
 
-    @SidedProxy(clientSide = "com.mrfuzzihead.fuzzicontrols.ClientProxy", serverSide = "com.mrfuzzihead.fuzzicontrols.CommonProxy")
+    @SidedProxy(
+        clientSide = "com.mrfuzzihead.fuzzicontrols.ClientProxy",
+        serverSide = "com.mrfuzzihead.fuzzicontrols.CommonProxy")
     public static CommonProxy proxy;
 
     @Mod.EventHandler
