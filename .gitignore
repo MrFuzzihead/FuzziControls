@@ -35,6 +35,4 @@ addon.local.gradle.kts
 addon.late.local.gradle
 addon.late.local.gradle.kts
 layout.json
-build-err.txt
-build-out.txt
-build-output.txt
+*.txt

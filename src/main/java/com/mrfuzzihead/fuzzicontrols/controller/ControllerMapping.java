@@ -61,6 +61,11 @@ public class ControllerMapping {
         // COMMAND intentionally left unbound by default — bind DPAD_DOWN (or any button)
         // via config if desired.
 
+        // GUI interaction — only active when a GuiScreen is open
+        // A / Cross = left-click; X / Square = right-click
+        actionToButton.put(ControllerAction.GUI_LEFT_CLICK, ControllerButton.A);
+        actionToButton.put(ControllerAction.GUI_RIGHT_CLICK, ControllerButton.X);
+
         // D-Pad — all directions unbound by default
         // DPAD_UP, DPAD_DOWN, DPAD_LEFT, DPAD_RIGHT intentionally left unbound
     }

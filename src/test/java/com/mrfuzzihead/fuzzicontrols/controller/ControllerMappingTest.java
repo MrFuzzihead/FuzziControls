@@ -134,6 +134,16 @@ public class ControllerMappingTest {
         assertEquals(ControllerButton.B, mapping.getButton(ControllerAction.CLOSE_GUI));
     }
 
+    @Test
+    public void defaultBinding_guiLeftClick_isA() {
+        assertEquals(ControllerButton.A, mapping.getButton(ControllerAction.GUI_LEFT_CLICK));
+    }
+
+    @Test
+    public void defaultBinding_guiRightClick_isX() {
+        assertEquals(ControllerButton.X, mapping.getButton(ControllerAction.GUI_RIGHT_CLICK));
+    }
+
     // ---- Movement / camera (axis-mapped) ----
 
     @Test

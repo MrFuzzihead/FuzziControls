@@ -55,6 +55,14 @@ public class Config {
      */
     public static boolean sneakToggle = true;
 
+    /**
+     * Speed of the virtual GUI cursor driven by the left stick, in <em>display pixels per second</em>
+     * at maximum stick deflection. Actual speed scales with deflection squared for fine-grained
+     * control at low deflections. Because this is in display pixels, the speed is consistent
+     * across all GUI screens (main menu, inventory, pause menu) regardless of GUI scale.
+     */
+    public static float inventoryCursorSensitivity = 300f;
+
     // ---- Action → Button mapping (populated by synchroniseConfiguration) ----
     public static ControllerMapping controllerMapping = new ControllerMapping();
 
@@ -116,6 +124,15 @@ public class Config {
             sneakToggle,
             "When true (default), the sneak button toggles sneak on/off. "
                 + "When false, sneak is held — player sneaks only while the button is held.");
+
+        inventoryCursorSensitivity = configuration.getFloat(
+            "inventoryCursorSensitivity",
+            CAT_CONTROLLER,
+            inventoryCursorSensitivity,
+            1f,
+            2000f,
+            "Virtual GUI cursor speed in display pixels per second at full left-stick deflection. "
+                + "Consistent across all screens regardless of GUI scale.");
 
         // Bindings: persist each action → button pair
         ControllerMapping defaults = new ControllerMapping();
