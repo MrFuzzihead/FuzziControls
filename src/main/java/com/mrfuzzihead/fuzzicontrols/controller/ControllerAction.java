@@ -2,7 +2,7 @@ package com.mrfuzzihead.fuzzicontrols.controller;
 
 /**
  * Every Minecraft action that the controller can trigger, matching the
- * "Controller" section of https://minecraft.fandom.com/wiki/Controls.
+ * "Controller" section of <a href="https://minecraft.fandom.com/wiki/Controls">...</a>.
  */
 public enum ControllerAction {
 
@@ -68,5 +68,5 @@ public enum ControllerAction {
     DPAD_UP,
     DPAD_DOWN,
     DPAD_LEFT,
-    DPAD_RIGHT;
+    DPAD_RIGHT
 }

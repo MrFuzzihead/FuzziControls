@@ -15,7 +15,7 @@ public class ClientProxy extends CommonProxy {
     public void init(FMLInitializationEvent event) {
         super.init(event);
 
-        // Initialise the controller manager (selects XInput or DualSense driver)
+        // Initialize the controller manager (selects XInput or DualSense driver)
         ControllerManager manager = ControllerManager.getInstance();
         manager.init();
 

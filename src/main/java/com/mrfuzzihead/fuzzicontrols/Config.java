@@ -15,10 +15,6 @@ public class Config {
     private static final String CAT_CONTROLLER = "controller";
     private static final String CAT_BINDINGS = "bindings";
 
-    // ---- General ----
-    /** Legacy greeting (kept for template compatibility). */
-    public static String greeting = "Hello World";
-
     // ---- Controller settings ----
     /**
      * Which driver to use: "auto" (default), "xinput", or "dualsense".
@@ -67,9 +63,6 @@ public class Config {
 
     public static void synchronizeConfiguration(File configFile) {
         configuration = new Configuration(configFile);
-
-        // General
-        greeting = configuration.getString("greeting", CAT_GENERAL, greeting, "How shall I greet?");
 
         // Controller
         controllerDriver = configuration.getString(

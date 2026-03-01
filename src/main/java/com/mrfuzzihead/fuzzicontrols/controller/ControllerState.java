@@ -4,35 +4,26 @@ import java.util.Collections;
 import java.util.EnumSet;
 import java.util.Set;
 
+import com.github.bsideup.jabel.Desugar;
+
 /**
- * Immutable snapshot of a controller's state after normalisation (dead-zone applied, axes clamped to [-1, 1]).
+ * Immutable snapshot of a controller's state after normalization (dead-zone applied, axes clamped to [-1, 1]).
+ *
+ * @param leftStickX     Left stick horizontal: -1 = full left, +1 = full right.
+ * @param leftStickY     Left stick vertical: -1 = full up, +1 = full down (Minecraft Y convention).
+ * @param rightStickX    Right stick horizontal: -1 = full left, +1 = full right.
+ * @param rightStickY    Right stick vertical: -1 = full up, +1 = full down.
+ * @param leftTrigger    Left trigger: 0.0 = released, 1.0 = fully pressed.
+ * @param rightTrigger   Right trigger: 0.0 = released, 1.0 = fully pressed.
+ * @param pressedButtons Set of buttons considered pressed this tick.
  */
-public final class ControllerState {
+@Desugar
+public record ControllerState(float leftStickX, float leftStickY, float rightStickX, float rightStickY,
+    float leftTrigger, float rightTrigger, Set<ControllerButton> pressedButtons) {
 
     // ---- Axes (values in [-1.0, 1.0] after normalisation) ----
 
-    /** Left stick horizontal: -1 = full left, +1 = full right. */
-    public final float leftStickX;
-
-    /** Left stick vertical: -1 = full up, +1 = full down (Minecraft Y convention). */
-    public final float leftStickY;
-
-    /** Right stick horizontal: -1 = full left, +1 = full right. */
-    public final float rightStickX;
-
-    /** Right stick vertical: -1 = full up, +1 = full down. */
-    public final float rightStickY;
-
-    /** Left trigger: 0.0 = released, 1.0 = fully pressed. */
-    public final float leftTrigger;
-
-    /** Right trigger: 0.0 = released, 1.0 = fully pressed. */
-    public final float rightTrigger;
-
     // ---- Digital buttons ----
-
-    /** Set of buttons considered pressed this tick. */
-    private final Set<ControllerButton> pressedButtons;
 
     // ---- Constructor ----
 
@@ -48,25 +39,32 @@ public final class ControllerState {
             : Collections.unmodifiableSet(EnumSet.copyOf(pressedButtons));
     }
 
-    /** Returns an empty / disconnected state. */
+    /**
+     * Returns an empty / disconnected state.
+     */
     public static ControllerState empty() {
         return new ControllerState(0f, 0f, 0f, 0f, 0f, 0f, Collections.emptySet());
     }
 
     // ---- Queries ----
 
-    /** Returns true if the given button is pressed this tick. */
+    /**
+     * Returns true if the given button is pressed this tick.
+     */
     public boolean isPressed(ControllerButton button) {
         return pressedButtons.contains(button);
     }
 
-    /** Returns an unmodifiable view of all pressed buttons. */
-    public Set<ControllerButton> getPressedButtons() {
+    /**
+     * Returns an unmodifiable view of all pressed buttons.
+     */
+    @Override
+    public Set<ControllerButton> pressedButtons() {
         return pressedButtons;
     }
 
     /**
-     * Normalises a raw axis value by applying a dead-zone and clamping to [-1, 1].
+     * Normalizes a raw axis value by applying a dead-zone and clamping to [-1, 1].
      *
      * @param raw      Raw axis value in [-1, 1].
      * @param deadZone Values with absolute magnitude below this are treated as 0.
@@ -81,7 +79,7 @@ public final class ControllerState {
     }
 
     /**
-     * Normalises a raw trigger value by applying a threshold and clamping to [0, 1].
+     * Normalizes a raw trigger value by applying a threshold and clamping to [0, 1].
      *
      * @param raw       Raw trigger value in [0, 1].
      * @param threshold Values below this are treated as 0.

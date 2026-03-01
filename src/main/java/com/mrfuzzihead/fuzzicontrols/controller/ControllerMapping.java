@@ -9,7 +9,7 @@ import java.util.Map;
  *
  * <p>
  * Default bindings follow the standard console Minecraft layout documented at
- * https://minecraft.fandom.com/wiki/Controls (Controller section).
+ * <a href="https://minecraft.fandom.com/wiki/Controls">...</a> (Controller section).
  *
  * <p>
  * The mapping is mutable so that {@link com.mrfuzzihead.fuzzicontrols.Config} can
@@ -83,30 +83,19 @@ public class ControllerMapping {
         ControllerButton button = actionToButton.get(action);
         if (button == null) return false;
 
-        switch (button) {
-            case LEFT_TRIGGER:
-                return state.leftTrigger >= triggerThreshold;
-            case RIGHT_TRIGGER:
-                return state.rightTrigger >= triggerThreshold;
-            case LEFT_STICK_UP:
-                return state.leftStickY < -triggerThreshold;
-            case LEFT_STICK_DOWN:
-                return state.leftStickY > triggerThreshold;
-            case LEFT_STICK_LEFT:
-                return state.leftStickX < -triggerThreshold;
-            case LEFT_STICK_RIGHT:
-                return state.leftStickX > triggerThreshold;
-            case RIGHT_STICK_UP:
-                return state.rightStickY < -triggerThreshold;
-            case RIGHT_STICK_DOWN:
-                return state.rightStickY > triggerThreshold;
-            case RIGHT_STICK_LEFT:
-                return state.rightStickX < -triggerThreshold;
-            case RIGHT_STICK_RIGHT:
-                return state.rightStickX > triggerThreshold;
-            default:
-                return state.isPressed(button);
-        }
+        return switch (button) {
+            case LEFT_TRIGGER -> state.leftTrigger() >= triggerThreshold;
+            case RIGHT_TRIGGER -> state.rightTrigger() >= triggerThreshold;
+            case LEFT_STICK_UP -> state.leftStickY() < -triggerThreshold;
+            case LEFT_STICK_DOWN -> state.leftStickY() > triggerThreshold;
+            case LEFT_STICK_LEFT -> state.leftStickX() < -triggerThreshold;
+            case LEFT_STICK_RIGHT -> state.leftStickX() > triggerThreshold;
+            case RIGHT_STICK_UP -> state.rightStickY() < -triggerThreshold;
+            case RIGHT_STICK_DOWN -> state.rightStickY() > triggerThreshold;
+            case RIGHT_STICK_LEFT -> state.rightStickX() < -triggerThreshold;
+            case RIGHT_STICK_RIGHT -> state.rightStickX() > triggerThreshold;
+            default -> state.isPressed(button);
+        };
     }
 
     /** Returns an unmodifiable view of all action → button entries. */

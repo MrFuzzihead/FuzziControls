@@ -17,7 +17,7 @@ import com.mrfuzzihead.fuzzicontrols.FuzziControls;
  *
  * <p>
  * <b>Hot-plug:</b> When no driver is active (or the active driver disconnects), the manager
- * automatically retries initialisation every {@value #RECONNECT_INTERVAL_TICKS} game ticks
+ * automatically retries initialization every {@value #RECONNECT_INTERVAL_TICKS} game ticks
  * (~{@value #RECONNECT_INTERVAL_SECONDS} seconds) so controllers plugged in after game launch
  * are detected without a restart.
  *
@@ -55,7 +55,7 @@ public class ControllerManager {
     private ControllerManager() {}
 
     /**
-     * Initialises the driver according to the current {@link Config} settings.
+     * Initializes the driver according to the current {@link Config} settings.
      * Safe to call more than once (e.g. after a config reload or hot-plug retry).
      */
     public void init() {
@@ -96,7 +96,7 @@ public class ControllerManager {
     /**
      * Polls the active driver and updates {@link #lastState}.
      * Also handles hot-plug: if no driver is active or the active driver disconnects,
-     * re-initialisation is attempted every {@value #RECONNECT_INTERVAL_TICKS} ticks.
+     * re-initialization is attempted every {@value #RECONNECT_INTERVAL_TICKS} ticks.
      * Must be called from the client tick thread.
      */
     public void tick() {
@@ -128,7 +128,7 @@ public class ControllerManager {
     }
 
     /**
-     * Silently attempts to initialise a driver without logging "no controller detected" noise.
+     * Silently attempts to initialize a driver without logging "no controller detected" noise.
      * On success, {@link #activeDriver} is set; on failure it remains {@code null}.
      */
     private void tryReconnect() {

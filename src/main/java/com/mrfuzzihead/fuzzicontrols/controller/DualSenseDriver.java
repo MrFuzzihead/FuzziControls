@@ -16,10 +16,10 @@ import com.mrfuzzihead.fuzzicontrols.FuzziControls;
  * <p>
  * Reports are read from USB HID report ID 0x01 (USB mode) which has the following
  * relevant byte layout starting at byte 1:
- * 
+ *
  * <pre>
- *   [1]  Left stick X   (0–255, 128 = centre)
- *   [2]  Left stick Y   (0–255, 128 = centre, 0 = up)
+ *   [1]  Left stick X   (0–255, 128 = center)
+ *   [2]  Left stick Y   (0–255, 128 = center, 0 = up)
  *   [3]  Right stick X
  *   [4]  Right stick Y
  *   [5]  Left trigger   (0–255)
@@ -84,7 +84,7 @@ public class DualSenseDriver implements IControllerDriver {
         float lt = byteToTrigger(data[5]);
         float rt = byteToTrigger(data[6]);
 
-        // Apply normalisation
+        // Apply normalization
         lx = ControllerState.normaliseAxis(lx, deadZone);
         ly = ControllerState.normaliseAxis(ly, deadZone);
         rx = ControllerState.normaliseAxis(rx, deadZone);

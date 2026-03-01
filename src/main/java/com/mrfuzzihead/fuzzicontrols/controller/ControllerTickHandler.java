@@ -11,7 +11,7 @@ import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 
 /**
- * Client-side tick handler that reads controller input and synthesises Minecraft actions.
+ * Client-side tick handler that reads controller input and synthesizes Minecraft actions.
  *
  * <p>
  * Responsibilities are split across two event types:
@@ -257,7 +257,7 @@ public class ControllerTickHandler {
     }
 
     /**
-     * Handles the sneak key binding with toggle or hold behaviour depending on
+     * Handles the sneak key binding with toggle or hold behavior depending on
      * {@link Config#sneakToggle}.
      *
      * <ul>
@@ -305,7 +305,7 @@ public class ControllerTickHandler {
     }
 
     /**
-     * Handles the B / Circle button with dual behaviour:
+     * Handles the B / Circle button with dual behavior:
      * <ul>
      * <li>If a GUI screen is currently open: close it on the rising edge.</li>
      * <li>If no GUI is open and the button was <em>not</em> used to close a GUI this press:
@@ -435,11 +435,11 @@ public class ControllerTickHandler {
      * @param deltaSeconds seconds elapsed since the previous rendered frame
      */
     private static void applyLook(Minecraft mc, ControllerState state, float deltaSeconds) {
-        if (state.rightStickX == 0f && state.rightStickY == 0f) return;
+        if (state.rightStickX() == 0f && state.rightStickY() == 0f) return;
 
         float degreesPerSecond = BASE_DEGREES_PER_SECOND * Config.lookSensitivity;
-        float yawDelta = state.rightStickX * degreesPerSecond * deltaSeconds;
-        float pitchDelta = state.rightStickY * degreesPerSecond * deltaSeconds;
+        float yawDelta = state.rightStickX() * degreesPerSecond * deltaSeconds;
+        float pitchDelta = state.rightStickY() * degreesPerSecond * deltaSeconds;
 
         mc.thePlayer.rotationYaw += yawDelta;
         mc.thePlayer.rotationPitch += pitchDelta;

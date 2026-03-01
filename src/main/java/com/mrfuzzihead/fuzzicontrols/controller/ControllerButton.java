@@ -58,20 +58,9 @@ public enum ControllerButton {
 
     /** Returns true if this button represents a half-axis (directional stick or trigger). */
     public boolean isAxis() {
-        switch (this) {
-            case LEFT_TRIGGER:
-            case RIGHT_TRIGGER:
-            case LEFT_STICK_UP:
-            case LEFT_STICK_DOWN:
-            case LEFT_STICK_LEFT:
-            case LEFT_STICK_RIGHT:
-            case RIGHT_STICK_UP:
-            case RIGHT_STICK_DOWN:
-            case RIGHT_STICK_LEFT:
-            case RIGHT_STICK_RIGHT:
-                return true;
-            default:
-                return false;
-        }
+        return switch (this) {
+            case LEFT_TRIGGER, RIGHT_TRIGGER, LEFT_STICK_UP, LEFT_STICK_DOWN, LEFT_STICK_LEFT, LEFT_STICK_RIGHT, RIGHT_STICK_UP, RIGHT_STICK_DOWN, RIGHT_STICK_LEFT, RIGHT_STICK_RIGHT -> true;
+            default -> false;
+        };
     }
 }

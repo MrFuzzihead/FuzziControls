@@ -127,19 +127,19 @@ public class ControllerStateTest {
     @Test
     public void empty_allAxesZero() {
         ControllerState state = ControllerState.empty();
-        assertEquals(0f, state.leftStickX, EPSILON);
-        assertEquals(0f, state.leftStickY, EPSILON);
-        assertEquals(0f, state.rightStickX, EPSILON);
-        assertEquals(0f, state.rightStickY, EPSILON);
-        assertEquals(0f, state.leftTrigger, EPSILON);
-        assertEquals(0f, state.rightTrigger, EPSILON);
+        assertEquals(0f, state.leftStickX(), EPSILON);
+        assertEquals(0f, state.leftStickY(), EPSILON);
+        assertEquals(0f, state.rightStickX(), EPSILON);
+        assertEquals(0f, state.rightStickY(), EPSILON);
+        assertEquals(0f, state.leftTrigger(), EPSILON);
+        assertEquals(0f, state.rightTrigger(), EPSILON);
     }
 
     @Test
     public void getPressedButtons_isUnmodifiable() {
         ControllerState state = new ControllerState(0, 0, 0, 0, 0, 0, EnumSet.of(ControllerButton.Y));
         try {
-            state.getPressedButtons()
+            state.pressedButtons()
                 .add(ControllerButton.A);
             fail("Expected UnsupportedOperationException");
         } catch (UnsupportedOperationException expected) {
