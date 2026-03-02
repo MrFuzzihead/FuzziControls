@@ -41,6 +41,12 @@ public class ControllerStateTest {
     }
 
     @Test
+    public void normaliseAxis_justOutsideDeadZoneNegative_returnsSmallNegative() {
+        float result = ControllerState.normaliseAxis(-0.16f, 0.15f);
+        assertTrue("Expected small negative value, got " + result, result < 0f);
+    }
+
+    @Test
     public void normaliseAxis_fullPositive_returnsOne() {
         assertEquals(1f, ControllerState.normaliseAxis(1f, 0.15f), EPSILON);
     }
@@ -57,9 +63,22 @@ public class ControllerStateTest {
     }
 
     @Test
+    public void normaliseAxis_underRange_clampedToNegativeOne() {
+        assertEquals(-1f, ControllerState.normaliseAxis(-1.5f, 0.15f), EPSILON);
+    }
+
+    @Test
     public void normaliseAxis_zeroDeadZone_rawPassthrough() {
         float raw = 0.5f;
         assertEquals(raw, ControllerState.normaliseAxis(raw, 0f), EPSILON);
+    }
+
+    @Test
+    public void normaliseAxis_outputMonotonicallyIncreases() {
+        // Verify the rescaled value grows as the raw input grows past the dead zone
+        float low = ControllerState.normaliseAxis(0.3f, 0.15f);
+        float high = ControllerState.normaliseAxis(0.6f, 0.15f);
+        assertTrue("normaliseAxis output should increase as raw input increases", high > low);
     }
 
     // -------------------------------------------------------------------------
@@ -92,9 +111,33 @@ public class ControllerStateTest {
         assertEquals(raw, ControllerState.normaliseTrigger(raw, 0f), EPSILON);
     }
 
+    @Test
+    public void normaliseTrigger_justAboveThreshold_returnsSmallPositive() {
+        float result = ControllerState.normaliseTrigger(0.21f, 0.20f);
+        assertTrue("Just above threshold should return a small positive value, got " + result, result > 0f);
+    }
+
     // -------------------------------------------------------------------------
-    // ControllerState construction and isPressed
+    // ControllerState construction and accessors
     // -------------------------------------------------------------------------
+
+    @Test
+    public void constructor_storesAllAxisValues() {
+        ControllerState state = new ControllerState(
+            0.1f,
+            0.2f, // leftStickX, leftStickY
+            0.3f,
+            0.4f, // rightStickX, rightStickY
+            0.5f,
+            0.6f, // leftTrigger, rightTrigger
+            EnumSet.noneOf(ControllerButton.class));
+        assertEquals(0.1f, state.leftStickX(), EPSILON);
+        assertEquals(0.2f, state.leftStickY(), EPSILON);
+        assertEquals(0.3f, state.rightStickX(), EPSILON);
+        assertEquals(0.4f, state.rightStickY(), EPSILON);
+        assertEquals(0.5f, state.leftTrigger(), EPSILON);
+        assertEquals(0.6f, state.rightTrigger(), EPSILON);
+    }
 
     @Test
     public void isPressed_buttonInSet_returnsTrue() {
@@ -144,6 +187,20 @@ public class ControllerStateTest {
             fail("Expected UnsupportedOperationException");
         } catch (UnsupportedOperationException expected) {
             // pass
+        }
+    }
+
+    @Test
+    public void isPressed_allButtonsFromEnumSet_correctlyTracked() {
+        EnumSet<ControllerButton> pressed = EnumSet
+            .of(ControllerButton.A, ControllerButton.X, ControllerButton.START, ControllerButton.RIGHT_BUMPER);
+        ControllerState state = new ControllerState(0, 0, 0, 0, 0, 0, pressed);
+        for (ControllerButton btn : ControllerButton.values()) {
+            if (pressed.contains(btn)) {
+                assertTrue("Expected " + btn + " to be pressed", state.isPressed(btn));
+            } else {
+                assertFalse("Expected " + btn + " to NOT be pressed", state.isPressed(btn));
+            }
         }
     }
 }

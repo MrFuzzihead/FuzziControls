@@ -3,9 +3,16 @@ package com.mrfuzzihead.fuzzicontrols.controller;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiChat;
 import net.minecraft.client.gui.GuiIngameMenu;
+import net.minecraft.client.gui.GuiScreen;
+import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.settings.KeyBinding;
 
+import org.lwjgl.input.Keyboard;
+import org.lwjgl.input.Mouse;
+
 import com.mrfuzzihead.fuzzicontrols.Config;
+import com.mrfuzzihead.fuzzicontrols.util.GuiKeyHelper;
+import com.mrfuzzihead.fuzzicontrols.util.GuiMouseHelper;
 
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
@@ -18,10 +25,17 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  * <ul>
  * <li>{@link TickEvent.ClientTickEvent} (20 Hz) — polls the controller, drives held key-bindings
  * (movement, jump, attack, …) and edge-triggered actions (inventory, chat, hotbar, …).</li>
- * <li>{@link TickEvent.RenderTickEvent} (every rendered frame, 60+ Hz) — re-reads the latest
- * cached controller state and applies right-stick camera rotation so it feels as smooth as
- * mouse input.</li>
+ * <li>{@link TickEvent.RenderTickEvent} (every rendered frame, 60+ Hz) — when no GUI is open,
+ * applies right-stick camera rotation. When a GUI is open, moves the virtual cursor using the
+ * left stick and positions the real OS cursor via {@link Mouse#setCursorPosition}.</li>
  * </ul>
+ *
+ * <p>
+ * <b>GUI navigation:</b> When {@code mc.currentScreen != null} the left stick drives a virtual
+ * cursor (quadratic speed curve, configurable via {@link Config#inventoryCursorSensitivity}).
+ * A (Xbox) / Cross (PS) fires a left-click and X (Xbox) / Square (PS) fires a right-click at
+ * the cursor position via the access-transformed {@link GuiScreen#mouseClicked} /
+ * {@link GuiScreen#mouseMovedOrUp}. This works with every vanilla and mod GUI automatically.
  *
  * <p>
  * RT attack calls {@link KeyBinding#onTick} on the attack key binding every tick it is held.
@@ -50,6 +64,13 @@ public class ControllerTickHandler {
 
     /** Fractional tick elapsed since the last game tick, provided by RenderTickEvent. */
     private float lastPartialTick = 0f;
+
+    /**
+     * Nanosecond timestamp of the previous rendered frame, used for accurate per-frame delta
+     * calculation that is independent of frame rate and game-tick rate.
+     * Zero before the first frame.
+     */
+    private long lastFrameNanos = 0L;
 
     /** Whether the controller had a given action active on the previous game tick (edge-trigger). */
     private final boolean[] wasActive = new boolean[ControllerAction.values().length];
@@ -81,6 +102,26 @@ public class ControllerTickHandler {
      */
     private final java.util.HashSet<Integer> controllerHeldKeys = new java.util.HashSet<>();
 
+    /**
+     * Fractional GUI cursor position in <em>screen pixels</em> (not scaled GUI coordinates).
+     * Updated every render frame while a GUI is open. Clamped to the display bounds.
+     */
+    private float guiCursorX = 0f;
+
+    private float guiCursorY = 0f;
+
+    /**
+     * Whether the GUI cursor position has been initialized to the display center.
+     * Reset to false whenever a new GUI screen opens.
+     */
+    private boolean guiCursorInitialized = false;
+
+    /** Tracks previous press state for GUI left-click (edge detection). */
+    private boolean wasGuiLeftClick = false;
+
+    /** Tracks previous press state for GUI right-click (edge detection). */
+    private boolean wasGuiRightClick = false;
+
     // -------------------------------------------------------------------------
     // Game tick — 20 Hz — movement, buttons, edge triggers
     // -------------------------------------------------------------------------
@@ -90,7 +131,6 @@ public class ControllerTickHandler {
         if (event.phase != TickEvent.Phase.START) return;
 
         Minecraft mc = Minecraft.getMinecraft();
-        if (mc.theWorld == null || mc.thePlayer == null) return;
 
         ControllerManager manager = ControllerManager.getInstance();
         manager.tick(); // poll hardware once per game tick
@@ -102,6 +142,52 @@ public class ControllerTickHandler {
 
         ControllerState state = manager.getState();
         ControllerMapping mapping = Config.controllerMapping;
+
+        // ---- GUI-only path (main menu, inventory, pause, chat, etc.) ----
+        // Runs even when thePlayer is null (e.g. main menu).
+        if (mc.currentScreen != null) {
+            // Initialize cursor to screen center on first tick a screen is open.
+            if (!guiCursorInitialized) {
+                guiCursorX = mc.displayWidth / 2f;
+                guiCursorY = mc.displayHeight / 2f;
+                guiCursorInitialized = true;
+                Mouse.setCursorPosition((int) guiCursorX, (int) guiCursorY);
+            }
+            handleGuiClick(ControllerAction.GUI_LEFT_CLICK, 0, state, mapping, mc);
+            handleGuiClick(ControllerAction.GUI_RIGHT_CLICK, 1, state, mapping, mc);
+
+            // B / Circle: inject an Escape key press to back out of any screen.
+            // Using handleKeyboardInput with Escape (keycode 1) is universal — it works for
+            // inventory, pause menu, main-menu submenus, chat, etc., without needing a player.
+            int bIdx = ControllerAction.CLOSE_GUI.ordinal();
+            boolean bActive = mapping.isActive(ControllerAction.CLOSE_GUI, state, Config.triggerThreshold)
+                || mapping.isActive(ControllerAction.DROP_ITEM, state, Config.triggerThreshold);
+            if (bActive && !wasActive[bIdx]) {
+                mc.currentScreen.handleKeyboardInput();
+                // Synthesize Escape: set it down, call keyTyped, then clear it.
+                // GuiScreen.keyTyped with keyCode 1 (Escape) calls mc.displayGuiScreen(null)
+                // or goes back to the parent screen — same as pressing Esc on the keyboard.
+                GuiKeyHelper.injectKey(mc.currentScreen, Keyboard.KEY_ESCAPE, '\0');
+                dropBlockedByGui = true;
+            }
+            wasActive[bIdx] = bActive;
+            // Also consume DROP_ITEM edge so it doesn't fire after screen closes.
+            wasActive[ControllerAction.DROP_ITEM.ordinal()] = bActive;
+
+            // Consume in-world action edges so they don't fire on GUI close.
+            consumeEdge(ControllerAction.CHAT, state, mapping);
+            consumeEdge(ControllerAction.COMMAND, state, mapping);
+            consumeEdge(ControllerAction.PAUSE, state, mapping);
+            return;
+        }
+
+        // Screen is closed — reset cursor init flag and consume GUI-click edges cleanly.
+        guiCursorInitialized = false;
+        consumeGuiClick(ControllerAction.GUI_LEFT_CLICK, state, mapping);
+        consumeGuiClick(ControllerAction.GUI_RIGHT_CLICK, state, mapping);
+
+        // ---- In-world path (requires a player) ----
+        if (mc.theWorld == null || mc.thePlayer == null) return;
 
         // --- Movement (left stick → held key bindings) ---
         // driveKey() only asserts a key as true when the controller wants it, and only
@@ -142,11 +228,11 @@ public class ControllerTickHandler {
         // 2. func_147116_af() — called via the "while (keyBindAttack.isPressed())" loop which
         // consumes the press counter (incremented by KeyBinding.onTick). This is what fires
         // attackEntity() on mobs and clickBlock() on blocks (single click). We call onTick
-        // every tick RT is held so the press counter is always ≥ 1 and the loop fires once
+        // every tick RT is held so the press counter is always >= 1 and the loop fires once
         // per game tick — hitting entities, blocks, and air swing alike.
         boolean attacking = mapping.isActive(ControllerAction.ATTACK, state, Config.triggerThreshold);
         driveKey(mc.gameSettings.keyBindAttack, attacking);
-        if (attacking && mc.currentScreen == null) {
+        if (attacking) {
             // Queue one "press" per game tick so func_147116_af() fires this tick.
             KeyBinding.onTick(mc.gameSettings.keyBindAttack.getKeyCode());
         }
@@ -161,23 +247,16 @@ public class ControllerTickHandler {
             mc.gameSettings.keyBindPickBlock,
             mapping.isActive(ControllerAction.PICK_BLOCK, state, Config.triggerThreshold));
 
-        // --- B button: close GUI when screen open, otherwise drop item ---
+        // --- B button: drop item (no GUI open) ---
         handleBButton(ControllerAction.DROP_ITEM, ControllerAction.CLOSE_GUI, state, mapping, mc);
 
         // --- Inventory (edge-triggered) ---
         handleEdgeTrigger(ControllerAction.INVENTORY, state, mapping, mc.gameSettings.keyBindInventory);
 
-        // --- Chat / Command / Pause (edge-triggered, only when no GUI is open) ---
-        if (mc.currentScreen == null) {
-            handleChat(ControllerAction.CHAT, state, mapping, mc);
-            handleCommand(ControllerAction.COMMAND, state, mapping, mc);
-            handlePause(ControllerAction.PAUSE, state, mapping, mc);
-        } else {
-            // Still consume the wasActive state so we don't get spurious fires on GUI close
-            consumeEdge(ControllerAction.CHAT, state, mapping);
-            consumeEdge(ControllerAction.COMMAND, state, mapping);
-            consumeEdge(ControllerAction.PAUSE, state, mapping);
-        }
+        // --- Chat / Command / Pause (edge-triggered) ---
+        handleChat(ControllerAction.CHAT, state, mapping, mc);
+        handleCommand(ControllerAction.COMMAND, state, mapping, mc);
+        handlePause(ControllerAction.PAUSE, state, mapping, mc);
 
         // --- Hotbar (edge-triggered, bumpers) ---
         handleHotbarNext(ControllerAction.HOTBAR_NEXT, state, mapping, mc);
@@ -185,7 +264,7 @@ public class ControllerTickHandler {
     }
 
     // -------------------------------------------------------------------------
-    // Render tick — every frame — smooth camera
+    // Render tick — every frame — smooth camera OR GUI cursor
     // -------------------------------------------------------------------------
 
     @SubscribeEvent
@@ -193,27 +272,34 @@ public class ControllerTickHandler {
         if (event.phase != TickEvent.Phase.START) return;
 
         Minecraft mc = Minecraft.getMinecraft();
-        if (mc.theWorld == null || mc.thePlayer == null) return;
-
-        // Skip camera when a GUI is open (inventory, chat, pause, etc.)
-        if (mc.currentScreen != null) return;
 
         ControllerManager manager = ControllerManager.getInstance();
         if (!manager.isActive()) return;
 
         ControllerState state = manager.getState();
 
-        // Compute the frame delta time in seconds.
-        // partialTicks is in [0, 1] and represents the fraction of a game tick (1/20 s)
-        // that has elapsed since the last game tick.
-        float partialTick = event.renderTickTime;
-        float deltaTicks = partialTick - lastPartialTick;
-        // Handle the wrap-around at each game tick boundary (partialTick resets to ~0)
-        if (deltaTicks <= 0f) deltaTicks += 1f;
-        lastPartialTick = partialTick;
-        float deltaSeconds = deltaTicks / 20f;
+        // Compute accurate frame delta using wall-clock time.
+        // partialTick from RenderTickEvent only has game-tick resolution and breaks down at
+        // very high frame rates (e.g. pause menu renders at uncapped FPS), causing the cursor
+        // to move far faster than in-game. System.nanoTime() gives true elapsed time.
+        long nowNanos = System.nanoTime();
+        float deltaSeconds;
+        if (lastFrameNanos == 0L) {
+            deltaSeconds = 0f;
+        } else {
+            deltaSeconds = (nowNanos - lastFrameNanos) / 1_000_000_000f;
+            // Clamp to 100 ms to avoid a huge jump after a freeze/GC pause.
+            if (deltaSeconds > 0.1f) deltaSeconds = 0.1f;
+        }
+        lastFrameNanos = nowNanos;
 
-        applyLook(mc, state, deltaSeconds);
+        if (mc.currentScreen != null) {
+            // GUI cursor — works on main menu (thePlayer may be null).
+            applyGuiCursor(mc, state, deltaSeconds);
+        } else if (mc.theWorld != null && mc.thePlayer != null) {
+            // In-world camera — only when a world is loaded.
+            applyLook(mc, state, deltaSeconds);
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -418,6 +504,91 @@ public class ControllerTickHandler {
             mc.displayGuiScreen(new GuiChat("/"));
         }
         wasActive[idx] = active;
+    }
+
+    /**
+     * Moves the virtual GUI cursor using the left stick and repositions the real OS cursor via
+     * {@link Mouse#setCursorPosition(int, int)}.
+     *
+     * <p>
+     * {@link Config#inventoryCursorSensitivity} is expressed in <em>display pixels per second</em>
+     * at maximum stick deflection. Working directly in display-pixel space means the speed is
+     * the same physical distance on screen regardless of GUI scale, window size, or which
+     * screen is open (main menu, inventory, pause menu, etc.).
+     *
+     * <p>
+     * Speed uses a quadratic curve: {@code speed = deflection² × sensitivity}. This gives
+     * fine-grained control at low deflections and fast traversal at full deflection.
+     *
+     * @param deltaSeconds seconds elapsed since the previous rendered frame
+     */
+    private void applyGuiCursor(Minecraft mc, ControllerState state, float deltaSeconds) {
+        float dx = state.leftStickX();
+        float dy = -state.leftStickY(); // invert Y: stick up = cursor up = increasing LWJGL Y
+
+        if (dx == 0f && dy == 0f) return;
+
+        // Quadratic scaling: gentle tilt = precise, full deflection = fast.
+        // sensitivity is in display pixels/s at full deflection.
+        float sensitivity = Config.inventoryCursorSensitivity;
+        guiCursorX += Math.signum(dx) * dx * dx * sensitivity * deltaSeconds;
+        guiCursorY += Math.signum(dy) * dy * dy * sensitivity * deltaSeconds;
+
+        // Clamp to display bounds.
+        guiCursorX = Math.max(0f, Math.min(mc.displayWidth - 1, guiCursorX));
+        guiCursorY = Math.max(0f, Math.min(mc.displayHeight - 1, guiCursorY));
+
+        Mouse.setCursorPosition((int) guiCursorX, (int) guiCursorY);
+    }
+
+    /**
+     * Fires a GUI mouse-button press or release by injecting a real LWJGL mouse event into
+     * {@link Mouse}'s internal event queue. This ensures both {@link GuiScreen#handleMouseInput()}
+     * and {@link Mouse#isButtonDown(int)} (used by {@link net.minecraft.client.gui.GuiSlot}) see
+     * the click, fixing selection in world lists, server lists, and similar slot-based GUIs.
+     *
+     * <p>
+     * Coordinates are converted from LWJGL display-pixel space (bottom-left origin) to scaled
+     * GUI space (top-left origin) for the fallback path.
+     *
+     * @param mouseButton 0 = left, 1 = right
+     */
+    private void handleGuiClick(ControllerAction action, int mouseButton, ControllerState state,
+        ControllerMapping mapping, Minecraft mc) {
+
+        boolean active = mapping.isActive(action, state, Config.triggerThreshold);
+        boolean wasClick = action == ControllerAction.GUI_LEFT_CLICK ? wasGuiLeftClick : wasGuiRightClick;
+        boolean justPressed = active && !wasClick;
+        boolean justReleased = !active && wasClick;
+
+        if (mc.currentScreen != null && (justPressed || justReleased)) {
+            // Scaled GUI coords for the fallback path (direct GuiScreen dispatch).
+            ScaledResolution sr = new ScaledResolution(mc, mc.displayWidth, mc.displayHeight);
+            int guiX = (int) (guiCursorX * sr.getScaledWidth() / mc.displayWidth);
+            int guiY = sr.getScaledHeight() - (int) (guiCursorY * sr.getScaledHeight() / mc.displayHeight) - 1;
+
+            GuiMouseHelper.injectMouseButton(mc.currentScreen, mouseButton, justPressed, guiX, guiY);
+        }
+
+        if (action == ControllerAction.GUI_LEFT_CLICK) {
+            wasGuiLeftClick = active;
+        } else {
+            wasGuiRightClick = active;
+        }
+    }
+
+    /**
+     * Advances the GUI click edge state without performing any action.
+     * Called when no screen is open to keep {@link #wasGuiLeftClick}/{@link #wasGuiRightClick}
+     * clean so rising edges don't carry over into a newly opened GUI.
+     */
+    private void consumeGuiClick(ControllerAction action, ControllerState state, ControllerMapping mapping) {
+        boolean active = mapping.isActive(action, state, Config.triggerThreshold);
+        if (action == ControllerAction.GUI_LEFT_CLICK) {
+            wasGuiLeftClick = active;
+        } else {
+            wasGuiRightClick = active;
+        }
     }
 
     /**

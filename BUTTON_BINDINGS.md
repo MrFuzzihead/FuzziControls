@@ -51,12 +51,29 @@ Camera rotation is applied **every rendered frame** (not via the action mapping)
 
 | Xbox Button | PS Button | Action | Notes |
 |---|---|---|---|
-| A | Cross (✕) | Jump | Held |
+| A | Cross (✕) | Jump *(in-world)* / **Left-click** *(in GUI)* | Jump when no screen open; left-clicks at virtual cursor position when a GUI is open |
 | B | Circle (○) | **Close GUI** (when a screen is open) | Closes inventory, chat, pause menu, etc. — no item drop on this press |
 | B | Circle (○) | **Drop one item** (when no screen is open, tap) | Fires on release — holding does NOT drop first |
 | B | Circle (○) | **Drop entire stack** (when no screen is open, hold 0.5 s) | Only when `dropEntireStack = true` in config; tap still drops one item; default is `false` |
-| X | Square (□) | Pick block (middle-click) | Held |
+| X | Square (□) | Pick block *(in-world)* / **Right-click** *(in GUI)* | Pick block when no screen open; right-clicks at virtual cursor position when a GUI is open |
 | Y | Triangle (△) | Open / close inventory | Edge-triggered |
+
+---
+
+## GUI / Inventory Navigation
+
+When any GUI screen is open (inventory, crafting, chest, pause menu, etc.) the controller
+switches from game-play mode to cursor mode automatically.
+
+| Xbox Button | PS Button | Action | Notes |
+|---|---|---|---|
+| Left Stick | Left Stick | Move cursor | Analogue speed (quadratic curve) — gentle tilt = precise, full = fast. Scaled by `inventoryCursorSensitivity`. |
+| A | Cross (✕) | Left-click | Selects slots, presses buttons, etc. at cursor position |
+| X | Square (□) | Right-click | Half-stack pick-up, etc. at cursor position |
+| B | Circle (○) | Close screen | Returns to game (same as pressing Escape) |
+
+The left stick drives the real OS cursor via LWJGL `Mouse.setCursorPosition`, so this works
+with **every vanilla and mod GUI** automatically — no per-screen code is needed.
 
 ---
 
@@ -88,6 +105,7 @@ Camera rotation is applied **every rendered frame** (not via the action mapping)
 | `stickDeadZone` | `0.15` | Analogue stick dead-zone radius [0.0–0.99] |
 | `triggerThreshold` | `0.20` | Minimum trigger value to register as pressed [0.0–0.99] |
 | `lookSensitivity` | `2.0` | Right-stick camera speed multiplier [0.1–10.0] |
+| `inventoryCursorSensitivity` | `300` | GUI cursor speed in **display pixels/s** at full stick deflection [1–2000] — consistent across all screens |
 | `dropEntireStack` | `false` | When `true`, holding B for 0.5 s drops the entire held stack |
 | `sneakToggle` | `true` | When `true` (default), RS-click toggles sneak; when `false`, sneak is held |
 | `driver` | `auto` | Controller driver: `auto`, `xinput`, or `dualsense` |
@@ -114,3 +132,13 @@ Camera rotation is applied **every rendered frame** (not via the action mapping)
 | 2026-03-01 | Keyboard no longer stutters when controller is connected — controller only releases keys it claimed |
 | 2026-03-01 | Sneak is now a toggle by default (RS / R3); set `sneakToggle = false` in config for hold behaviour |
 | 2026-03-01 | Controller-held keys are released cleanly on disconnect to prevent stuck movement |
+| 2026-03-01 | GUI navigation: left stick moves virtual cursor; A = left-click; X = right-click in any open screen |
+| 2026-03-01 | Cursor centers on screen open; quadratic speed curve for precision at low deflections |
+| 2026-03-01 | Fixed: in-world controls (movement, attack, etc.) no longer fire while a GUI screen is open |
+| 2026-03-01 | Fixed: GUI cursor speed now in display pixels/s — consistent across main menu, inventory, and pause menu |
+| 2026-03-01 | GUI cursor and click navigation now works on the main menu (no world/player required) |
+| 2026-03-01 | Fixed: cursor speed now uses System.nanoTime() wall-clock delta — consistent at all frame rates including uncapped pause menu |
+| 2026-03-01 | Fixed: A/X click now injects real LWJGL mouse events, enabling world/server list selection (GuiSlot-based screens) |
+| 2026-03-01 | Fixed: B/Circle now injects Escape key press, backing out of all screens universally including main-menu submenus |
+| 2026-03-01 | Fixed: GuiMouseHelper rewritten with correct LWJGL 2 Mouse internals — 22-byte event records (byte button, byte state, int absX, int absY, int dwheel, long nanos); buttons ByteBuffer also patched for isButtonDown() — enables world/server list selection |
+| 2026-03-01 | Mod marked client-side only via acceptableRemoteVersions="*" — installing on a server is safe and has no effect |

@@ -64,6 +64,18 @@ public enum ControllerAction {
     /** Open commands (similar to chat but prefixed with /) — Left bumper (LB / L1). */
     COMMAND,
 
+    // ---- GUI interaction (only active when a GuiScreen is open) ----
+    /**
+     * Left-click the current GUI cursor position — A (Xbox) / Cross (PS).
+     * Only fires when a GUI screen is open.
+     */
+    GUI_LEFT_CLICK,
+    /**
+     * Right-click the current GUI cursor position — X (Xbox) / Square (PS).
+     * Only fires when a GUI screen is open.
+     */
+    GUI_RIGHT_CLICK,
+
     // ---- D-Pad (all unbound by default, user-configurable) ----
     DPAD_UP,
     DPAD_DOWN,
