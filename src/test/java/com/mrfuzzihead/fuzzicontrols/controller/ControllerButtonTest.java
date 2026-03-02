@@ -61,4 +61,35 @@ public class ControllerButtonTest {
         assertFalse(ControllerButton.BACK.isAxis());
         assertFalse(ControllerButton.GUIDE.isAxis());
     }
+
+    /**
+     * Sanity check: every {@link ControllerButton} value must return either true or false from
+     * {@link ControllerButton#isAxis()} without throwing — ensuring the switch in
+     * {@link ControllerMapping#isActive} covers all enum constants.
+     */
+    @Test
+    public void isAxis_allButtons_noException() {
+        for (ControllerButton btn : ControllerButton.values()) {
+            try {
+                btn.isAxis(); // must not throw
+            } catch (Exception e) {
+                fail("isAxis() threw for " + btn + ": " + e);
+            }
+        }
+    }
+
+    /**
+     * Every axis button (stick directions and triggers) should be classified as axis, and every
+     * non-axis button should not be. Together with the individual tests above this ensures the
+     * full classification is self-consistent.
+     */
+    @Test
+    public void isAxis_axisButtonCount_matchesExpected() {
+        // 4 left-stick directions + 4 right-stick directions + 2 triggers = 10 axis buttons
+        int axisCount = 0;
+        for (ControllerButton btn : ControllerButton.values()) {
+            if (btn.isAxis()) axisCount++;
+        }
+        assertEquals("Expected exactly 10 axis buttons (4+4 stick directions + 2 triggers)", 10, axisCount);
+    }
 }
