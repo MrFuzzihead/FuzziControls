@@ -40,8 +40,9 @@ Camera rotation is applied **every rendered frame** (not via the action mapping)
 
 | Xbox Button | PS Button | Action | Notes |
 |---|---|---|---|
-| Right Trigger (RT) | R2 | Attack / mine | Held — fires continuously; works even without a target in crosshair |
-| Left Trigger (LT) | L2 | Use item / place block | Held — fires continuously while held |
+| Right Trigger (RT) | R2 | Attack / mine *(in-world)* | Held — fires continuously; works even without a target in crosshair |
+| Left Trigger (LT) | L2 | Use item / place block *(in-world)* | Held — fires continuously while held |
+| Left Trigger (LT) | L2 | **Toggle shift-click mode** *(in GUI)* | Press once to arm shift mode; next left-click (A/✕) sends a Shift+click, moving the entire stack. Auto-clears after one use or when keyboard Shift is pressed. |
 | Right Bumper (RB) | R1 | Next hotbar slot | Edge-triggered |
 | Left Bumper (LB) | L1 | Previous hotbar slot | Edge-triggered |
 
@@ -67,9 +68,10 @@ switches from game-play mode to cursor mode automatically.
 
 | Xbox Button | PS Button | Action | Notes |
 |---|---|---|---|
-| Left Stick | Left Stick | Move cursor | Analogue speed (quadratic curve) — gentle tilt = precise, full = fast. Scaled by `inventoryCursorSensitivity`. |
-| A | Cross (✕) | Left-click | Selects slots, presses buttons, etc. at cursor position |
+| Left Stick | Left Stick | Move cursor | Analogue speed (quadratic curve) — gentle tilt = precise, full = fast. Scaled by `inventoryCursorSensitivity`. Speed scales with window size automatically. |
+| A | Cross (✕) | Left-click | Selects slots, presses buttons, etc. at cursor position. If shift mode is armed (see LT), sends a Shift+left-click instead. |
 | X | Square (□) | Right-click | Half-stack pick-up, etc. at cursor position |
+| Left Trigger (LT) | L2 | Toggle shift-click mode | Rising edge arms shift mode. The very next A/✕ left-click will be a Shift+click (move entire stack). Cleared after one use, on GUI close, or if keyboard Shift is pressed. |
 | B | Circle (○) | Close screen | Returns to game (same as pressing Escape) |
 
 The left stick drives the real OS cursor via LWJGL `Mouse.setCursorPosition`, so this works
@@ -105,9 +107,9 @@ with **every vanilla and mod GUI** automatically — no per-screen code is neede
 | `stickDeadZone` | `0.15` | Analogue stick dead-zone radius [0.0–0.99] |
 | `triggerThreshold` | `0.20` | Minimum trigger value to register as pressed [0.0–0.99] |
 | `lookSensitivity` | `2.0` | Right-stick camera speed multiplier [0.1–10.0] |
-| `inventoryCursorSensitivity` | `300` | GUI cursor speed in **display pixels/s** at full stick deflection [1–2000] — consistent across all screens |
+| `inventoryCursorSensitivity` | `300` | GUI cursor speed in **display pixels/s** at full stick deflection at the 854×480 reference resolution [1–2000]. Scales automatically with window size. |
 | `dropEntireStack` | `false` | When `true`, holding B for 0.5 s drops the entire held stack |
-| `sneakToggle` | `true` | When `true` (default), RS-click toggles sneak; when `false`, sneak is held |
+| `sneakToggle` | `true` | When `true` (default), RS-click toggles sneak; when `false`, sneak is held. Pressing the keyboard sneak key while the toggle is on automatically clears the toggle so keyboard control resumes normally. |
 | `driver` | `auto` | Controller driver: `auto`, `xinput`, or `dualsense` |
 | `xInputSlot` | `0` | XInput controller slot to use [0–3] |
 
@@ -142,3 +144,10 @@ with **every vanilla and mod GUI** automatically — no per-screen code is neede
 | 2026-03-01 | Fixed: B/Circle now injects Escape key press, backing out of all screens universally including main-menu submenus |
 | 2026-03-01 | Fixed: GuiMouseHelper rewritten with correct LWJGL 2 Mouse internals — 22-byte event records (byte button, byte state, int absX, int absY, int dwheel, long nanos); buttons ByteBuffer also patched for isButtonDown() — enables world/server list selection |
 | 2026-03-01 | Mod marked client-side only via acceptableRemoteVersions="*" — installing on a server is safe and has no effect |
+| 2026-03-01 | Fixed: character no longer jumps after closing a GUI with a button also bound to an in-world action (e.g. A = GUI left-click AND jump) — buttonsHeldOnGuiClose set tracks every button held at GUI close time; each button is blocked from triggering any in-world action until it is fully released, regardless of how long it is held |
+| 2026-03-01 | Fixed: virtual cursor and camera no longer move when the game window is not focused — both onClientTick and onRenderTick guard with Display.isActive(); delta timer resets on focus loss to prevent a position jump on return |
+| 2026-03-02 | Fixed: DualSense input lag — switched to non-blocking HID reads (timeout=0); last valid state is cached and returned when no new report is available, eliminating the 5 ms forced wait per poll |
+| 2026-03-02 | Added: Shift-left-click in inventories — LT (L2) toggles shift mode while a GUI is open; the next A/✕ left-click delivers a Shift+click via KeyboardHelper patching LWJGL Keyboard.isKeyDown(), moving the entire stack. Toggle auto-clears after one use, on GUI close, or if keyboard Shift is pressed |
+| 2026-03-02 | Fixed: GUI cursor speed now scales with window size relative to an 854×480 reference — cursor traversal time is now consistent at any resolution from small windowed to full-screen |
+| 2026-03-02 | Fixed: pressing the keyboard sneak key while the controller sneak toggle is on now clears the toggle, so keyboard sneak works normally without fighting the controller |
+| 2026-03-02 | Deferred: analog movement speed scaling (requires Mixin into EntityPlayerSP) — tracked in plan for future implementation |

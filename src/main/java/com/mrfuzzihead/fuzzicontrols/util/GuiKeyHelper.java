@@ -7,13 +7,21 @@ import net.minecraft.client.gui.GuiScreen;
 import com.mrfuzzihead.fuzzicontrols.FuzziControls;
 
 /**
- * Injects synthetic keyboard events into a {@link GuiScreen} by calling its protected
+ * Injects synthetic keyboard events into a {@link GuiScreen} by calling its
  * {@code keyTyped(char, int)} method reflectively.
+ *
+ * <h3>Why reflection instead of an Access Transformer?</h3>
+ * <p>
+ * {@code GuiScreen.keyTyped} is {@code protected}. An AT can widen it to {@code public}, but
+ * doing so causes a compile failure for every subclass that also declares it as
+ * {@code protected} (e.g. {@code GuiChat}, {@code GuiContainer}, dozens of vanilla screens).
+ * Java does not allow a subclass to narrow the access of an inherited method, so widening the
+ * base class breaks all overriding subclasses. Reflection is therefore the correct and only
+ * mod-side solution — it is resolved once at class-load time and incurs negligible overhead.
  *
  * <p>
  * This is used to synthesize an Escape key press (keycode 1) when the B / Circle button
- * is pressed while a GUI is open, backing out of the current screen universally — including
- * main-menu submenus, inventory, pause menu, and mod GUIs — without needing a player entity.
+ * is pressed while a GUI is open, backing out of the current screen universally.
  */
 public final class GuiKeyHelper {
 

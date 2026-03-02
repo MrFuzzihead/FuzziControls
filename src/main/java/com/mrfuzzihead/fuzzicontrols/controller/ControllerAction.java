@@ -75,6 +75,11 @@ public enum ControllerAction {
      * Only fires when a GUI screen is open.
      */
     GUI_RIGHT_CLICK,
+    /**
+     * Shift + left-click the current GUI cursor position — moves an entire item stack.
+     * Only fires when a GUI screen is open. Bound to LT by default.
+     */
+    GUI_SHIFT_CLICK,
 
     // ---- D-Pad (all unbound by default, user-configurable) ----
     DPAD_UP,

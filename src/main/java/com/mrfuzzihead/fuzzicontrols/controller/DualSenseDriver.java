@@ -45,6 +45,9 @@ public class DualSenseDriver implements IControllerDriver {
     private HidServices hidServices;
     private HidDevice device;
 
+    /** The most recently successfully parsed state, returned when no new report is available. */
+    private ControllerState lastState = null;
+
     public DualSenseDriver() {
         try {
             HidServicesSpecification spec = new HidServicesSpecification();
@@ -73,8 +76,11 @@ public class DualSenseDriver implements IControllerDriver {
         if (!isConnected()) return ControllerState.empty();
 
         byte[] data = new byte[REPORT_SIZE];
-        int read = device.read(data, 5); // 5 ms timeout
-        if (read < 10) return ControllerState.empty();
+        // Use a non-blocking read (timeout = 0) to avoid adding latency every poll.
+        // If no new report is available we return the cached last state rather than empty,
+        // so the caller sees a stable value between hardware report intervals.
+        int read = device.read(data, 0);
+        if (read < 10) return lastState != null ? lastState : ControllerState.empty();
 
         // Sticks: bytes 1-4, triggers: bytes 5-6
         float lx = byteToAxis(data[1]);
@@ -123,7 +129,8 @@ public class DualSenseDriver implements IControllerDriver {
         if (dpad == 4 || dpad == 3 || dpad == 5) pressed.add(ControllerButton.DPAD_DOWN);
         if (dpad == 6 || dpad == 5 || dpad == 7) pressed.add(ControllerButton.DPAD_LEFT);
 
-        return new ControllerState(lx, ly, rx, ry, lt, rt, pressed);
+        lastState = new ControllerState(lx, ly, rx, ry, lt, rt, pressed);
+        return lastState;
     }
 
     @Override
@@ -136,6 +143,7 @@ public class DualSenseDriver implements IControllerDriver {
             hidServices.shutdown();
             hidServices = null;
         }
+        lastState = null;
     }
 
     @Override

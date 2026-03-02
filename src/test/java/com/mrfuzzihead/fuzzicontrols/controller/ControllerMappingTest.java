@@ -146,6 +146,35 @@ public class ControllerMappingTest {
         assertEquals(ControllerButton.X, mapping.getButton(ControllerAction.GUI_RIGHT_CLICK));
     }
 
+    @Test
+    public void defaultBinding_guiShiftClick_isLeftTrigger() {
+        assertEquals(ControllerButton.LEFT_TRIGGER, mapping.getButton(ControllerAction.GUI_SHIFT_CLICK));
+    }
+
+    /**
+     * GUI_SHIFT_CLICK shares LEFT_TRIGGER with USE_ITEM in-world. The tick handler applies the
+     * correct action based on whether a GUI screen is open.
+     */
+    @Test
+    public void guiShiftClick_sharesSameButtonAsUseItem() {
+        assertEquals(
+            "GUI_SHIFT_CLICK and USE_ITEM must share LEFT_TRIGGER so the tick handler can use context",
+            mapping.getButton(ControllerAction.USE_ITEM),
+            mapping.getButton(ControllerAction.GUI_SHIFT_CLICK));
+    }
+
+    @Test
+    public void isActive_guiShiftClick_activeWhenLeftTriggerPressed() {
+        ControllerState state = new ControllerState(0, 0, 0, 0, 0.8f, 0, Collections.emptySet());
+        assertTrue(mapping.isActive(ControllerAction.GUI_SHIFT_CLICK, state, 0.2f));
+    }
+
+    @Test
+    public void isActive_guiShiftClick_inactiveWhenLeftTriggerBelowThreshold() {
+        ControllerState state = new ControllerState(0, 0, 0, 0, 0.1f, 0, Collections.emptySet());
+        assertFalse(mapping.isActive(ControllerAction.GUI_SHIFT_CLICK, state, 0.2f));
+    }
+
     /**
      * GUI_LEFT_CLICK shares button A with JUMP. Both should be bound to the same button. The tick
      * handler decides which action to apply based on whether a screen is open.

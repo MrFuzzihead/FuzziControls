@@ -203,4 +203,61 @@ public class ControllerStateTest {
             }
         }
     }
+
+    // -------------------------------------------------------------------------
+    // Analog movement — raw stick values for moveForward / moveStrafing scaling
+    // -------------------------------------------------------------------------
+
+    /**
+     * These tests verify the sign conventions used by the analog movement code in
+     * ControllerTickHandler. When analogMovement is enabled, the tick handler sets:
+     * 
+     * <pre>
+     *   mc.thePlayer.moveForward  = -leftStickY()  (negative Y = push up = forward = positive moveForward)
+     *   mc.thePlayer.moveStrafing = -leftStickX()  (negative X = push left = strafe left = positive moveStrafing)
+     * </pre>
+     */
+
+    @Test
+    public void analogMovement_stickPushedFullyForward_leftStickYIsNegativeOne() {
+        // After dead-zone normalisation, pushing stick fully forward yields leftStickY = -1.
+        float raw = ControllerState.normaliseAxis(-1f, 0.15f);
+        assertEquals("Full forward push should normalise to -1.0", -1f, raw, EPSILON);
+        // The tick handler negates this to get +1.0 for moveForward (full speed forward).
+        assertEquals(1f, -raw, EPSILON);
+    }
+
+    @Test
+    public void analogMovement_stickPushedHalfForward_leftStickYIsBetweenZeroAndNegativeOne() {
+        float halfRaw = -0.5f;
+        float normalised = ControllerState.normaliseAxis(halfRaw, 0.15f);
+        assertTrue("Half-forward normalised value should be negative", normalised < 0f);
+        assertTrue("Half-forward normalised value magnitude should be < 1", Math.abs(normalised) < 1f);
+        // moveForward = -normalised would be between 0 and 1 (partial speed).
+        float moveForward = -normalised;
+        assertTrue("moveForward from half push should be between 0 and 1", moveForward > 0f && moveForward < 1f);
+    }
+
+    @Test
+    public void analogMovement_stickPushedFullyLeft_leftStickXIsNegativeOne() {
+        float raw = ControllerState.normaliseAxis(-1f, 0.15f);
+        assertEquals(-1f, raw, EPSILON);
+        // moveStrafing = -(-1) = +1 (strafe left at full speed)
+        assertEquals(1f, -raw, EPSILON);
+    }
+
+    @Test
+    public void analogMovement_stickPushedFullyRight_leftStickXIsPositiveOne() {
+        float raw = ControllerState.normaliseAxis(1f, 0.15f);
+        assertEquals(1f, raw, EPSILON);
+        // moveStrafing = -(+1) = -1 (strafe right at full speed)
+        assertEquals(-1f, -raw, EPSILON);
+    }
+
+    @Test
+    public void analogMovement_withinDeadZone_producesZeroSpeed() {
+        float raw = ControllerState.normaliseAxis(0.1f, 0.15f);
+        assertEquals("Within dead-zone should give zero (no movement)", 0f, raw, EPSILON);
+        assertEquals("moveForward from dead-zone should be zero", 0f, -raw, EPSILON);
+    }
 }

@@ -62,9 +62,10 @@ public class ControllerMapping {
         // via config if desired.
 
         // GUI interaction — only active when a GuiScreen is open
-        // A / Cross = left-click; X / Square = right-click
+        // A / Cross = left-click; X / Square = right-click; LT = shift-click
         actionToButton.put(ControllerAction.GUI_LEFT_CLICK, ControllerButton.A);
         actionToButton.put(ControllerAction.GUI_RIGHT_CLICK, ControllerButton.X);
+        actionToButton.put(ControllerAction.GUI_SHIFT_CLICK, ControllerButton.LEFT_TRIGGER);
 
         // D-Pad — all directions unbound by default
         // DPAD_UP, DPAD_DOWN, DPAD_LEFT, DPAD_RIGHT intentionally left unbound
