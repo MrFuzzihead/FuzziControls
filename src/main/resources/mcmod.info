@@ -3,7 +3,7 @@
 	"modList": [{
 		"modid": "${modId}",
 		"name": "${modName}",
-		"description": "Enables controller usage in Minecraft.",
+		"description": "Full controller support for Minecraft 1.7.10 Forge — plug in and play.",
 		"version": "${modVersion}",
 		"mcversion": "${minecraftVersion}",
 		"url": "https://github.com/MrFuzzihead/FuzziControls",
