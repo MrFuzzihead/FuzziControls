@@ -80,13 +80,21 @@ public class ControllerManager {
 
         if ("auto".equals(driverPref) || "xinput".equals(driverPref)) {
             int slot = Config.xInputControllerSlot;
-            XInputDriver xi = new XInputDriver(slot);
-            if (xi.isConnected()) {
-                activeDriver = xi;
-                FuzziControls.LOG.info("[FuzziControls] Using XInput driver (slot {}).", slot);
-                return;
-            } else {
-                xi.close();
+            try {
+                XInputDriver xi = new XInputDriver(slot);
+                if (xi.isConnected()) {
+                    activeDriver = xi;
+                    FuzziControls.LOG.info("[FuzziControls] Using XInput driver (slot {}).", slot);
+                    return;
+                } else {
+                    xi.close();
+                }
+            } catch (UnsatisfiedLinkError e) {
+                FuzziControls.LOG.warn(
+                    "[FuzziControls] XInput native library could not be linked — " + "XInput support disabled. ({})",
+                    e.getMessage());
+            } catch (Throwable t) {
+                FuzziControls.LOG.warn("[FuzziControls] XInput driver init error: {}", t.getMessage());
             }
         }
 
@@ -145,15 +153,23 @@ public class ControllerManager {
         }
 
         if ("auto".equals(driverPref) || "xinput".equals(driverPref)) {
-            XInputDriver xi = new XInputDriver(Config.xInputControllerSlot);
-            if (xi.isConnected()) {
-                activeDriver = xi;
-                FuzziControls.LOG.info(
-                    "[FuzziControls] Controller connected — using XInput driver (slot {}).",
-                    Config.xInputControllerSlot);
-                return;
+            try {
+                XInputDriver xi = new XInputDriver(Config.xInputControllerSlot);
+                if (xi.isConnected()) {
+                    activeDriver = xi;
+                    FuzziControls.LOG.info(
+                        "[FuzziControls] Controller connected — using XInput driver (slot {}).",
+                        Config.xInputControllerSlot);
+                    return;
+                }
+                xi.close();
+            } catch (UnsatisfiedLinkError e) {
+                FuzziControls.LOG.warn(
+                    "[FuzziControls] XInput native library could not be linked — " + "XInput support disabled. ({})",
+                    e.getMessage());
+            } catch (Throwable t) {
+                FuzziControls.LOG.warn("[FuzziControls] XInput driver reconnect error: {}", t.getMessage());
             }
-            xi.close();
         }
     }
 

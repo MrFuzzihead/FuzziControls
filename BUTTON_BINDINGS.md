@@ -81,12 +81,36 @@ with **every vanilla and mod GUI** automatically — no per-screen code is neede
 
 ## D-Pad
 
+### D-Pad Navigation Mode OFF (default — `dpadNavigation = false`)
+
+All D-pad directions are unbound in-world and in GUIs. The left-stick virtual cursor remains
+the only GUI navigation method.
+
 | Xbox Button | PS Button | Action | Notes |
 |---|---|---|---|
 | D-pad ↑ | D-pad ↑ | *(unbound)* | Available for custom binding |
-| D-pad ↓ | D-pad ↓ | *(unbound)* | Available for custom binding (was COMMAND — bind `COMMAND=DPAD_DOWN` in config to restore) |
+| D-pad ↓ | D-pad ↓ | *(unbound)* | Available for custom binding |
 | D-pad ← | D-pad ← | *(unbound)* | Available for custom binding |
 | D-pad → | D-pad → | *(unbound)* | Available for custom binding |
+
+### D-Pad Navigation Mode ON (`dpadNavigation = true`)
+
+When `dpadNavigation = true` and a GUI screen is open, the D-pad navigates between the
+screen's buttons. When no GUI is open, the D-pad remains unbound.
+
+| Xbox Button | PS Button | Action | Notes |
+|---|---|---|---|
+| D-pad ↑ | D-pad ↑ | **Previous button** | Moves focus up/backward through the button list; wraps from first to last |
+| D-pad ↓ | D-pad ↓ | **Next button** | Moves focus down/forward through the button list; wraps from last to first |
+| D-pad ← | D-pad ← | **Previous button** *or* **Decrease slider** | If the focused element is a slider, decreases its value by `dpadSliderStep`; otherwise moves focus backward |
+| D-pad → | D-pad → | **Next button** *or* **Increase slider** | If the focused element is a slider, increases its value by `dpadSliderStep`; otherwise moves focus forward |
+| A | Cross (✕) | **Activate focused button** | Fires a left-click at the focused button's center, identical to moving the cursor there and pressing A/✕ normally |
+
+The focused button is highlighted with a **pulsing blue border** drawn over the GUI.
+
+After any D-pad Up/Down navigation the OS cursor is also warped to the focused button's center
+so the virtual-cursor and D-pad focus states remain in sync. A player who switches back to
+left-stick cursor navigation will see the cursor already on the focused element.
 
 ---
 
@@ -110,6 +134,8 @@ with **every vanilla and mod GUI** automatically — no per-screen code is neede
 | `inventoryCursorSensitivity` | `300` | GUI cursor speed in **display pixels/s** at full stick deflection at the 854×480 reference resolution [1–2000]. Scales automatically with window size. |
 | `dropEntireStack` | `false` | When `true`, holding B for 0.5 s drops the entire held stack |
 | `sneakToggle` | `true` | When `true` (default), RS-click toggles sneak; when `false`, sneak is held. Pressing the keyboard sneak key while the toggle is on automatically clears the toggle so keyboard control resumes normally. |
+| `dpadNavigation` | `false` | When `true`, D-pad Up/Down navigates between GUI buttons; D-pad Left/Right adjusts sliders or also navigates; A/✕ activates the focused button. A pulsing highlight shows the current focus. |
+| `dpadSliderStep` | `0.05` | Fraction of slider range adjusted per D-pad Left/Right press when `dpadNavigation = true` [0.01–1.0]. Default 0.05 = 5% per press. |
 | `driver` | `auto` | Controller driver: `auto`, `xinput`, or `dualsense` |
 | `xInputSlot` | `0` | XInput controller slot to use [0–3] |
 
@@ -151,3 +177,4 @@ with **every vanilla and mod GUI** automatically — no per-screen code is neede
 | 2026-03-02 | Fixed: GUI cursor speed now scales with window size relative to an 854×480 reference — cursor traversal time is now consistent at any resolution from small windowed to full-screen |
 | 2026-03-02 | Fixed: pressing the keyboard sneak key while the controller sneak toggle is on now clears the toggle, so keyboard sneak works normally without fighting the controller |
 | 2026-03-02 | Deferred: analog movement speed scaling (requires Mixin into EntityPlayerSP) — tracked in plan for future implementation |
+| 2026-03-02 | Added: D-pad GUI navigation system (`dpadNavigation` config, default `false`) — D-pad Up/Down moves focus between buttons, D-pad Left/Right adjusts sliders or also navigates, A/✕ activates the focused element. Focused button highlighted with a pulsing blue border. OS cursor warps to focused button center to keep virtual-cursor and D-pad focus in sync. |

@@ -32,8 +32,16 @@ public class XInputDriver implements IControllerDriver {
             }
         } catch (XInputNotLoadedException e) {
             FuzziControls.LOG.warn("[FuzziControls] XInput not loaded: {}", e.getMessage());
-        } catch (Exception e) {
-            FuzziControls.LOG.warn("[FuzziControls] XInput init error: {}", e.getMessage());
+        } catch (UnsatisfiedLinkError e) {
+            // The JXInput native DLL could not be linked (e.g. wrong architecture, missing runtime, or
+            // the library was not extracted into the JVM library search path). UnsatisfiedLinkError is
+            // a java.lang.Error, not an Exception, so it must be caught explicitly here.
+            FuzziControls.LOG.warn(
+                "[FuzziControls] XInput native library failed to link ({}). "
+                    + "XInput controller support will be disabled.",
+                e.getMessage());
+        } catch (Throwable t) {
+            FuzziControls.LOG.warn("[FuzziControls] XInput init error: {}", t.getMessage());
         }
     }
 

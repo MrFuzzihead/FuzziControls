@@ -92,7 +92,42 @@ When Mixins are enabled (`usesMixins = true` in `gradle.properties`), the follow
 1. `GuiKeyHelper` → `@Invoker("keyTyped")` on `GuiScreen`
 2. `GuiMouseHelper` (MC methods) → `@Invoker("mouseClicked")` + `@Invoker("mouseMovedOrUp")` on `GuiScreen`
 3. Analog movement (`analogMovement` config) → `@Inject` into `EntityPlayerSP.moveEntityWithHeading` to scale `moveForward`/`moveStrafing` by stick magnitude before physics
+4. `GuiFocusNavigator.OPTION_SLIDER_VALUE` → `@Accessor("sliderValue")` on `GuiOptionSlider`
+5. `GuiFocusNavigator.MOUSE_DRAGGED` → `@Invoker("mouseDragged")` on `GuiButton`
+6. `GuiFocusNavigator.BUTTON_LIST_FIELD` → `@Accessor("buttonList")` on `GuiScreen`
 
 The LWJGL reflections (`Mouse.readBuffer`, `Mouse.buttons`, `Keyboard.keyDownBuffer`) cannot be replaced by Mixins and will remain regardless.
 
+---
+
+### `GuiFocusNavigator` — `GuiScreen.buttonList` (protected `List<GuiButton>`)
+
+| | |
+|---|---|
+| **Used for** | Reading the ordered list of `GuiButton` instances from any open `GuiScreen` so the D-pad navigator knows which buttons are focusable |
+| **Why not AT?** | `buttonList` is `protected` in `GuiScreen`. An AT can widen it to `public`, but this is safe here — no subclass re-declares `buttonList`, so there is no access-narrowing conflict. **Future path:** this one could be replaced with an AT. |
+| **Why not Mixin (now)?** | A Mixin `@Accessor("buttonList")` would also work. Deferred because reflection works and Mixin infrastructure is not yet set up. |
+| **Future plan** | Replace with either an AT (`public` on `GuiScreen.buttonList`) or a Mixin `@Accessor`. |
+
+---
+
+### `GuiFocusNavigator` — `GuiOptionSlider.sliderValue` (private `float`)
+
+| | |
+|---|---|
+| **Used for** | Reading and writing the slider's normalized value [0.0–1.0] when the player adjusts a vanilla option slider with D-pad Left/Right |
+| **Why not AT?** | AT can widen `sliderValue` to `public`. No subclass re-declares the field, so this is safe. **Future path:** viable AT candidate. |
+| **Why not Mixin (now)?** | `@Accessor("sliderValue")` would work cleanly. Deferred alongside Mixin infrastructure setup. |
+| **Future plan** | Replace with a Mixin `@Accessor` on `GuiOptionSlider.sliderValue`. |
+
+---
+
+### `GuiFocusNavigator` — `GuiButton.mouseDragged(Minecraft, int, int)` (protected)
+
+| | |
+|---|---|
+| **Used for** | Notifying a slider that its value has changed after a D-pad adjustment, so the slider updates its displayed label and applies the setting (e.g. music volume) |
+| **Why not AT?** | AT widens `mouseDragged` to `public` on `GuiButton`. Every `GuiButton` subclass that overrides `mouseDragged` as `protected` would then produce a compile error (access-narrowing). As with `keyTyped` and `mouseClicked`, this breaks many classes. |
+| **Why not Mixin (now)?** | `@Invoker("mouseDragged")` on `GuiButton` would avoid the access-narrowing problem. Deferred alongside other Mixin work. |
+| **Future plan** | Replace with a Mixin `@Invoker` on `GuiButton.mouseDragged`. |
 

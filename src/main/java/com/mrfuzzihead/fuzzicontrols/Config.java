@@ -63,6 +63,21 @@ public class Config {
      */
     public static float inventoryCursorSensitivity = 300f;
 
+    /**
+     * When true, D-pad Up/Down navigates between focusable buttons on the current GUI screen
+     * and A / Cross activates the focused button. D-pad Left/Right adjusts slider values.
+     * When false (default), the D-pad is unbound in GUI screens and the left-stick virtual
+     * cursor remains the only navigation method.
+     */
+    public static boolean dpadNavigation = false;
+
+    /**
+     * How much to adjust a slider value per D-pad left/right press when
+     * {@link #dpadNavigation} is true. Value is in [0.0, 1.0] and represents a fraction of
+     * the slider's full range. Default 0.05 = 5% per press.
+     */
+    public static float dpadSliderStep = 0.05f;
+
     // ---- Action → Button mapping (populated by synchroniseConfiguration) ----
     public static ControllerMapping controllerMapping = new ControllerMapping();
 
@@ -133,6 +148,23 @@ public class Config {
             2000f,
             "Virtual GUI cursor speed in display pixels per second at full left-stick deflection. "
                 + "Consistent across all screens regardless of GUI scale.");
+
+        dpadNavigation = configuration.getBoolean(
+            "dpadNavigation",
+            CAT_CONTROLLER,
+            dpadNavigation,
+            "When true, D-pad Up/Down navigates between buttons in any open GUI screen, "
+                + "D-pad Left/Right adjusts sliders, and A/Cross activates the focused element. "
+                + "When false (default), the left-stick virtual cursor is the only GUI navigation method.");
+
+        dpadSliderStep = configuration.getFloat(
+            "dpadSliderStep",
+            CAT_CONTROLLER,
+            dpadSliderStep,
+            0.01f,
+            1.0f,
+            "Fraction of slider range adjusted per D-pad left/right press when dpadNavigation = true. "
+                + "Default 0.05 = 5%% per press.");
 
         // Bindings: persist each action → button pair
         ControllerMapping defaults = new ControllerMapping();

@@ -85,5 +85,32 @@ public enum ControllerAction {
     DPAD_UP,
     DPAD_DOWN,
     DPAD_LEFT,
-    DPAD_RIGHT
+    DPAD_RIGHT,
+
+    // ---- D-Pad GUI navigation (only active when dpadNavigation = true and a GUI is open) ----
+    /**
+     * Move focus to the previous (upward) focusable element in the current GUI.
+     * Bound to D-pad Up by default.
+     */
+    GUI_NAV_UP,
+    /**
+     * Move focus to the next (downward) focusable element in the current GUI.
+     * Bound to D-pad Down by default.
+     */
+    GUI_NAV_DOWN,
+    /**
+     * Move focus left, or decrease a slider value.
+     * Bound to D-pad Left by default.
+     */
+    GUI_NAV_LEFT,
+    /**
+     * Move focus right, or increase a slider value.
+     * Bound to D-pad Right by default.
+     */
+    GUI_NAV_RIGHT,
+    /**
+     * Confirm / activate the currently focused element.
+     * Bound to A / Cross by default (only when dpadNavigation = true and a GUI is open).
+     */
+    GUI_NAV_CONFIRM
 }

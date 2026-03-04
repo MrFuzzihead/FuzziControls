@@ -422,4 +422,88 @@ public class ControllerMappingTest {
         assertTrue(mapping.isActive(ControllerAction.STRAFE_RIGHT, state, 0.2f));
         assertFalse(mapping.isActive(ControllerAction.STRAFE_LEFT, state, 0.2f));
     }
+
+    // -------------------------------------------------------------------------
+    // D-Pad navigation default bindings (GUI_NAV_*)
+    // -------------------------------------------------------------------------
+
+    @Test
+    public void defaultBinding_guiNavUp_isDpadUp() {
+        assertEquals(ControllerButton.DPAD_UP, mapping.getButton(ControllerAction.GUI_NAV_UP));
+    }
+
+    @Test
+    public void defaultBinding_guiNavDown_isDpadDown() {
+        assertEquals(ControllerButton.DPAD_DOWN, mapping.getButton(ControllerAction.GUI_NAV_DOWN));
+    }
+
+    @Test
+    public void defaultBinding_guiNavLeft_isDpadLeft() {
+        assertEquals(ControllerButton.DPAD_LEFT, mapping.getButton(ControllerAction.GUI_NAV_LEFT));
+    }
+
+    @Test
+    public void defaultBinding_guiNavRight_isDpadRight() {
+        assertEquals(ControllerButton.DPAD_RIGHT, mapping.getButton(ControllerAction.GUI_NAV_RIGHT));
+    }
+
+    @Test
+    public void defaultBinding_guiNavConfirm_isA() {
+        assertEquals(ControllerButton.A, mapping.getButton(ControllerAction.GUI_NAV_CONFIRM));
+    }
+
+    /**
+     * GUI_NAV_CONFIRM shares button A with JUMP and GUI_LEFT_CLICK. The tick handler applies
+     * the correct action based on whether dpadNavigation is enabled and a GUI is open.
+     */
+    @Test
+    public void guiNavConfirm_sharesSameButtonAsJumpAndGuiLeftClick() {
+        assertEquals(
+            "GUI_NAV_CONFIRM, JUMP, and GUI_LEFT_CLICK must all share button A",
+            mapping.getButton(ControllerAction.JUMP),
+            mapping.getButton(ControllerAction.GUI_NAV_CONFIRM));
+        assertEquals(
+            "GUI_NAV_CONFIRM, JUMP, and GUI_LEFT_CLICK must all share button A",
+            mapping.getButton(ControllerAction.GUI_LEFT_CLICK),
+            mapping.getButton(ControllerAction.GUI_NAV_CONFIRM));
+    }
+
+    @Test
+    public void isActive_guiNavUp_activeWhenDpadUpPressed() {
+        ControllerState state = new ControllerState(0, 0, 0, 0, 0, 0, EnumSet.of(ControllerButton.DPAD_UP));
+        assertTrue(mapping.isActive(ControllerAction.GUI_NAV_UP, state, 0.2f));
+    }
+
+    @Test
+    public void isActive_guiNavDown_activeWhenDpadDownPressed() {
+        ControllerState state = new ControllerState(0, 0, 0, 0, 0, 0, EnumSet.of(ControllerButton.DPAD_DOWN));
+        assertTrue(mapping.isActive(ControllerAction.GUI_NAV_DOWN, state, 0.2f));
+    }
+
+    @Test
+    public void isActive_guiNavLeft_activeWhenDpadLeftPressed() {
+        ControllerState state = new ControllerState(0, 0, 0, 0, 0, 0, EnumSet.of(ControllerButton.DPAD_LEFT));
+        assertTrue(mapping.isActive(ControllerAction.GUI_NAV_LEFT, state, 0.2f));
+    }
+
+    @Test
+    public void isActive_guiNavRight_activeWhenDpadRightPressed() {
+        ControllerState state = new ControllerState(0, 0, 0, 0, 0, 0, EnumSet.of(ControllerButton.DPAD_RIGHT));
+        assertTrue(mapping.isActive(ControllerAction.GUI_NAV_RIGHT, state, 0.2f));
+    }
+
+    @Test
+    public void isActive_guiNavConfirm_activeWhenAPressed() {
+        ControllerState state = new ControllerState(0, 0, 0, 0, 0, 0, EnumSet.of(ControllerButton.A));
+        assertTrue(mapping.isActive(ControllerAction.GUI_NAV_CONFIRM, state, 0.2f));
+    }
+
+    @Test
+    public void applyDefaults_resetsNavBindings() {
+        mapping.bind(ControllerAction.GUI_NAV_UP, ControllerButton.Y);
+        mapping.bind(ControllerAction.GUI_NAV_DOWN, ControllerButton.B);
+        mapping.applyDefaults();
+        assertEquals(ControllerButton.DPAD_UP, mapping.getButton(ControllerAction.GUI_NAV_UP));
+        assertEquals(ControllerButton.DPAD_DOWN, mapping.getButton(ControllerAction.GUI_NAV_DOWN));
+    }
 }

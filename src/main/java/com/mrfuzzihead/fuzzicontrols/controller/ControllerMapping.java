@@ -69,6 +69,13 @@ public class ControllerMapping {
 
         // D-Pad — all directions unbound by default
         // DPAD_UP, DPAD_DOWN, DPAD_LEFT, DPAD_RIGHT intentionally left unbound
+
+        // D-Pad GUI navigation — only active when Config.dpadNavigation = true and a GUI is open
+        actionToButton.put(ControllerAction.GUI_NAV_UP, ControllerButton.DPAD_UP);
+        actionToButton.put(ControllerAction.GUI_NAV_DOWN, ControllerButton.DPAD_DOWN);
+        actionToButton.put(ControllerAction.GUI_NAV_LEFT, ControllerButton.DPAD_LEFT);
+        actionToButton.put(ControllerAction.GUI_NAV_RIGHT, ControllerButton.DPAD_RIGHT);
+        actionToButton.put(ControllerAction.GUI_NAV_CONFIRM, ControllerButton.A);
     }
 
     /** Returns the button bound to the given action, or {@code null} if unbound. */

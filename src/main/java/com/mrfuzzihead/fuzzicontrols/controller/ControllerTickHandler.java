@@ -12,6 +12,7 @@ import org.lwjgl.input.Mouse;
 import org.lwjgl.opengl.Display;
 
 import com.mrfuzzihead.fuzzicontrols.Config;
+import com.mrfuzzihead.fuzzicontrols.util.GuiFocusNavigator;
 import com.mrfuzzihead.fuzzicontrols.util.GuiKeyHelper;
 import com.mrfuzzihead.fuzzicontrols.util.GuiMouseHelper;
 import com.mrfuzzihead.fuzzicontrols.util.KeyboardHelper;
@@ -36,8 +37,8 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  * <b>GUI navigation:</b> When {@code mc.currentScreen != null} the left stick drives a virtual
  * cursor (quadratic speed curve, configurable via {@link Config#inventoryCursorSensitivity}).
  * A (Xbox) / Cross (PS) fires a left-click and X (Xbox) / Square (PS) fires a right-click at
- * the cursor position via the access-transformed {@link GuiScreen#mouseClicked} /
- * {@link GuiScreen#mouseMovedOrUp}. This works with every vanilla and mod GUI automatically.
+ * the cursor position via the reflectively-invoked {@code GuiScreen.mouseClicked} /
+ * {@code GuiScreen.mouseMovedOrUp}. This works with every vanilla and mod GUI automatically.
  *
  * <p>
  * RT attack calls {@link KeyBinding#onTick} on the attack key binding every tick it is held.
@@ -145,6 +146,23 @@ public class ControllerTickHandler {
     private final java.util.EnumSet<ControllerButton> buttonsHeldOnGuiClose = java.util.EnumSet
         .noneOf(ControllerButton.class);
 
+    /**
+     * Shared {@link GuiFocusNavigator} instance. Drives D-pad focus navigation when
+     * {@link Config#dpadNavigation} is true. The same instance is shared with
+     * {@link com.mrfuzzihead.fuzzicontrols.util.GuiFocusRenderer} so the highlight always
+     * reflects the current focus state.
+     */
+    private final GuiFocusNavigator focusNavigator;
+
+    /**
+     * Constructs the tick handler with a shared {@link GuiFocusNavigator}.
+     *
+     * @param focusNavigator the navigator instance shared with the focus renderer
+     */
+    public ControllerTickHandler(GuiFocusNavigator focusNavigator) {
+        this.focusNavigator = focusNavigator;
+    }
+
     // -------------------------------------------------------------------------
     // Game tick — 20 Hz — movement, buttons, edge triggers
     // -------------------------------------------------------------------------
@@ -217,6 +235,25 @@ public class ControllerTickHandler {
             consumeEdge(ControllerAction.COMMAND, state, mapping);
             consumeEdge(ControllerAction.PAUSE, state, mapping);
 
+            // ---- D-pad navigation (only when Config.dpadNavigation = true) ----
+            // The navigator maintains focus independently of the virtual cursor. When an
+            // action fires, the OS cursor is warped to the focused button's center so the
+            // virtual-cursor path (handleGuiClick) also sees the correct position.
+            if (Config.dpadNavigation) {
+                focusNavigator.onScreenChanged(mc.currentScreen);
+                handleDpadNav(state, mapping, mc);
+            } else {
+                // Keep navigator in sync even when disabled so there's no stale index if
+                // the player enables it mid-session.
+                focusNavigator.onScreenChanged(mc.currentScreen);
+                // Consume nav action edges so they don't carry over.
+                consumeEdge(ControllerAction.GUI_NAV_UP, state, mapping);
+                consumeEdge(ControllerAction.GUI_NAV_DOWN, state, mapping);
+                consumeEdge(ControllerAction.GUI_NAV_LEFT, state, mapping);
+                consumeEdge(ControllerAction.GUI_NAV_RIGHT, state, mapping);
+                consumeEdge(ControllerAction.GUI_NAV_CONFIRM, state, mapping);
+            }
+
             // Snapshot every button that is currently held. When the GUI closes next tick,
             // each of these buttons will be blocked from triggering in-world actions until
             // it is fully released. This prevents e.g. A held to click "Back to Game" from
@@ -236,6 +273,12 @@ public class ControllerTickHandler {
         consumeGuiClick(ControllerAction.GUI_LEFT_CLICK, state, mapping);
         consumeGuiClick(ControllerAction.GUI_RIGHT_CLICK, state, mapping);
         consumeGuiClick(ControllerAction.GUI_SHIFT_CLICK, state, mapping);
+        // Consume nav edges so they don't accidentally fire on screen re-open.
+        consumeEdge(ControllerAction.GUI_NAV_UP, state, mapping);
+        consumeEdge(ControllerAction.GUI_NAV_DOWN, state, mapping);
+        consumeEdge(ControllerAction.GUI_NAV_LEFT, state, mapping);
+        consumeEdge(ControllerAction.GUI_NAV_RIGHT, state, mapping);
+        consumeEdge(ControllerAction.GUI_NAV_CONFIRM, state, mapping);
 
         // Remove any buttons from the post-GUI block set that have now been released.
         // A button is unblocked the moment it is no longer physically held.
@@ -781,5 +824,124 @@ public class ControllerTickHandler {
 
         // Clamp pitch to [-90, 90]
         mc.thePlayer.rotationPitch = Math.max(-90f, Math.min(90f, mc.thePlayer.rotationPitch));
+    }
+
+    /**
+     * Handles D-pad GUI navigation when {@link Config#dpadNavigation} is true and a GUI
+     * screen is open.
+     *
+     * <ul>
+     * <li>D-pad Up — move focus to the previous button (wraps).</li>
+     * <li>D-pad Down — move focus to the next button (wraps).</li>
+     * <li>D-pad Left — if focused element is a slider, decrease its value by
+     * {@link Config#dpadSliderStep}; otherwise move focus to the previous button.</li>
+     * <li>D-pad Right — if focused element is a slider, increase its value by
+     * {@link Config#dpadSliderStep}; otherwise move focus to the next button.</li>
+     * <li>GUI_NAV_CONFIRM (A / Cross) — warp the OS cursor to the focused button's center
+     * and synthesize a left-click press + release via {@link GuiMouseHelper}, so that
+     * both {@code handleMouseInput()} and {@code isButtonDown()} see the click.</li>
+     * </ul>
+     *
+     * <p>
+     * After any Up/Down navigation the OS cursor is warped to the newly focused button's
+     * center. This keeps the virtual-cursor and D-pad focus states in sync; a player who
+     * subsequently switches back to stick-cursor navigation will see the cursor already on
+     * the focused element.
+     */
+    private void handleDpadNav(ControllerState state, ControllerMapping mapping, Minecraft mc) {
+        GuiScreen screen = mc.currentScreen;
+        if (screen == null) return;
+
+        ScaledResolution sr = new ScaledResolution(mc, mc.displayWidth, mc.displayHeight);
+
+        // --- Up ---
+        int upIdx = ControllerAction.GUI_NAV_UP.ordinal();
+        boolean upActive = mapping.isActive(ControllerAction.GUI_NAV_UP, state, Config.triggerThreshold);
+        if (upActive && !wasActive[upIdx]) {
+            focusNavigator.focusPrev(screen);
+            warpCursorToFocus(mc, sr);
+        }
+        wasActive[upIdx] = upActive;
+
+        // --- Down ---
+        int downIdx = ControllerAction.GUI_NAV_DOWN.ordinal();
+        boolean downActive = mapping.isActive(ControllerAction.GUI_NAV_DOWN, state, Config.triggerThreshold);
+        if (downActive && !wasActive[downIdx]) {
+            focusNavigator.focusNext(screen);
+            warpCursorToFocus(mc, sr);
+        }
+        wasActive[downIdx] = downActive;
+
+        // --- Left ---
+        int leftIdx = ControllerAction.GUI_NAV_LEFT.ordinal();
+        boolean leftActive = mapping.isActive(ControllerAction.GUI_NAV_LEFT, state, Config.triggerThreshold);
+        if (leftActive && !wasActive[leftIdx]) {
+            if (focusNavigator.isFocusedSlider(screen)) {
+                focusNavigator.sliderLeft(screen);
+            } else {
+                focusNavigator.focusPrev(screen);
+                warpCursorToFocus(mc, sr);
+            }
+        }
+        wasActive[leftIdx] = leftActive;
+
+        // --- Right ---
+        int rightIdx = ControllerAction.GUI_NAV_RIGHT.ordinal();
+        boolean rightActive = mapping.isActive(ControllerAction.GUI_NAV_RIGHT, state, Config.triggerThreshold);
+        if (rightActive && !wasActive[rightIdx]) {
+            if (focusNavigator.isFocusedSlider(screen)) {
+                focusNavigator.sliderRight(screen);
+            } else {
+                focusNavigator.focusNext(screen);
+                warpCursorToFocus(mc, sr);
+            }
+        }
+        wasActive[rightIdx] = rightActive;
+
+        // --- Confirm (A / Cross) ---
+        int confirmIdx = ControllerAction.GUI_NAV_CONFIRM.ordinal();
+        boolean confirmActive = mapping.isActive(ControllerAction.GUI_NAV_CONFIRM, state, Config.triggerThreshold);
+        boolean confirmJustPressed = confirmActive && !wasActive[confirmIdx];
+        boolean confirmJustReleased = !confirmActive && wasActive[confirmIdx];
+        if (confirmJustPressed || confirmJustReleased) {
+            // Ensure the OS cursor is at the focused element before clicking.
+            warpCursorToFocus(mc, sr);
+            int guiX = focusNavigator.getFocusedCenterX(screen);
+            int guiY = focusNavigator.getFocusedCenterY(screen);
+            if (guiX >= 0 && guiY >= 0) {
+                GuiMouseHelper.injectMouseButton(screen, 0, confirmJustPressed, guiX, guiY);
+            }
+        }
+        wasActive[confirmIdx] = confirmActive;
+    }
+
+    /**
+     * Warps the OS cursor and the internal {@link #guiCursorX}/{@link #guiCursorY} tracking
+     * variables to the center of the currently focused button in display-pixel coordinates.
+     *
+     * <p>
+     * Called after every D-pad focus change so that the virtual-cursor and D-pad focus states
+     * remain in sync. If there is no focused button this is a no-op.
+     *
+     * @param mc the Minecraft instance
+     * @param sr the current scaled resolution
+     */
+    private void warpCursorToFocus(Minecraft mc, ScaledResolution sr) {
+        GuiScreen screen = mc.currentScreen;
+        if (screen == null) return;
+
+        int guiCenterX = focusNavigator.getFocusedCenterX(screen);
+        int guiCenterY = focusNavigator.getFocusedCenterY(screen);
+        if (guiCenterX < 0 || guiCenterY < 0) return;
+
+        // Convert GUI (scaled) coordinates to display-pixel coordinates.
+        // LWJGL Mouse uses bottom-left origin; Minecraft GUI uses top-left.
+        float displayX = guiCenterX * (float) mc.displayWidth / sr.getScaledWidth();
+        float displayY = (sr.getScaledHeight() - guiCenterY) * (float) mc.displayHeight / sr.getScaledHeight();
+
+        guiCursorX = Math.max(0f, Math.min(mc.displayWidth - 1, displayX));
+        guiCursorY = Math.max(0f, Math.min(mc.displayHeight - 1, displayY));
+
+        Mouse.setCursorPosition((int) guiCursorX, (int) guiCursorY);
     }
 }
