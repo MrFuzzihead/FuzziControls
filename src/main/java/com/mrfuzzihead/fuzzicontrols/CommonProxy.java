@@ -5,9 +5,10 @@ import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 
 /**
- * Server-side proxy stub. With {@code clientSideOnly = true} on the {@code @Mod} annotation,
- * this proxy is never instantiated on a dedicated server — Forge will refuse to load the mod
- * there entirely. It exists only to satisfy the {@link cpw.mods.fml.common.SidedProxy} contract.
+ * Server-side proxy stub. On a dedicated server the mod only needs to satisfy the
+ * {@link cpw.mods.fml.common.SidedProxy} contract — there is no client, so no controller input
+ * is handled (and the {@link ClientProxy} is never instantiated). Config is still synchronised
+ * here so a server install writes its config file harmlessly.
  */
 public class CommonProxy {
 

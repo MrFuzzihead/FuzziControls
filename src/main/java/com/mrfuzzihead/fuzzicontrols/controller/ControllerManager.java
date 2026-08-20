@@ -36,20 +36,20 @@ public class ControllerManager {
 
     private static final int RECONNECT_INTERVAL_SECONDS = RECONNECT_INTERVAL_TICKS / 20;
 
-    private static ControllerManager instance;
+    private static final ControllerManager INSTANCE = new ControllerManager();
 
     private IControllerDriver activeDriver;
     private ControllerState lastState = ControllerState.empty();
 
+    /** Cached connected flag, refreshed each game tick so {@link #isActive()} does not re-poll hardware. */
+    private boolean lastConnected = false;
+
     /** Counts down to the next reconnection attempt. */
     private int reconnectCooldown = 0;
 
-    /** Returns the global singleton, creating it if needed. */
+    /** Returns the global singleton. */
     public static ControllerManager getInstance() {
-        if (instance == null) {
-            instance = new ControllerManager();
-        }
-        return instance;
+        return INSTANCE;
     }
 
     private ControllerManager() {}
@@ -60,8 +60,9 @@ public class ControllerManager {
      */
     public void init() {
         if (activeDriver != null) {
-            activeDriver.close();
+            safeClose(activeDriver);
             activeDriver = null;
+            lastConnected = false;
         }
 
         String driverPref = Config.controllerDriver.toLowerCase();
@@ -71,10 +72,11 @@ public class ControllerManager {
             DualSenseDriver ds = new DualSenseDriver();
             if (ds.isConnected()) {
                 activeDriver = ds;
+                lastConnected = true;
                 FuzziControls.LOG.info("[FuzziControls] Using DualSense driver.");
                 return;
             } else {
-                ds.close();
+                safeClose(ds);
             }
         }
 
@@ -83,13 +85,15 @@ public class ControllerManager {
             XInputDriver xi = new XInputDriver(slot);
             if (xi.isConnected()) {
                 activeDriver = xi;
+                lastConnected = true;
                 FuzziControls.LOG.info("[FuzziControls] Using XInput driver (slot {}).", slot);
                 return;
             } else {
-                xi.close();
+                safeClose(xi);
             }
         }
 
+        lastConnected = false;
         FuzziControls.LOG.warn("[FuzziControls] No controller detected.");
     }
 
@@ -103,9 +107,10 @@ public class ControllerManager {
         // If the active driver has disconnected, release it so we attempt a reconnect.
         if (activeDriver != null && !activeDriver.isConnected()) {
             FuzziControls.LOG.info("[FuzziControls] Controller disconnected. Will retry.");
-            activeDriver.close();
+            safeClose(activeDriver);
             activeDriver = null;
             lastState = ControllerState.empty();
+            lastConnected = false;
             reconnectCooldown = 0;
         }
 
@@ -113,6 +118,7 @@ public class ControllerManager {
             if (reconnectCooldown > 0) {
                 reconnectCooldown--;
                 lastState = ControllerState.empty();
+                lastConnected = false;
                 return;
             }
             // Cooldown expired — try to find a controller.
@@ -120,11 +126,22 @@ public class ControllerManager {
             tryReconnect();
             if (activeDriver == null) {
                 lastState = ControllerState.empty();
+                lastConnected = false;
                 return;
             }
         }
 
-        lastState = activeDriver.poll(Config.stickDeadZone, Config.triggerThreshold);
+        try {
+            lastState = activeDriver.poll(Config.stickDeadZone, Config.triggerThreshold);
+            lastConnected = true;
+        } catch (Exception e) {
+            // A transient hardware error must never crash the client tick.
+            FuzziControls.LOG.warn("[FuzziControls] Controller poll error: {}", e.getMessage());
+            safeClose(activeDriver);
+            activeDriver = null;
+            lastState = ControllerState.empty();
+            lastConnected = false;
+        }
     }
 
     /**
@@ -138,22 +155,24 @@ public class ControllerManager {
             DualSenseDriver ds = new DualSenseDriver();
             if (ds.isConnected()) {
                 activeDriver = ds;
+                lastConnected = true;
                 FuzziControls.LOG.info("[FuzziControls] Controller connected — using DualSense driver.");
                 return;
             }
-            ds.close();
+            safeClose(ds);
         }
 
         if ("auto".equals(driverPref) || "xinput".equals(driverPref)) {
             XInputDriver xi = new XInputDriver(Config.xInputControllerSlot);
             if (xi.isConnected()) {
                 activeDriver = xi;
+                lastConnected = true;
                 FuzziControls.LOG.info(
                     "[FuzziControls] Controller connected — using XInput driver (slot {}).",
                     Config.xInputControllerSlot);
                 return;
             }
-            xi.close();
+            safeClose(xi);
         }
     }
 
@@ -164,20 +183,29 @@ public class ControllerManager {
 
     /** Returns true if an active, connected driver is in use. */
     public boolean isActive() {
-        return activeDriver != null && activeDriver.isConnected();
+        return activeDriver != null && lastConnected;
     }
 
     /** Closes and releases the active driver. Called on mod shutdown. */
     public void shutdown() {
-        if (activeDriver != null) {
-            activeDriver.close();
-            activeDriver = null;
-        }
+        safeClose(activeDriver);
+        activeDriver = null;
         lastState = ControllerState.empty();
+        lastConnected = false;
     }
 
     /** Exposes the active driver name for logging / GUI display. */
     public String getActiveDriverName() {
         return activeDriver != null ? activeDriver.getDriverName() : "None";
+    }
+
+    /** Closes a driver without letting a native error propagate. */
+    private static void safeClose(IControllerDriver driver) {
+        if (driver == null) return;
+        try {
+            driver.close();
+        } catch (Exception e) {
+            FuzziControls.LOG.warn("[FuzziControls] Error closing controller driver: {}", e.getMessage());
+        }
     }
 }

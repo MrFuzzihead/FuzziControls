@@ -74,6 +74,14 @@ public class ControllerStateTest {
     }
 
     @Test
+    public void normaliseAxis_zeroZero_returnsPositiveZero() {
+        // Regression (B14): with deadZone 0 the old code returned -0.0f; it must return +0.0f.
+        float result = ControllerState.normaliseAxis(0f, 0f);
+        assertEquals(0f, result, EPSILON);
+        assertTrue("Expected +0.0f, got " + Float.floatToRawIntBits(result), Float.floatToRawIntBits(result) == 0);
+    }
+
+    @Test
     public void normaliseAxis_outputMonotonicallyIncreases() {
         // Verify the rescaled value grows as the raw input grows past the dead zone
         float low = ControllerState.normaliseAxis(0.3f, 0.15f);

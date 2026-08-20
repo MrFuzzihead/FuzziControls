@@ -35,6 +35,7 @@
  */
 dependencies {
     //runtimeOnlyNonPublishable("com.github.GTNewHorizons:NotEnoughItems:2.7.69-GTNH:dev")
+    api("com.github.GTNewHorizons:lwjgl3ify:3.0.10:dev")
 
     // XInput controller support (Windows native via JNA)
     shadowImplementation("com.xenoamess:JXInput:1.0.1") { transitive = false }

@@ -92,9 +92,10 @@ public class XInputDriver implements IControllerDriver {
         if (buttons.left) pressed.add(ControllerButton.DPAD_LEFT);
         if (buttons.right) pressed.add(ControllerButton.DPAD_RIGHT);
 
-        // Triggers as digital
-        if (lt >= triggerThreshold) pressed.add(ControllerButton.LEFT_TRIGGER);
-        if (rt >= triggerThreshold) pressed.add(ControllerButton.RIGHT_TRIGGER);
+        // Triggers as digital — compare against the raw trigger value, not the
+        // already-thresholded (normalised) value, so the configured threshold is applied once.
+        if (axes.lt >= triggerThreshold) pressed.add(ControllerButton.LEFT_TRIGGER);
+        if (axes.rt >= triggerThreshold) pressed.add(ControllerButton.RIGHT_TRIGGER);
 
         return new ControllerState(lx, ly, rx, ry, lt, rt, pressed);
     }

@@ -39,7 +39,7 @@ public enum ControllerAction {
     /** Use item / place block (hold) — Left trigger (LT / L2). */
     USE_ITEM,
 
-    /** Pick block (middle click) — Right bumper (RB / R1). */
+    /** Pick block (middle click) — X (Xbox) / Square (PS). */
     PICK_BLOCK,
 
     // ---- Hotbar ----
@@ -61,7 +61,7 @@ public enum ControllerAction {
     PAUSE,
 
     // ---- Commands / extras ----
-    /** Open commands (similar to chat but prefixed with /) — Left bumper (LB / L1). */
+    /** Open commands (similar to chat but prefixed with /) — unbound by default (historically D-pad down). */
     COMMAND,
 
     // ---- GUI interaction (only active when a GuiScreen is open) ----

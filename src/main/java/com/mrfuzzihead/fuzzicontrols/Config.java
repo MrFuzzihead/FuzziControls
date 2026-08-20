@@ -136,6 +136,8 @@ public class Config {
 
         // Bindings: persist each action → button pair
         ControllerMapping defaults = new ControllerMapping();
+        // Reset to a fresh default mapping so repeated loads are idempotent.
+        controllerMapping = new ControllerMapping();
         for (ControllerAction action : ControllerAction.values()) {
             ControllerButton defaultBtn = defaults.getButton(action);
             String defaultName = defaultBtn != null ? defaultBtn.name() : "NONE";
@@ -144,9 +146,14 @@ public class Config {
                 CAT_BINDINGS,
                 defaultName,
                 "Button bound to " + action.name() + ". Valid values: " + buttonNames());
-            ControllerButton bound = parseButton(stored, defaultBtn);
-            if (bound != null) {
-                controllerMapping.bind(action, bound);
+            if ("NONE".equalsIgnoreCase(stored)) {
+                // An explicit NONE value means the user wants this action unbound.
+                controllerMapping.bind(action, null);
+            } else {
+                ControllerButton bound = parseButton(stored, defaultBtn);
+                if (bound != null) {
+                    controllerMapping.bind(action, bound);
+                }
             }
         }
 

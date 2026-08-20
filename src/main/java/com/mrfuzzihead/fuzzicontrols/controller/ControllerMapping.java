@@ -31,6 +31,7 @@ public class ControllerMapping {
 
     /** Populates (or resets) all bindings to the standard Minecraft controller defaults. */
     public void applyDefaults() {
+        actionToButton.clear();
         // Movement — left stick
         actionToButton.put(ControllerAction.MOVE_FORWARD, ControllerButton.LEFT_STICK_UP);
         actionToButton.put(ControllerAction.MOVE_BACKWARD, ControllerButton.LEFT_STICK_DOWN);
@@ -89,17 +90,20 @@ public class ControllerMapping {
         ControllerButton button = actionToButton.get(action);
         if (button == null) return false;
 
+        // Axes and triggers arrive already-normalized: stick axes carry the dead-zone applied
+        // by the driver, and triggers carry the trigger threshold applied by the driver. So a
+        // zero value means "inside dead-zone / below threshold" and any non-zero value is active.
         return switch (button) {
-            case LEFT_TRIGGER -> state.leftTrigger() >= triggerThreshold;
-            case RIGHT_TRIGGER -> state.rightTrigger() >= triggerThreshold;
-            case LEFT_STICK_UP -> state.leftStickY() < -triggerThreshold;
-            case LEFT_STICK_DOWN -> state.leftStickY() > triggerThreshold;
-            case LEFT_STICK_LEFT -> state.leftStickX() < -triggerThreshold;
-            case LEFT_STICK_RIGHT -> state.leftStickX() > triggerThreshold;
-            case RIGHT_STICK_UP -> state.rightStickY() < -triggerThreshold;
-            case RIGHT_STICK_DOWN -> state.rightStickY() > triggerThreshold;
-            case RIGHT_STICK_LEFT -> state.rightStickX() < -triggerThreshold;
-            case RIGHT_STICK_RIGHT -> state.rightStickX() > triggerThreshold;
+            case LEFT_TRIGGER -> state.leftTrigger() > 0f;
+            case RIGHT_TRIGGER -> state.rightTrigger() > 0f;
+            case LEFT_STICK_UP -> state.leftStickY() < 0f;
+            case LEFT_STICK_DOWN -> state.leftStickY() > 0f;
+            case LEFT_STICK_LEFT -> state.leftStickX() < 0f;
+            case LEFT_STICK_RIGHT -> state.leftStickX() > 0f;
+            case RIGHT_STICK_UP -> state.rightStickY() < 0f;
+            case RIGHT_STICK_DOWN -> state.rightStickY() > 0f;
+            case RIGHT_STICK_LEFT -> state.rightStickX() < 0f;
+            case RIGHT_STICK_RIGHT -> state.rightStickX() > 0f;
             default -> state.isPressed(button);
         };
     }

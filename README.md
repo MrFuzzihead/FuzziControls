@@ -65,10 +65,10 @@ All options live in `config/fuzzicontrols.cfg`:
 |---|---|---|
 | `driver` | `auto` | Force `xinput`, `dualsense`, or let the mod choose |
 | `xInputSlot` | `0` | Controller index (0–3) for XInput |
-| `deadZone` | `0.2` | Stick dead zone (0.0–1.0) |
-| `triggerThreshold` | `0.5` | Analog trigger activation point |
-| `lookSensitivity` | `3.0` | Right-stick camera speed multiplier |
-| `inventoryCursorSensitivity` | `1.0` | GUI cursor speed multiplier |
+| `stickDeadZone` | `0.15` | Stick dead-zone radius (0.0–0.99) |
+| `triggerThreshold` | `0.2` | Minimum trigger value to register as pressed (0.0–0.99) |
+| `lookSensitivity` | `2.0` | Right-stick camera speed multiplier |
+| `inventoryCursorSensitivity` | `300` | GUI cursor speed (display px/s at reference resolution, [1–2000]) |
 | `sneakToggle` | `true` | `true` = press RS to toggle sneak; `false` = hold RS to sneak |
 | `dropEntireStack` | `false` | Hold B/○ to drop entire stack instead of one item |
 
@@ -102,7 +102,7 @@ Every button binding can also be remapped via the `[bindings]` section.
 ./gradlew build
 ```
 
-Requires JDK 8. Spotless and Checkstyle are applied automatically on build.
+Requires a Java 25 toolchain. Spotless and Checkstyle are applied automatically on build.
 
 ---
 

@@ -64,9 +64,6 @@ public class ControllerTickHandler {
      */
     private static final int DROP_HOLD_TICKS = 10;
 
-    /** Fractional tick elapsed since the last game tick, provided by RenderTickEvent. */
-    private float lastPartialTick = 0f;
-
     /**
      * Nanosecond timestamp of the previous rendered frame, used for accurate per-frame delta
      * calculation that is independent of frame rate and game-tick rate.
@@ -76,6 +73,9 @@ public class ControllerTickHandler {
 
     /** Whether the controller had a given action active on the previous game tick (edge-trigger). */
     private final boolean[] wasActive = new boolean[ControllerAction.values().length];
+
+    /** Whether a connected driver was present on the previous processed game tick (for edge resync). */
+    private boolean wasControllerConnected = false;
 
     /** How many consecutive ticks the drop button has been held down. */
     private int dropHeldTicks = 0;
@@ -153,26 +153,36 @@ public class ControllerTickHandler {
     public void onClientTick(TickEvent.ClientTickEvent event) {
         if (event.phase != TickEvent.Phase.START) return;
 
-        // Do not process controller input when the game window does not have focus.
-        // This prevents cursor movement and button presses from affecting the game while
-        // the player is in another application.
-        if (!Display.isActive()) {
-            releaseAllControllerKeys();
-            return;
-        }
-
         Minecraft mc = Minecraft.getMinecraft();
 
         ControllerManager manager = ControllerManager.getInstance();
-        manager.tick(); // poll hardware once per game tick
+        // Poll hardware every game tick regardless of focus. Keeping edge state in sync while
+        // unfocused prevents a button pressed during an alt-tab from firing the moment the
+        // window regains focus.
+        manager.tick();
+        ControllerState state = manager.getState();
+        ControllerMapping mapping = Config.controllerMapping;
 
-        if (!manager.isActive()) {
+        boolean displayActive = Display.isActive();
+        boolean connected = manager.isActive();
+
+        if (!displayActive || !connected) {
+            // Do not process controller input while the window is unfocused or no controller is
+            // connected. This prevents cursor/button actions from affecting the game when the
+            // player is in another application.
             releaseAllControllerKeys();
+            // Follow the controller state through the skipped period so no stale edge fires.
+            syncEdges(state, mapping);
+            wasControllerConnected = connected;
             return;
         }
 
-        ControllerState state = manager.getState();
-        ControllerMapping mapping = Config.controllerMapping;
+        // If the controller just (re)connected, sync edges so a button that was held during the
+        // disconnected period does not fire an unwanted edge now.
+        if (connected && !wasControllerConnected) {
+            syncEdges(state, mapping);
+        }
+        wasControllerConnected = connected;
 
         // ---- GUI-only path (main menu, inventory, pause, chat, etc.) ----
         // Runs even when thePlayer is null (e.g. main menu).
@@ -493,31 +503,32 @@ public class ControllerTickHandler {
     }
 
     /**
-     * Consumes (advances edge state for) every in-world action without actually firing any of
-     * them. Called for one tick immediately after a GUI closes so that buttons held during
-     * the GUI (e.g. A held to click "Back to Game") do not trigger their in-world equivalents
-     * (e.g. jump) on that same tick.
+     * Advances every edge-tracking field to the current controller state WITHOUT firing any
+     * action. Called while the window is unfocused or the controller is disconnected (and once
+     * on (re)connect) so that stale rising edges do not fire the moment processing resumes.
      */
-    private void consumeAllInWorldEdges(ControllerState state, ControllerMapping mapping, Minecraft mc) {
+    private void syncEdges(ControllerState state, ControllerMapping mapping) {
         for (ControllerAction action : ControllerAction.values()) {
             wasActive[action.ordinal()] = mapping.isActive(action, state, Config.triggerThreshold);
         }
-        // Also release any keys the controller was holding so they are not stuck.
-        releaseAllControllerKeys();
+        wasGuiLeftClick = mapping.isActive(ControllerAction.GUI_LEFT_CLICK, state, Config.triggerThreshold);
+        wasGuiRightClick = mapping.isActive(ControllerAction.GUI_RIGHT_CLICK, state, Config.triggerThreshold);
+        wasGuiShiftClick = mapping.isActive(ControllerAction.GUI_SHIFT_CLICK, state, Config.triggerThreshold);
+        dropHeldTicks = 0;
+        dropHoldFired = false;
+        dropBlockedByGui = false;
+        guiShiftToggled = false;
+        buttonsHeldOnGuiClose.clear();
     }
 
     /**
-     * Handles the B / Circle button with dual behavior:
-     * <ul>
-     * <li>If a GUI screen is currently open: close it on the rising edge.</li>
-     * <li>If no GUI is open and the button was <em>not</em> used to close a GUI this press:
+     * Handles the B / Circle button's in-world drop behaviour. This handler only runs while no
+     * GUI is open (the GUI-only path returns earlier), so there is no GUI branch here:
      * <ul>
      * <li>{@link Config#dropEntireStack} = false (default): drop one item on tap (release).</li>
      * <li>{@link Config#dropEntireStack} = true: drop one item on tap, or drop the entire
      * stack after the button is held for {@value #DROP_HOLD_TICKS} ticks. Nothing drops on
      * the initial press — we wait to see whether it's a tap or a hold.</li>
-     * </ul>
-     * </li>
      * </ul>
      *
      * <p>
@@ -538,37 +549,25 @@ public class ControllerTickHandler {
         boolean justPressed = active && !wasActive[dropIdx];
         boolean justReleased = !active && wasActive[dropIdx];
 
-        if (mc.currentScreen != null) {
-            // ---- GUI is open ----
-            if (justPressed) {
-                mc.thePlayer.closeScreen();
-                // Block drop logic for this entire press.
-                dropBlockedByGui = true;
+        if (justReleased) {
+            // Button released — clear the GUI-close block regardless of mode.
+            if (!dropBlockedByGui && !dropHoldFired) {
+                // It was a genuine tap with no GUI interaction — drop one item.
+                mc.thePlayer.dropOneItem(false);
             }
+            dropBlockedByGui = false;
             dropHeldTicks = 0;
             dropHoldFired = false;
-        } else {
-            // ---- No GUI ----
-            if (justReleased) {
-                // Button released — clear the GUI-close block regardless of mode.
-                if (!dropBlockedByGui && !dropHoldFired) {
-                    // It was a genuine tap with no GUI interaction — drop one item.
-                    mc.thePlayer.dropOneItem(false);
-                }
-                dropBlockedByGui = false;
-                dropHeldTicks = 0;
-                dropHoldFired = false;
-            } else if (justPressed) {
-                // Fresh press with no GUI open — start counting.
-                dropHeldTicks = 1;
-                dropHoldFired = false;
-                dropBlockedByGui = false;
-            } else if (active && !dropBlockedByGui) {
-                dropHeldTicks++;
-                if (Config.dropEntireStack && !dropHoldFired && dropHeldTicks >= DROP_HOLD_TICKS) {
-                    mc.thePlayer.dropOneItem(true);
-                    dropHoldFired = true;
-                }
+        } else if (justPressed) {
+            // Fresh press with no GUI open — start counting.
+            dropHeldTicks = 1;
+            dropHoldFired = false;
+            dropBlockedByGui = false;
+        } else if (active && !dropBlockedByGui) {
+            dropHeldTicks++;
+            if (Config.dropEntireStack && !dropHoldFired && dropHeldTicks >= DROP_HOLD_TICKS) {
+                mc.thePlayer.dropOneItem(true);
+                dropHoldFired = true;
             }
         }
 

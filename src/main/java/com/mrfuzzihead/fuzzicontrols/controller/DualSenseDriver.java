@@ -79,68 +79,84 @@ public class DualSenseDriver implements IControllerDriver {
         // Use a non-blocking read (timeout = 0) to avoid adding latency every poll.
         // If no new report is available we return the cached last state rather than empty,
         // so the caller sees a stable value between hardware report intervals.
-        int read = device.read(data, 0);
-        if (read < 10) return lastState != null ? lastState : ControllerState.empty();
+        try {
+            int read = device.read(data, 0);
+            if (read < 10) return lastState != null ? lastState : ControllerState.empty();
 
-        // Sticks: bytes 1-4, triggers: bytes 5-6
-        float lx = byteToAxis(data[1]);
-        float ly = byteToAxis(data[2]);
-        float rx = byteToAxis(data[3]);
-        float ry = byteToAxis(data[4]);
-        float lt = byteToTrigger(data[5]);
-        float rt = byteToTrigger(data[6]);
+            // Sticks: bytes 1-4, triggers: bytes 5-6
+            float lx = byteToAxis(data[1]);
+            float ly = byteToAxis(data[2]);
+            float rx = byteToAxis(data[3]);
+            float ry = byteToAxis(data[4]);
+            float rawLt = byteToTrigger(data[5]);
+            float rawRt = byteToTrigger(data[6]);
 
-        // Apply normalization
-        lx = ControllerState.normaliseAxis(lx, deadZone);
-        ly = ControllerState.normaliseAxis(ly, deadZone);
-        rx = ControllerState.normaliseAxis(rx, deadZone);
-        ry = ControllerState.normaliseAxis(ry, deadZone);
-        lt = ControllerState.normaliseTrigger(lt, triggerThreshold);
-        rt = ControllerState.normaliseTrigger(rt, triggerThreshold);
+            // Apply normalization
+            lx = ControllerState.normaliseAxis(lx, deadZone);
+            ly = ControllerState.normaliseAxis(ly, deadZone);
+            rx = ControllerState.normaliseAxis(rx, deadZone);
+            ry = ControllerState.normaliseAxis(ry, deadZone);
+            float lt = ControllerState.normaliseTrigger(rawLt, triggerThreshold);
+            float rt = ControllerState.normaliseTrigger(rawRt, triggerThreshold);
 
-        // Buttons byte 8: bits 7-4 = triangle, circle, cross, square; bits 3-0 = d-pad
-        int btnByte1 = data[8] & 0xFF;
-        int btnByte2 = data[9] & 0xFF;
-        int dpad = btnByte1 & 0x0F;
+            // Buttons byte 8: bits 7-4 = triangle, circle, cross, square; bits 3-0 = d-pad
+            int btnByte1 = data[8] & 0xFF;
+            int btnByte2 = data[9] & 0xFF;
+            int dpad = btnByte1 & 0x0F;
 
-        Set<ControllerButton> pressed = EnumSet.noneOf(ControllerButton.class);
+            Set<ControllerButton> pressed = EnumSet.noneOf(ControllerButton.class);
 
-        // Face buttons (PS labels → Xbox equivalents stored in ControllerButton)
-        if ((btnByte1 & 0x10) != 0) pressed.add(ControllerButton.X); // Square
-        if ((btnByte1 & 0x20) != 0) pressed.add(ControllerButton.A); // Cross
-        if ((btnByte1 & 0x40) != 0) pressed.add(ControllerButton.B); // Circle
-        if ((btnByte1 & 0x80) != 0) pressed.add(ControllerButton.Y); // Triangle
+            // Face buttons (PS labels → Xbox equivalents stored in ControllerButton)
+            if ((btnByte1 & 0x10) != 0) pressed.add(ControllerButton.X); // Square
+            if ((btnByte1 & 0x20) != 0) pressed.add(ControllerButton.A); // Cross
+            if ((btnByte1 & 0x40) != 0) pressed.add(ControllerButton.B); // Circle
+            if ((btnByte1 & 0x80) != 0) pressed.add(ControllerButton.Y); // Triangle
 
-        // Shoulder / triggers as digital
-        if ((btnByte2 & 0x01) != 0) pressed.add(ControllerButton.LEFT_BUMPER);
-        if ((btnByte2 & 0x02) != 0) pressed.add(ControllerButton.RIGHT_BUMPER);
-        if (lt >= triggerThreshold) pressed.add(ControllerButton.LEFT_TRIGGER);
-        if (rt >= triggerThreshold) pressed.add(ControllerButton.RIGHT_TRIGGER);
+            // Shoulder / triggers as digital. Triggers compare the raw value so the configured
+            // threshold is applied once (the normalised value above already encodes the threshold).
+            if ((btnByte2 & 0x01) != 0) pressed.add(ControllerButton.LEFT_BUMPER);
+            if ((btnByte2 & 0x02) != 0) pressed.add(ControllerButton.RIGHT_BUMPER);
+            if (rawLt >= triggerThreshold) pressed.add(ControllerButton.LEFT_TRIGGER);
+            if (rawRt >= triggerThreshold) pressed.add(ControllerButton.RIGHT_TRIGGER);
 
-        // Share / Options / L3 / R3 / PS (byte 9 shifted by the byte9 layout)
-        if ((btnByte2 & 0x10) != 0) pressed.add(ControllerButton.BACK); // Create/Share
-        if ((btnByte2 & 0x20) != 0) pressed.add(ControllerButton.START); // Options
-        if ((btnByte2 & 0x40) != 0) pressed.add(ControllerButton.LEFT_STICK_CLICK); // L3
-        if ((btnByte2 & 0x80) != 0) pressed.add(ControllerButton.RIGHT_STICK_CLICK); // R3
+            // Share / Options / L3 / R3 / PS (byte 9 shifted by the byte9 layout)
+            if ((btnByte2 & 0x10) != 0) pressed.add(ControllerButton.BACK); // Create/Share
+            if ((btnByte2 & 0x20) != 0) pressed.add(ControllerButton.START); // Options
+            if ((btnByte2 & 0x40) != 0) pressed.add(ControllerButton.LEFT_STICK_CLICK); // L3
+            if ((btnByte2 & 0x80) != 0) pressed.add(ControllerButton.RIGHT_STICK_CLICK); // R3
 
-        // D-pad (0=N,1=NE,2=E,3=SE,4=S,5=SW,6=W,7=NW,8=none)
-        if (dpad == 0 || dpad == 1 || dpad == 7) pressed.add(ControllerButton.DPAD_UP);
-        if (dpad == 2 || dpad == 1 || dpad == 3) pressed.add(ControllerButton.DPAD_RIGHT);
-        if (dpad == 4 || dpad == 3 || dpad == 5) pressed.add(ControllerButton.DPAD_DOWN);
-        if (dpad == 6 || dpad == 5 || dpad == 7) pressed.add(ControllerButton.DPAD_LEFT);
+            // D-pad (0=N,1=NE,2=E,3=SE,4=S,5=SW,6=W,7=NW,8=none)
+            if (dpad == 0 || dpad == 1 || dpad == 7) pressed.add(ControllerButton.DPAD_UP);
+            if (dpad == 2 || dpad == 1 || dpad == 3) pressed.add(ControllerButton.DPAD_RIGHT);
+            if (dpad == 4 || dpad == 3 || dpad == 5) pressed.add(ControllerButton.DPAD_DOWN);
+            if (dpad == 6 || dpad == 5 || dpad == 7) pressed.add(ControllerButton.DPAD_LEFT);
 
-        lastState = new ControllerState(lx, ly, rx, ry, lt, rt, pressed);
-        return lastState;
+            lastState = new ControllerState(lx, ly, rx, ry, lt, rt, pressed);
+            return lastState;
+        } catch (Exception e) {
+            // A hardware error (e.g. unplug between isConnected() and read) must not crash the
+            // client tick — fall back to the last known-good state.
+            FuzziControls.LOG.debug("[FuzziControls] DualSense read error: {}", e.getMessage());
+            return lastState != null ? lastState : ControllerState.empty();
+        }
     }
 
     @Override
     public void close() {
         if (device != null) {
-            device.close();
+            try {
+                device.close();
+            } catch (Exception e) {
+                FuzziControls.LOG.debug("[FuzziControls] DualSense device close error: {}", e.getMessage());
+            }
             device = null;
         }
         if (hidServices != null) {
-            hidServices.shutdown();
+            try {
+                hidServices.shutdown();
+            } catch (Exception e) {
+                FuzziControls.LOG.debug("[FuzziControls] DualSense HID services shutdown error: {}", e.getMessage());
+            }
             hidServices = null;
         }
         lastState = null;

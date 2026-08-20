@@ -171,7 +171,10 @@ public class ControllerMappingTest {
 
     @Test
     public void isActive_guiShiftClick_inactiveWhenLeftTriggerBelowThreshold() {
-        ControllerState state = new ControllerState(0, 0, 0, 0, 0.1f, 0, Collections.emptySet());
+        // Real flow: the driver normalises the raw trigger (0.1 < threshold 0.2 → 0.0), so a
+        // value below threshold produces a 0 normalised trigger → inactive.
+        float norm = ControllerState.normaliseTrigger(0.1f, 0.2f);
+        ControllerState state = new ControllerState(0, 0, 0, 0, norm, 0, Collections.emptySet());
         assertFalse(mapping.isActive(ControllerAction.GUI_SHIFT_CLICK, state, 0.2f));
     }
 
@@ -248,6 +251,17 @@ public class ControllerMappingTest {
         mapping.bind(ControllerAction.JUMP, null);
         mapping.applyDefaults();
         assertEquals(ControllerButton.A, mapping.getButton(ControllerAction.JUMP));
+    }
+
+    @Test
+    public void applyDefaults_clearsCustomBindingsWithNoDefault() {
+        // Regression: applyDefaults() must clear the map first so a custom binding on an action
+        // that has no default (LOOK_UP) does not survive a reset.
+        mapping.bind(ControllerAction.LOOK_UP, ControllerButton.RIGHT_STICK_UP);
+        mapping.bind(ControllerAction.DPAD_DOWN, ControllerButton.DPAD_DOWN);
+        mapping.applyDefaults();
+        assertNull("applyDefaults() must clear LOOK_UP (no default)", mapping.getButton(ControllerAction.LOOK_UP));
+        assertNull("applyDefaults() must clear DPAD_DOWN (no default)", mapping.getButton(ControllerAction.DPAD_DOWN));
     }
 
     @Test
@@ -380,16 +394,20 @@ public class ControllerMappingTest {
 
     @Test
     public void isActive_rightTrigger_belowThreshold_notAttack() {
-        ControllerState state = new ControllerState(0, 0, 0, 0, 0, 0.1f, Collections.emptySet());
+        // Real flow: the driver normalises the raw trigger (0.1 < threshold 0.2 → 0.0).
+        float norm = ControllerState.normaliseTrigger(0.1f, 0.2f);
+        ControllerState state = new ControllerState(0, 0, 0, 0, 0, norm, Collections.emptySet());
         assertFalse(mapping.isActive(ControllerAction.ATTACK, state, 0.2f));
     }
 
     @Test
-    public void isActive_rightTrigger_exactlyAtThreshold_isAttack() {
-        // Triggers use >= so exactly at the threshold value IS considered active
-        ControllerState state = new ControllerState(0, 0, 0, 0, 0, 0.2f, Collections.emptySet());
-        assertTrue(
-            "Trigger exactly at threshold should register as active (uses >=)",
+    public void isActive_rightTrigger_exactlyAtThreshold_normalisesInactive() {
+        // Exactly at the threshold the driver normalises to 0.0 (not active). A trigger is only
+        // active once its raw value is strictly greater than the threshold.
+        float norm = ControllerState.normaliseTrigger(0.2f, 0.2f);
+        ControllerState state = new ControllerState(0, 0, 0, 0, 0, norm, Collections.emptySet());
+        assertFalse(
+            "Trigger exactly at threshold normalises to 0 and must not be active",
             mapping.isActive(ControllerAction.ATTACK, state, 0.2f));
     }
 
@@ -401,25 +419,66 @@ public class ControllerMappingTest {
 
     @Test
     public void isActive_leftTrigger_belowThreshold_notUseItem() {
-        ControllerState state = new ControllerState(0, 0, 0, 0, 0.1f, 0, Collections.emptySet());
+        float norm = ControllerState.normaliseTrigger(0.1f, 0.2f);
+        ControllerState state = new ControllerState(0, 0, 0, 0, norm, 0, Collections.emptySet());
         assertFalse(mapping.isActive(ControllerAction.USE_ITEM, state, 0.2f));
     }
 
     // -------------------------------------------------------------------------
-    // isActive — axis direction exclusivity (opposing directions cancel out)
+    // isActive — real raw→normalise→isActive flow (dead-zone / threshold regression)
     // -------------------------------------------------------------------------
 
-    @Test
-    public void isActive_leftStickForward_doesNotActivateBackward() {
-        ControllerState state = new ControllerState(0, -0.8f, 0, 0, 0, 0, Collections.emptySet());
-        assertTrue(mapping.isActive(ControllerAction.MOVE_FORWARD, state, 0.2f));
-        assertFalse(mapping.isActive(ControllerAction.MOVE_BACKWARD, state, 0.2f));
+    private static ControllerState normalised(float lx, float ly, float rx, float ry, float lt, float rt,
+        float deadZone, float threshold) {
+        return new ControllerState(
+            ControllerState.normaliseAxis(lx, deadZone),
+            ControllerState.normaliseAxis(ly, deadZone),
+            ControllerState.normaliseAxis(rx, deadZone),
+            ControllerState.normaliseAxis(ry, deadZone),
+            ControllerState.normaliseTrigger(lt, threshold),
+            ControllerState.normaliseTrigger(rt, threshold),
+            Collections.emptySet());
     }
 
     @Test
-    public void isActive_leftStickRight_doesNotActivateStrafeLeft() {
-        ControllerState state = new ControllerState(0.8f, 0, 0, 0, 0, 0, Collections.emptySet());
+    public void isActive_triggerRawBelowThreshold_notAttack() {
+        // Raw 0.1 < threshold 0.2 → normalised 0 → inactive (no double-thresholding).
+        ControllerState state = normalised(0, 0, 0, 0, 0, 0.1f, 0.15f, 0.2f);
+        assertFalse(mapping.isActive(ControllerAction.ATTACK, state, 0.2f));
+    }
+
+    @Test
+    public void isActive_triggerRawJustAboveThreshold_active() {
+        // Raw 0.25 just above threshold 0.2 → normalised ~0.0625 > 0 → active immediately.
+        ControllerState state = normalised(0, 0, 0, 0, 0, 0.25f, 0.15f, 0.2f);
+        assertTrue(mapping.isActive(ControllerAction.ATTACK, state, 0.2f));
+    }
+
+    @Test
+    public void isActive_stickRawJustPastDeadZone_moves() {
+        // Raw 0.16 > dead-zone 0.15 → normalised ~0.011 > 0 → strafe right is active immediately
+        // past the dead-zone (no extra triggerThreshold band).
+        ControllerState state = normalised(0.16f, 0f, 0f, 0f, 0f, 0f, 0.15f, 0.2f);
         assertTrue(mapping.isActive(ControllerAction.STRAFE_RIGHT, state, 0.2f));
         assertFalse(mapping.isActive(ControllerAction.STRAFE_LEFT, state, 0.2f));
+    }
+
+    @Test
+    public void isActive_stickRawInsideDeadZone_noMovement() {
+        ControllerState state = normalised(0.1f, -0.1f, 0f, 0f, 0f, 0f, 0.15f, 0.2f);
+        for (ControllerAction action : ControllerAction.values()) {
+            switch (action) {
+                case MOVE_FORWARD:
+                case MOVE_BACKWARD:
+                case STRAFE_LEFT:
+                case STRAFE_RIGHT:
+                    assertFalse(
+                        action + " should not be active inside the dead-zone",
+                        mapping.isActive(action, state, 0.2f));
+                    break;
+                default:
+                    break;
+            }
+        }
     }
 }

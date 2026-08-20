@@ -4,8 +4,6 @@ import java.util.Collections;
 import java.util.EnumSet;
 import java.util.Set;
 
-import com.github.bsideup.jabel.Desugar;
-
 /**
  * Immutable snapshot of a controller's state after normalization (dead-zone applied, axes clamped to [-1, 1]).
  *
@@ -17,7 +15,6 @@ import com.github.bsideup.jabel.Desugar;
  * @param rightTrigger   Right trigger: 0.0 = released, 1.0 = fully pressed.
  * @param pressedButtons Set of buttons considered pressed this tick.
  */
-@Desugar
 public record ControllerState(float leftStickX, float leftStickY, float rightStickX, float rightStickY,
     float leftTrigger, float rightTrigger, Set<ControllerButton> pressedButtons) {
 
@@ -71,9 +68,10 @@ public record ControllerState(float leftStickX, float leftStickY, float rightSti
      * @return Normalised, re-scaled value in [-1, 1].
      */
     public static float normaliseAxis(float raw, float deadZone) {
-        if (Math.abs(raw) < deadZone) return 0f;
+        // Guard against -0.0f output and the degenerate deadZone == 0 case.
+        if (raw == 0f || Math.abs(raw) < deadZone) return 0f;
         // Re-scale so the output starts from 0 just past the dead zone
-        float sign = raw > 0 ? 1f : -1f;
+        final float sign = raw > 0 ? 1f : -1f;
         float scaled = (Math.abs(raw) - deadZone) / (1f - deadZone);
         return sign * Math.min(1f, scaled);
     }
