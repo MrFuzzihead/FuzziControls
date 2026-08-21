@@ -9,10 +9,10 @@ import com.mrfuzzihead.fuzzicontrols.Config;
 public enum Mixins implements IMixins {
 
     GUI_SCREEN_ACCESSORS(new MixinBuilder().setPhase(Phase.EARLY)
-        .addCommonMixins("GuiScreenAccessors")),
+        .addClientMixins("GuiScreenAccessors")),
 
     ANALOG_MOVEMENT(new MixinBuilder().setPhase(Phase.EARLY)
-        .addCommonMixins("MixinEntityPlayerSP")
+        .addClientMixins("MixinEntityPlayerSP")
         .setApplyIf(() -> Config.analogMovement));
 
     private final MixinBuilder builder;
