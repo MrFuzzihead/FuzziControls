@@ -1,11 +1,16 @@
 package com.mrfuzzihead.fuzzicontrols.mixins;
 
+import java.io.File;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import net.minecraft.launchwrapper.Launch;
+
 import com.gtnewhorizon.gtnhmixins.IEarlyMixinLoader;
 import com.gtnewhorizon.gtnhmixins.builders.IMixins;
+import com.mrfuzzihead.fuzzicontrols.Config;
+import com.mrfuzzihead.fuzzicontrols.FuzziControls;
 
 import cpw.mods.fml.relauncher.IFMLLoadingPlugin;
 
@@ -42,6 +47,7 @@ public class EarlyMixinsLoader implements IFMLLoadingPlugin, IEarlyMixinLoader {
 
     @Override
     public List<String> getMixins(Set<String> loadedCoreMods) {
+        Config.synchronizeConfiguration(new File(Launch.minecraftHome, "config/" + FuzziControls.MODID + ".cfg"));
         return IMixins.getEarlyMixins(Mixins.class, loadedCoreMods);
     }
 }

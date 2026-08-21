@@ -1,5 +1,8 @@
 package com.mrfuzzihead.fuzzicontrols;
 
+import net.minecraftforge.client.ClientCommandHandler;
+
+import com.mrfuzzihead.fuzzicontrols.command.CommandReloadControllers;
 import com.mrfuzzihead.fuzzicontrols.controller.ControllerManager;
 import com.mrfuzzihead.fuzzicontrols.controller.ControllerTickHandler;
 
@@ -13,21 +16,23 @@ public class ClientProxy extends CommonProxy {
     public void init(FMLInitializationEvent event) {
         super.init(event);
 
-        // Initialize the controller manager (selects XInput or DualSense driver)
         ControllerManager manager = ControllerManager.getInstance();
         manager.init();
 
-        // Register the client tick handler. TickEvent.* is posted on the FML common handler bus.
         ControllerTickHandler tickHandler = new ControllerTickHandler();
         FMLCommonHandler.instance()
             .bus()
             .register(tickHandler);
 
+        // Register /fuzzicontrols reload so players can force controller re-init
+        // without restarting the game (needed for DualSense which does not always
+        // hot-plug cleanly through hidapi).
+        ClientCommandHandler.instance.registerCommand(new CommandReloadControllers());
+
         FuzziControls.LOG.info(
             "[FuzziControls] Controller tick handler registered. Active driver: {}",
             manager.getActiveDriverName());
 
-        // Release native controller resources when the JVM exits (e.g. closing the game).
         Runtime.getRuntime()
             .addShutdownHook(new Thread(manager::shutdown, "FuzziControls-Shutdown"));
     }

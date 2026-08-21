@@ -208,6 +208,7 @@ public class ControllerManager {
         activeDriver = null;
         lastState = ControllerState.empty();
         lastConnected = false;
+        // HidServices are now instance-managed per DualSenseDriver and shutdown in close().
     }
 
     /** Exposes the active driver name for logging / GUI display. */

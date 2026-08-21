@@ -44,10 +44,10 @@ public class Config {
     public static float lookSensitivity = 2.0f;
 
     /**
-     * When true, holding the drop button drops the entire item stack.
-     * When false (default), it always drops a single item regardless of hold duration.
+     * When true (default), holding the drop button drops the entire item stack.
+     * When false, it always drops a single item regardless of hold duration.
      */
-    public static boolean dropEntireStack = false;
+    public static boolean dropEntireStack = true;
 
     /**
      * When true (default), the sneak button acts as a toggle (press once to sneak, press again
@@ -62,6 +62,12 @@ public class Config {
      * across all GUI screens (main menu, inventory, pause menu) regardless of GUI scale.
      */
     public static float inventoryCursorSensitivity = 300f;
+
+    /**
+     * When true (default), the left stick drives analogue movement (gentle push = walk, full push = run).
+     * When false, movement is digital (on/off past the dead-zone).
+     */
+    public static boolean analogMovement = true;
 
     // ---- Action → Button mapping (populated by synchroniseConfiguration) ----
     public static ControllerMapping controllerMapping = new ControllerMapping();
@@ -115,8 +121,8 @@ public class Config {
             "dropEntireStack",
             CAT_CONTROLLER,
             dropEntireStack,
-            "When true, holding the drop button drops the entire item stack. "
-                + "When false (default), it always drops a single item.");
+            "When true (default), holding the drop button drops the entire item stack. "
+                + "When false, it always drops a single item.");
 
         sneakToggle = configuration.getBoolean(
             "sneakToggle",
@@ -133,6 +139,13 @@ public class Config {
             2000f,
             "Virtual GUI cursor speed in display pixels per second at full left-stick deflection. "
                 + "Consistent across all screens regardless of GUI scale.");
+
+        analogMovement = configuration.getBoolean(
+            "analogMovement",
+            CAT_CONTROLLER,
+            analogMovement,
+            "When true (default), the left stick drives analogue movement speed (gentle push = slow walk, "
+                + "full push = full run). When false, movement is digital (on/off past the dead-zone).");
 
         // Bindings: persist each action → button pair
         ControllerMapping defaults = new ControllerMapping();

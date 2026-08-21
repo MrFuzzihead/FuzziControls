@@ -309,7 +309,15 @@ Once native modern bytecode is used, apply cleanups only where they reduce risk:
 **Tests added/updated:** trigger threshold regression tests, stick dead-zone flow tests, `applyDefaults` clear test, `normaliseAxis(0,0)` sign test.
 
 **Deferred (handled in the driver-rework / lwjgl3ify phase):**
-- **B12** — Cache/reuse DualSense `HidServices` across reconnect probes.
+- **B12** — Cache/reuse DualSense `HidServices` across reconnect probes. **Reverted after testing:**
+  HID4Java's {@code HidServices} goes stale after an unplug/replug even with {@code scan()},
+  breaking DualSense hot-plug. The driver now creates a fresh instance on every construction
+  (reconnect probes happen at most every 3 seconds, so the cost is negligible) and shut it
+  down in {@code close()}, which guarantees full USB re-enumeration and correct hot-plug.
+- **Reload command (added):** `/fuzzicontrols reload` forces the controller manager to
+  re-initialize both drivers from scratch. Useful for DualSense which doesn't always hot-plug
+  cleanly through hidapi. Registered as a client-side command in `ClientProxy`.
+  Command: `com.mrfuzzihead.fuzzicontrols.command.CommandReloadControllers`.
 - **B13** — Inspect the shaded jar and revisit `relocateShadowedDependencies` (currently `true`) so JNA/hid4java/JXInput native loading is verified/locked down.
 
 ---
