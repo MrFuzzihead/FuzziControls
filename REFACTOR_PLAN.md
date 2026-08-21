@@ -329,6 +329,10 @@ Once native modern bytecode is used, apply cleanups only where they reduce risk:
   behaves correctly on the current build — no sign flip was required. If a controller later shows
   real inversion, check whether movement is also inverted (fix at driver: negate Y) or only the
   camera (fix in `applyLook`).
+- **Left-stick cursor inversion in inventory (fixed):** lwjgl3ify's compat `Mouse.setCursorPosition`
+  passes its Y coordinate directly to SDL, which uses top-left origin. LWJGL convention is
+  bottom-left. Added `mc.displayHeight - 1 - guiCursorY` conversion at every call to
+  `setCursorPosition` so SDL receives the inverted Y.
 - **Camera Movement with right stick choppy:**
 
 ---

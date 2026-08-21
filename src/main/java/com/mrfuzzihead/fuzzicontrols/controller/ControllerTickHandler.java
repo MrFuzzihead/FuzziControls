@@ -192,7 +192,7 @@ public class ControllerTickHandler {
                 guiCursorX = mc.displayWidth / 2f;
                 guiCursorY = mc.displayHeight / 2f;
                 guiCursorInitialized = true;
-                Mouse.setCursorPosition((int) guiCursorX, (int) guiCursorY);
+                Mouse.setCursorPosition((int) guiCursorX, mc.displayHeight - 1 - (int) guiCursorY);
             }
             handleGuiClick(ControllerAction.GUI_LEFT_CLICK, 0, state, mapping, mc);
             handleGuiClick(ControllerAction.GUI_RIGHT_CLICK, 1, state, mapping, mc);
@@ -655,7 +655,7 @@ public class ControllerTickHandler {
         guiCursorX = Math.max(0f, Math.min(mc.displayWidth - 1, guiCursorX));
         guiCursorY = Math.max(0f, Math.min(mc.displayHeight - 1, guiCursorY));
 
-        Mouse.setCursorPosition((int) guiCursorX, (int) guiCursorY);
+        Mouse.setCursorPosition((int) guiCursorX, mc.displayHeight - 1 - (int) guiCursorY);
     }
 
     /**

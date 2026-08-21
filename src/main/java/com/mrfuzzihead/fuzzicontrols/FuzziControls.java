@@ -14,7 +14,8 @@ import cpw.mods.fml.common.event.FMLPreInitializationEvent;
     version = Tags.VERSION,
     name = "FuzziControls",
     acceptedMinecraftVersions = "[1.7.10]",
-    acceptableRemoteVersions = "*")
+    acceptableRemoteVersions = "*",
+    dependencies = "after:lwjgl3ify")
 public class FuzziControls {
 
     public static final String MODID = "fuzzicontrols";
@@ -26,20 +27,16 @@ public class FuzziControls {
     public static CommonProxy proxy;
 
     @Mod.EventHandler
-    // preInit "Run before anything else. Read your config, create blocks, items, etc., and register them with the
-    // GameRegistry." (Remove if not needed)
     public void preInit(FMLPreInitializationEvent event) {
         proxy.preInit(event);
     }
 
     @Mod.EventHandler
-    // load "Do your mod setup. Build whatever data structures you care about. Register recipes." (Remove if not needed)
     public void init(FMLInitializationEvent event) {
         proxy.init(event);
     }
 
     @Mod.EventHandler
-    // postInit "Handle interaction with other mods, complete your setup based on this." (Remove if not needed)
     public void postInit(FMLPostInitializationEvent event) {
         proxy.postInit(event);
     }
