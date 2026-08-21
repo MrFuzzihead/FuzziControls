@@ -40,10 +40,10 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  * {@link GuiScreen#mouseMovedOrUp}. This works with every vanilla and mod GUI automatically.
  *
  * <p>
- * RT attack calls {@link KeyBinding#onTick} on the attack key binding every tick it is held.
- * This increments the press counter that Minecraft's {@code runTick()} loop drains via
- * {@code keyBindAttack.isPressed()}, causing {@code func_147116_af()} to fire once per game
- * tick and deliver {@code attackEntity()} / {@code clickBlock()} / air-swing correctly
+ * RT attack calls {@link KeyBinding#onTick} on the rising edge of the right trigger.
+ * {@code driveKey()} holds the key's {@code getIsKeyPressed()} state for continuous block damage.
+ * This matches vanilla mouse behavior: one click per physical press for entity/block interaction,
+ * held state for continuous-breaking ticks.
  * regardless of what the crosshair is targeting.
  *
  * <p>
@@ -342,15 +342,20 @@ public class ControllerTickHandler {
         // 2. func_147116_af() — called via the "while (keyBindAttack.isPressed())" loop which
         // consumes the press counter (incremented by KeyBinding.onTick). This is what fires
         // attackEntity() on mobs and clickBlock() on blocks (single click). We call onTick
-        // every tick RT is held so the press counter is always >= 1 and the loop fires once
-        // per game tick — hitting entities, blocks, and air swing alike.
+        // only on the rising edge of RT so isPressed() fires exactly once per physical press,
+        // matching how mouse clicks work. Calling onTick every held tick would make creative
+        // insta-break (which destroys a block per click attempt) fire 20 times per second.
+        int attackIdx = ControllerAction.ATTACK.ordinal();
         boolean attacking = mapping.isActive(ControllerAction.ATTACK, state, Config.triggerThreshold)
             && !isActionBlocked(ControllerAction.ATTACK, mapping);
+        boolean attackJustPressed = attacking && !wasActive[attackIdx];
         driveKey(mc.gameSettings.keyBindAttack, attacking);
-        if (attacking) {
-            // Queue one "press" per game tick so func_147116_af() fires this tick.
+        if (attackJustPressed) {
+            // Queue one press for func_147116_af() so entity attacks, block clicks, and air
+            // swings work on the first tick. Continuous break is handled by driveKey above.
             KeyBinding.onTick(mc.gameSettings.keyBindAttack.getKeyCode());
         }
+        wasActive[attackIdx] = attacking;
 
         // --- Use item / place (hold) ---
         driveKey(
