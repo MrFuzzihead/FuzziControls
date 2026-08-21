@@ -40,10 +40,10 @@ import cpw.mods.fml.common.gameevent.TickEvent;
  * {@link GuiScreen#mouseMovedOrUp}. This works with every vanilla and mod GUI automatically.
  *
  * <p>
- * RT attack calls {@link KeyBinding#onTick} on the attack key binding every tick it is held.
- * This increments the press counter that Minecraft's {@code runTick()} loop drains via
- * {@code keyBindAttack.isPressed()}, causing {@code func_147116_af()} to fire once per game
- * tick and deliver {@code attackEntity()} / {@code clickBlock()} / air-swing correctly
+ * RT attack calls {@link KeyBinding#onTick} on the rising edge of the right trigger.
+ * {@code driveKey()} holds the key's {@code getIsKeyPressed()} state for continuous block damage.
+ * This matches vanilla mouse behavior: one click per physical press for entity/block interaction,
+ * held state for continuous-breaking ticks.
  * regardless of what the crosshair is targeting.
  *
  * <p>
@@ -103,6 +103,46 @@ public class ControllerTickHandler {
      * keyboard input when the corresponding controller axis is in the dead-zone.
      */
     private final java.util.HashSet<Integer> controllerHeldKeys = new java.util.HashSet<>();
+
+    // ---- Stick-direction hysteresis (prevents rapid on/off oscillation near threshold) ----
+
+    /** Threshold (normalised axis magnitude) to turn a stick direction ON. Larger = firmer push needed. */
+    private static final float HYST_ON = 0.065f;
+
+    /** Threshold to stay ON once activated. Must be {@code < HYST_ON}. */
+    private static final float HYST_OFF = 0.015f;
+
+    /** Previous active state of each stick-direction action, tracked frame-to-frame for hysteresis. */
+    private final java.util.EnumMap<ControllerAction, Boolean> stickHysteresis = new java.util.EnumMap<>(
+        ControllerAction.class);
+
+    /** Evaluates a stick-direction action with hysteresis to eliminate micro-jitter near center. */
+    private boolean withHysteresis(ControllerAction action, ControllerState state, ControllerMapping mapping) {
+        // Get the raw axis value for this action. We bypass the stateless isActive() and read
+        // the value directly so we can compare against two different thresholds (on vs. off).
+        ControllerButton btn = mapping.getButton(action);
+        if (btn == null || !btn.isAxis()) return false;
+        final float val = switch (btn) {
+            case LEFT_STICK_UP -> -state.leftStickY(); // positive = forward
+            case LEFT_STICK_DOWN -> state.leftStickY();
+            case LEFT_STICK_LEFT -> -state.leftStickX(); // positive = left
+            case LEFT_STICK_RIGHT -> state.leftStickX();
+            case RIGHT_STICK_UP -> -state.rightStickY();
+            case RIGHT_STICK_DOWN -> state.rightStickY();
+            case RIGHT_STICK_LEFT -> -state.rightStickX();
+            case RIGHT_STICK_RIGHT -> state.rightStickX();
+            default -> 0f;
+        };
+        boolean prev = stickHysteresis.getOrDefault(action, false);
+        boolean now;
+        if (prev) {
+            now = val > HYST_OFF; // stay on unless almost fully released
+        } else {
+            now = val > HYST_ON; // turn on only when pushed distinctly past dead-zone
+        }
+        stickHysteresis.put(action, now);
+        return now;
+    }
 
     /**
      * Fractional GUI cursor position in <em>screen pixels</em> (not scaled GUI coordinates).
@@ -192,7 +232,7 @@ public class ControllerTickHandler {
                 guiCursorX = mc.displayWidth / 2f;
                 guiCursorY = mc.displayHeight / 2f;
                 guiCursorInitialized = true;
-                Mouse.setCursorPosition((int) guiCursorX, (int) guiCursorY);
+                Mouse.setCursorPosition((int) guiCursorX, mc.displayHeight - 1 - (int) guiCursorY);
             }
             handleGuiClick(ControllerAction.GUI_LEFT_CLICK, 0, state, mapping, mc);
             handleGuiClick(ControllerAction.GUI_RIGHT_CLICK, 1, state, mapping, mc);
@@ -260,13 +300,15 @@ public class ControllerTickHandler {
         // driveKey() only asserts a key as true when the controller wants it, and only
         // releases it (sets to false) when the controller itself was the last one to hold it.
         // This prevents the controller from clearing keys the keyboard is currently pressing.
-        boolean fwd = mapping.isActive(ControllerAction.MOVE_FORWARD, state, Config.triggerThreshold)
+        // Stick-direction activation uses hysteresis so small excursions past dead-zone don't
+        // cause micro-oscillation.
+        boolean fwd = withHysteresis(ControllerAction.MOVE_FORWARD, state, mapping)
             && !isActionBlocked(ControllerAction.MOVE_FORWARD, mapping);
-        boolean back = mapping.isActive(ControllerAction.MOVE_BACKWARD, state, Config.triggerThreshold)
+        boolean back = withHysteresis(ControllerAction.MOVE_BACKWARD, state, mapping)
             && !isActionBlocked(ControllerAction.MOVE_BACKWARD, mapping);
-        boolean left = mapping.isActive(ControllerAction.STRAFE_LEFT, state, Config.triggerThreshold)
+        boolean left = withHysteresis(ControllerAction.STRAFE_LEFT, state, mapping)
             && !isActionBlocked(ControllerAction.STRAFE_LEFT, mapping);
-        boolean right = mapping.isActive(ControllerAction.STRAFE_RIGHT, state, Config.triggerThreshold)
+        boolean right = withHysteresis(ControllerAction.STRAFE_RIGHT, state, mapping)
             && !isActionBlocked(ControllerAction.STRAFE_RIGHT, mapping);
 
         driveKey(mc.gameSettings.keyBindForward, fwd);
@@ -300,15 +342,20 @@ public class ControllerTickHandler {
         // 2. func_147116_af() — called via the "while (keyBindAttack.isPressed())" loop which
         // consumes the press counter (incremented by KeyBinding.onTick). This is what fires
         // attackEntity() on mobs and clickBlock() on blocks (single click). We call onTick
-        // every tick RT is held so the press counter is always >= 1 and the loop fires once
-        // per game tick — hitting entities, blocks, and air swing alike.
+        // only on the rising edge of RT so isPressed() fires exactly once per physical press,
+        // matching how mouse clicks work. Calling onTick every held tick would make creative
+        // insta-break (which destroys a block per click attempt) fire 20 times per second.
+        int attackIdx = ControllerAction.ATTACK.ordinal();
         boolean attacking = mapping.isActive(ControllerAction.ATTACK, state, Config.triggerThreshold)
             && !isActionBlocked(ControllerAction.ATTACK, mapping);
+        boolean attackJustPressed = attacking && !wasActive[attackIdx];
         driveKey(mc.gameSettings.keyBindAttack, attacking);
-        if (attacking) {
-            // Queue one "press" per game tick so func_147116_af() fires this tick.
+        if (attackJustPressed) {
+            // Queue one press for func_147116_af() so entity attacks, block clicks, and air
+            // swings work on the first tick. Continuous break is handled by driveKey above.
             KeyBinding.onTick(mc.gameSettings.keyBindAttack.getKeyCode());
         }
+        wasActive[attackIdx] = attacking;
 
         // --- Use item / place (hold) ---
         driveKey(
@@ -357,7 +404,10 @@ public class ControllerTickHandler {
         ControllerManager manager = ControllerManager.getInstance();
         if (!manager.isActive()) return;
 
-        ControllerState state = manager.getState();
+        // Poll fresh controller state each render frame so the camera and cursor never run on
+        // staled game-tick data (polled at 20 Hz). For the camera this eliminates micro-stutter
+        // when moving the stick between game ticks.
+        ControllerState state = manager.pollFresh();
 
         // Compute accurate frame delta using wall-clock time.
         // partialTick from RenderTickEvent only has game-tick resolution and breaks down at
@@ -519,6 +569,7 @@ public class ControllerTickHandler {
         dropBlockedByGui = false;
         guiShiftToggled = false;
         buttonsHeldOnGuiClose.clear();
+        stickHysteresis.clear();
     }
 
     /**
@@ -655,7 +706,7 @@ public class ControllerTickHandler {
         guiCursorX = Math.max(0f, Math.min(mc.displayWidth - 1, guiCursorX));
         guiCursorY = Math.max(0f, Math.min(mc.displayHeight - 1, guiCursorY));
 
-        Mouse.setCursorPosition((int) guiCursorX, (int) guiCursorY);
+        Mouse.setCursorPosition((int) guiCursorX, mc.displayHeight - 1 - (int) guiCursorY);
     }
 
     /**

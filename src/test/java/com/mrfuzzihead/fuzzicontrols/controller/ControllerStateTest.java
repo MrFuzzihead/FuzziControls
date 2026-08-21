@@ -1,6 +1,9 @@
 package com.mrfuzzihead.fuzzicontrols.controller;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import java.util.EnumSet;
 
@@ -219,7 +222,7 @@ public class ControllerStateTest {
     /**
      * These tests verify the sign conventions used by the analog movement code in
      * ControllerTickHandler. When analogMovement is enabled, the tick handler sets:
-     * 
+     *
      * <pre>
      *   mc.thePlayer.moveForward  = -leftStickY()  (negative Y = push up = forward = positive moveForward)
      *   mc.thePlayer.moveStrafing = -leftStickX()  (negative X = push left = strafe left = positive moveStrafing)

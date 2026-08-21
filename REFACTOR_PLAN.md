@@ -309,7 +309,15 @@ Once native modern bytecode is used, apply cleanups only where they reduce risk:
 **Tests added/updated:** trigger threshold regression tests, stick dead-zone flow tests, `applyDefaults` clear test, `normaliseAxis(0,0)` sign test.
 
 **Deferred (handled in the driver-rework / lwjgl3ify phase):**
-- **B12** — Cache/reuse DualSense `HidServices` across reconnect probes.
+- **B12** — Cache/reuse DualSense `HidServices` across reconnect probes. **Reverted after testing:**
+  HID4Java's {@code HidServices} goes stale after an unplug/replug even with {@code scan()},
+  breaking DualSense hot-plug. The driver now creates a fresh instance on every construction
+  (reconnect probes happen at most every 3 seconds, so the cost is negligible) and shut it
+  down in {@code close()}, which guarantees full USB re-enumeration and correct hot-plug.
+- **Reload command (added):** `/fuzzicontrols reload` forces the controller manager to
+  re-initialize both drivers from scratch. Useful for DualSense which doesn't always hot-plug
+  cleanly through hidapi. Registered as a client-side command in `ClientProxy`.
+  Command: `com.mrfuzzihead.fuzzicontrols.command.CommandReloadControllers`.
 - **B13** — Inspect the shaded jar and revisit `relocateShadowedDependencies` (currently `true`) so JNA/hid4java/JXInput native loading is verified/locked down.
 
 ---
@@ -329,6 +337,21 @@ Once native modern bytecode is used, apply cleanups only where they reduce risk:
   behaves correctly on the current build — no sign flip was required. If a controller later shows
   real inversion, check whether movement is also inverted (fix at driver: negate Y) or only the
   camera (fix in `applyLook`).
+- **Left-stick cursor inversion in inventory (fixed):** lwjgl3ify's compat `Mouse.setCursorPosition`
+  passes its Y coordinate directly to SDL, which uses top-left origin. LWJGL convention is
+  bottom-left. Added `mc.displayHeight - 1 - guiCursorY` conversion at every call to
+  `setCursorPosition` so SDL receives the inverted Y.
+
+## Smoothness improvements (done)
+
+- **Camera micro-stutter (fixed):** `onRenderTick` now calls `manager.pollFresh()` instead of
+  `manager.getState()`, polling the controller hardware every render frame (60+ Hz) instead of
+  relying on the 20 Hz game-tick state. This removes the ~50 ms dead-band where axis data was
+  stale between game ticks, making right-stick camera rotation continuously responsive.
+- **Movement hysteresis (fixed):** added `withHysteresis(...)` helper for the four stick-direction
+  movement actions. It tracks per-action state and uses two thresholds (HYST_ON = 0.065 to
+  activate, HYST_OFF = 0.015 to deactivate), preventing micro-oscillation when the stick is near
+  the dead-zone boundary. Activated in `syncEdges` reset.
 - **Camera Movement with right stick choppy:**
 
 ---
