@@ -333,6 +333,17 @@ Once native modern bytecode is used, apply cleanups only where they reduce risk:
   passes its Y coordinate directly to SDL, which uses top-left origin. LWJGL convention is
   bottom-left. Added `mc.displayHeight - 1 - guiCursorY` conversion at every call to
   `setCursorPosition` so SDL receives the inverted Y.
+
+## Smoothness improvements (done)
+
+- **Camera micro-stutter (fixed):** `onRenderTick` now calls `manager.pollFresh()` instead of
+  `manager.getState()`, polling the controller hardware every render frame (60+ Hz) instead of
+  relying on the 20 Hz game-tick state. This removes the ~50 ms dead-band where axis data was
+  stale between game ticks, making right-stick camera rotation continuously responsive.
+- **Movement hysteresis (fixed):** added `withHysteresis(...)` helper for the four stick-direction
+  movement actions. It tracks per-action state and uses two thresholds (HYST_ON = 0.065 to
+  activate, HYST_OFF = 0.015 to deactivate), preventing micro-oscillation when the stick is near
+  the dead-zone boundary. Activated in `syncEdges` reset.
 - **Camera Movement with right stick choppy:**
 
 ---

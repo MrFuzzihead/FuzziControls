@@ -181,6 +181,22 @@ public class ControllerManager {
         return lastState;
     }
 
+    /**
+     * Polls the hardware and returns fresh state without running reconnect/disconnect logic.
+     * Safe to call from the render thread between game ticks, e.g. before applying camera
+     * rotation, so axis values are never more than one frame stale.
+     */
+    public ControllerState pollFresh() {
+        if (activeDriver != null && lastConnected) {
+            try {
+                lastState = activeDriver.poll(Config.stickDeadZone, Config.triggerThreshold);
+            } catch (Exception e) {
+                FuzziControls.LOG.warn("[FuzziControls] Poll error in pollFresh: {}", e.getMessage());
+            }
+        }
+        return lastState;
+    }
+
     /** Returns true if an active, connected driver is in use. */
     public boolean isActive() {
         return activeDriver != null && lastConnected;
