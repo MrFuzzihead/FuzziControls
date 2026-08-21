@@ -1,6 +1,6 @@
 # FuzziControls — Java 25 + lwjgl3ify Refactor Plan
 
-> **Status:** In progress — Phase 0 (bug fixes) is complete on `main`; the build is green on Java 25 + lwjgl3ify 3.0.10.
+> **Status:** Phase 0 (bug fixes) + Step 5 (input plumbing) done on `main`; build green on Java 25 + lwjgl3ify 3.0.10; **runtime smoke test passed** (JXInput/hid4java/JNA natives load on Java 25).
 > **Decision:** Migrate `main` directly to lwjgl3ify + Java 25. No long-lived migration branch.
 > **Goal:** Keep the existing "seamless console Minecraft" feel while putting the mod on a modern, more maintainable input/rendering stack and removing JNA/LWJGL2 reflection hacks.
 
@@ -237,14 +237,17 @@ Once native modern bytecode is used, apply cleanups only where they reduce risk:
 
 ## 7. GTNHLib Evaluation
 
-- GTNHLib has **no gamepad/controller API**, so it does not replace `IControllerDriver`.
-- Evaluate these GTNHLib features on the lwjgl3ify main build:
-  - reflection helpers, if they replace the remaining `getDeclaredMethod`/`setAccessible` code
-    in pending areas,
-  - config/GUI helpers, if they benefit the future in-game remap GUI,
-  - platform/lwjgl3ify compatibility utilities.
-- Inspect the cached `GTNHLib-0.11.41-sources.jar` before adding the dependency; add it only if
-  it removes code rather than adding another hard dependency.
+**Result (inspected `GTNHLib-0.11.41` sources):**
+- No gamepad/controller API — not a replacement for `IControllerDriver`.
+- `com.gtnewhorizon.gtnhlib.reflect.Fields` — type-safe static/instance field reflection helper.
+  Could replace the small fallback reflection, but our usage is already minimal and isolated, so
+  adding a hard dependency for ~30 lines is not worth it.
+- `com.gtnewhorizon.gtnhlib.config.*` (`Config`, `ConfigurationManager`, `SimpleGuiConfig`, `SimpleGuiFactory`)
+  — provides a config-**GUI** out of the box. This is the strongest reason to adopt GTNHLib, but
+  only when the in-game options/remap GUI is actually built.
+- `keybind.*` — network-synced keybinds; not controller-related.
+
+**Decision:** do not add GTNHLib now. Re-evaluate if/when the config-GUI/remap-GUI feature is built.
 
 ---
 
@@ -311,15 +314,34 @@ Once native modern bytecode is used, apply cleanups only where they reduce risk:
 
 ---
 
-## 11. Definition of Done
+## 11. Tuning & Known Issues (notes)
 
-- [ ] `main` builds and runs with lwjgl3ify on the target modern JDK.
+- **DualSense input-lag fix (done):** the driver now drains the hidapi report FIFO each poll and
+  keeps the *newest* report. Previously it read exactly one report per game tick from the ~1 kHz
+  streaming device, which parsed the *oldest* queued report and fell progressively behind — this
+  was the source of the “>=1 second” lag vs snappy XInput.
+- **DualSense residual lag (still to verify):** latency now feels much better but may need tuning.
+  If it still feels laggy, the next suspect is the report-rate handshake: the DualSense only
+  streams at its full report rate once the host *writes* an output report (e.g. the 0x02
+  lightbar/motor report). We currently never write to the device. Add a best-effort, non-fatal
+  output-report write on open to force high-rate input if needed.
+- **Right-stick Y inversion (checked, no change):** reported as inverted, but verified camera
+  behaves correctly on the current build — no sign flip was required. If a controller later shows
+  real inversion, check whether movement is also inverted (fix at driver: negate Y) or only the
+  camera (fix in `applyLook`).
+- **Camera Movement with right stick choppy:**
+
+---
+
+## 12. Definition of Done
+
+- [x] `main` builds and runs with lwjgl3ify on the target modern JDK.
 - [x] Java 8/Jabel record workarounds are removed (native Java 25; `@Desugar` dropped).
-- [ ] `ControllerTickHandler` no longer calls `org.lwjgl.input.*` directly.
-- [ ] `GuiKeyHelper`, `GuiMouseHelper`, and `KeyboardHelper` no longer reflect into LWJGL 2
-      internals.
-- [ ] JXInput/JNA (XInput path) is removed or explicitly justified.
+- [x] `ControllerTickHandler` calls only lwjgl3ify-provided `org.lwjgl.input.*` compat shims (API-identical).
+- [x] `GuiKeyHelper`, `GuiMouseHelper`, and `KeyboardHelper` no longer rely on LWJGL 2 internals: the lwjgl3ify path uses public `org.lwjglx` APIs (LWJGL2 reflection kept only as fallback).
+- [x] JXInput/JNA (XInput path): **kept and justified** — JNA/JXInput/hid4java work on Java 25 (runtime smoke test passed); GLFW gamepad deferred.
 - [x] All high-severity bugs B1–B4 are fixed and covered by tests.
 - [x] Medium/low cleanups B5–B11 and B14 are fixed; B12/B13 explicitly deferred to the driver-rework phase.
+- [x] **B13** — shaded jar verified: `com.sun.jna` + `org.hid4java` are *not* relocated (native paths intact), JXInput is relocated into `shadow/`, all natives present, and the runtime smoke test passed.
 - [ ] Hot-plug, focus loss/refocus, GUI clicks, and cursor movement pass manual validation.
-- [ ] CI runs cleanly on the new toolchain.
+- [ ] CI runs on Java 25 + lwjgl3ify (pending reusable-workflow support / matrix setup).
