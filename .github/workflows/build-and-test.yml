@@ -10,4 +10,56 @@ on:
 jobs:
   build-and-test:
     uses: GTNewHorizons/GTNH-Actions-Workflows/.github/workflows/build-and-test.yml@master
+    with:
+      # The mod is compiled to native Java 25 bytecode (enableModernJavaSyntax = modern),
+      # so the shared workflow's Java 8 runServer smoke test cannot load our classes
+      # (UnsupportedClassVersionError: class file version 69.0 vs 52.0).
+      # Build/spotless/tests still run here; the server smoke test runs on Java 25 below.
+      client-only: true
     secrets: inherit
+
+  server-smoke-test-java25:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout mod repo
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'zulu'
+          java-version: 25
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v5
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Prepare server directories
+        run: |
+          mkdir -p run/server
+          echo "eula=true" > run/eula.txt
+          echo "eula=true" > run/server/eula.txt
+          echo "level-seed=-6202107849386030209\nonline-mode=true\n" > run/server/server.properties
+
+      - name: Run server on Java 25 (lwjgl3ify) for up to 5 minutes
+        run: |
+          echo "stop" > run/stop.txt
+          timeout 300 ./gradlew --build-cache --info --stacktrace runServer25 2>&1 < run/stop.txt | tee -a server.log
+
+      - name: Verify server started cleanly
+        run: |
+          if grep -E "UnsupportedClassVersionError|ClassFormatError" server.log; then
+            echo "::error::Class version error detected in server log"
+            exit 1
+          fi
+          if ! grep -q "Done (" server.log; then
+            echo "::error::Server did not reach 'Done' startup marker; see server.log above"
+            exit 1
+          fi
+
