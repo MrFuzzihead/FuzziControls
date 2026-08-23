@@ -25,7 +25,8 @@ public class ControllerMappingTest {
      * <ul>
      * <li>LOOK_* — camera is driven natively by raw axis values in applyLook(), not via the
      * mapping.</li>
-     * <li>DPAD_UP/DOWN/LEFT/RIGHT — all D-pad directions are unbound by default.</li>
+     * <li>DPAD_UP/DOWN/LEFT/RIGHT — all D-pad directions are unbound by default (the
+     * GUI_NAV_* counterparts are bound to the D-pad directions instead).</li>
      * <li>COMMAND — unbound by default; configurable via {@code COMMAND=DPAD_DOWN} in
      * config.</li>
      * </ul>
@@ -144,6 +145,40 @@ public class ControllerMappingTest {
     @Test
     public void defaultBinding_guiLeftClick_isA() {
         assertEquals(ControllerButton.A, mapping.getButton(ControllerAction.GUI_LEFT_CLICK));
+    }
+
+    @Test
+    public void defaultBinding_guiNavUp_isDpadUp() {
+        assertEquals(ControllerButton.DPAD_UP, mapping.getButton(ControllerAction.GUI_NAV_UP));
+    }
+
+    @Test
+    public void defaultBinding_guiNavDown_isDpadDown() {
+        assertEquals(ControllerButton.DPAD_DOWN, mapping.getButton(ControllerAction.GUI_NAV_DOWN));
+    }
+
+    @Test
+    public void defaultBinding_guiNavLeft_isDpadLeft() {
+        assertEquals(ControllerButton.DPAD_LEFT, mapping.getButton(ControllerAction.GUI_NAV_LEFT));
+    }
+
+    @Test
+    public void defaultBinding_guiNavRight_isDpadRight() {
+        assertEquals(ControllerButton.DPAD_RIGHT, mapping.getButton(ControllerAction.GUI_NAV_RIGHT));
+    }
+
+    @Test
+    public void defaultBinding_guiNavConfirm_isA() {
+        assertEquals(ControllerButton.A, mapping.getButton(ControllerAction.GUI_NAV_CONFIRM));
+    }
+
+    @Test
+    public void guiNavConfirm_sharesSameButtonAsGuiLeftClick() {
+        assertEquals(
+            "GUI_NAV_CONFIRM and GUI_LEFT_CLICK both default to A — the tick handler context "
+                + "determines which action fires",
+            mapping.getButton(ControllerAction.GUI_LEFT_CLICK),
+            mapping.getButton(ControllerAction.GUI_NAV_CONFIRM));
     }
 
     @Test

@@ -69,6 +69,19 @@ public class Config {
      */
     public static boolean analogMovement = true;
 
+    /**
+     * When true, the D-pad navigates GUI buttons discretely (console-style) instead of
+     * relying solely on the virtual cursor. When false (default), D-pad directions are
+     * unbound and the left-stick cursor remains the only GUI navigation method.
+     */
+    public static boolean dpadNavigation = false;
+
+    /**
+     * Step size for D-pad slider adjustment, as a fraction of the slider's full range [0.0, 1.0].
+     * A value of 0.05 means each D-pad left/right press moves the slider by 5%.
+     */
+    public static float dpadSliderStep = 0.05f;
+
     // ---- Action → Button mapping (populated by synchroniseConfiguration) ----
     public static ControllerMapping controllerMapping = new ControllerMapping();
 
@@ -146,6 +159,22 @@ public class Config {
             analogMovement,
             "When true (default), the left stick drives analogue movement speed (gentle push = slow walk, "
                 + "full push = full run). When false, movement is digital (on/off past the dead-zone).");
+
+        dpadNavigation = configuration.getBoolean(
+            "dpadNavigation",
+            CAT_CONTROLLER,
+            dpadNavigation,
+            "When true, D-pad navigates GUI buttons discretely (console-style). "
+                + "When false (default), D-pad remains unbound and the left-stick virtual cursor is the only navigation method.");
+
+        dpadSliderStep = configuration.getFloat(
+            "dpadSliderStep",
+            CAT_CONTROLLER,
+            dpadSliderStep,
+            0.01f,
+            0.5f,
+            "Step size for D-pad slider adjustment as a fraction of the full range [0.0, 1.0]. "
+                + "Each D-pad left/right press moves the slider by this fraction.");
 
         // Bindings: persist each action → button pair
         ControllerMapping defaults = new ControllerMapping();

@@ -3,6 +3,7 @@ package com.mrfuzzihead.fuzzicontrols.controller;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiChat;
 import net.minecraft.client.gui.GuiIngameMenu;
+import net.minecraft.client.gui.GuiOptionSlider;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.settings.KeyBinding;
@@ -12,6 +13,11 @@ import org.lwjgl.input.Mouse;
 import org.lwjgl.opengl.Display;
 
 import com.mrfuzzihead.fuzzicontrols.Config;
+import com.mrfuzzihead.fuzzicontrols.mixins.early.GuiScreenAccessors;
+import com.mrfuzzihead.fuzzicontrols.util.GuiFocusNavigator;
+import com.mrfuzzihead.fuzzicontrols.util.GuiFocusNavigator.FocusableItem;
+import com.mrfuzzihead.fuzzicontrols.util.GuiFocusNavigator.ItemType;
+import com.mrfuzzihead.fuzzicontrols.util.GuiFocusRenderer;
 import com.mrfuzzihead.fuzzicontrols.util.GuiKeyHelper;
 import com.mrfuzzihead.fuzzicontrols.util.GuiMouseHelper;
 import com.mrfuzzihead.fuzzicontrols.util.KeyboardHelper;
@@ -185,6 +191,67 @@ public class ControllerTickHandler {
     private final java.util.EnumSet<ControllerButton> buttonsHeldOnGuiClose = java.util.EnumSet
         .noneOf(ControllerButton.class);
 
+    // ---- D-pad discrete GUI navigation ----
+
+    /** Focus-based navigator for D-pad button navigation (only used when {@link Config#dpadNavigation} is true). */
+    private final GuiFocusNavigator guiFocusNavigator = new GuiFocusNavigator();
+
+    public ControllerTickHandler() {
+        // Wire the navigator to the focus-highlight renderer.
+        GuiFocusRenderer.setNavigator(guiFocusNavigator);
+    }
+
+    /**
+     * When true, the next {@link #handleGuiClick(GUI_LEFT_CLICK)} call should be skipped because
+     * the D-pad confirm action already injected a click at the focused button's position.
+     */
+    private boolean suppressGuiLeftClick = false;
+
+    /** Edge-tracking for the five GUI_NAV_* actions. Offsets into {@link #wasActive}. */
+    private static final int NAV_UP_IDX = ControllerAction.GUI_NAV_UP.ordinal();
+    private static final int NAV_DOWN_IDX = ControllerAction.GUI_NAV_DOWN.ordinal();
+    private static final int NAV_LEFT_IDX = ControllerAction.GUI_NAV_LEFT.ordinal();
+    private static final int NAV_RIGHT_IDX = ControllerAction.GUI_NAV_RIGHT.ordinal();
+    private static final int NAV_CONFIRM_IDX = ControllerAction.GUI_NAV_CONFIRM.ordinal();
+
+    /**
+     * Tracks whether D-pad discrete navigation is active on the current screen.
+     *
+     * <ul>
+     * <li>{@link DpadNavState#INACTIVE} — focus highlight hidden; D-pad does nothing;
+     * A/Cross fires a normal cursor click at the cursor position.</li>
+     * <li>{@link DpadNavState#ACTIVE} — focus highlight visible; D-pad moves focus;
+     * A/Cross confirms the focused element.</li>
+     * </ul>
+     *
+     * <p>
+     * Transitions:
+     * <ul>
+     * <li>INACTIVE → ACTIVE: any D-pad ↑/↓/←/→ rising edge</li>
+     * <li>ACTIVE → INACTIVE: left stick moves past dead-zone, or mouse/trackpad moves</li>
+     * <li>Any → INACTIVE: new GUI screen opens (reset)</li>
+     * </ul>
+     */
+    private enum DpadNavState {
+        INACTIVE,
+        ACTIVE
+    }
+
+    private DpadNavState dpadNavState = DpadNavState.INACTIVE;
+
+    /**
+     * Set this flag to true in {@link #onRenderTick} when the mouse has moved since the
+     * last game tick. Checked and cleared in {@link #onClientTick} to detect OS mouse
+     * movement for deactivating D-pad nav on hybrid input.
+     */
+    private boolean mouseMovedSinceLastTick = false;
+
+    /** Last mouse X from the render tick, used to detect mouse movement across frames. */
+    private int lastMouseX = Integer.MIN_VALUE;
+
+    /** Last mouse Y from the render tick, used to detect mouse movement across frames. */
+    private int lastMouseY = Integer.MIN_VALUE;
+
     // -------------------------------------------------------------------------
     // Game tick — 20 Hz — movement, buttons, edge triggers
     // -------------------------------------------------------------------------
@@ -234,7 +301,98 @@ public class ControllerTickHandler {
                 guiCursorInitialized = true;
                 Mouse.setCursorPosition((int) guiCursorX, mc.displayHeight - 1 - (int) guiCursorY);
             }
-            handleGuiClick(ControllerAction.GUI_LEFT_CLICK, 0, state, mapping, mc);
+            // ---- D-pad discrete navigation state machine ----
+            // Activation: any D-pad ↑/↓/←/→ physically pressed (not rising edge — we preserve
+            // the rising edge for actual focus movement below).
+            // Deactivation: left-stick movement (past dead-zone) or OS mouse movement.
+            if (Config.dpadNavigation) {
+                boolean anyDpadPressed = mapping.isActive(ControllerAction.GUI_NAV_UP, state, Config.triggerThreshold)
+                    || mapping.isActive(ControllerAction.GUI_NAV_DOWN, state, Config.triggerThreshold)
+                    || mapping.isActive(ControllerAction.GUI_NAV_LEFT, state, Config.triggerThreshold)
+                    || mapping.isActive(ControllerAction.GUI_NAV_RIGHT, state, Config.triggerThreshold);
+
+                if (anyDpadPressed && dpadNavState == DpadNavState.INACTIVE) {
+                    dpadNavState = DpadNavState.ACTIVE;
+                    GuiFocusRenderer.setNavActive(true);
+                }
+
+                // Deactivate on left-stick movement (past ~15% deflection to avoid noise).
+                if (dpadNavState == DpadNavState.ACTIVE
+                    && (Math.abs(state.leftStickX()) > 0.15f || Math.abs(state.leftStickY()) > 0.15f)) {
+                    dpadNavState = DpadNavState.INACTIVE;
+                    GuiFocusRenderer.setNavActive(false);
+                }
+
+                // Deactivate on OS mouse movement (set by onRenderTick mouse tracking).
+                if (mouseMovedSinceLastTick && dpadNavState == DpadNavState.ACTIVE) {
+                    dpadNavState = DpadNavState.INACTIVE;
+                    GuiFocusRenderer.setNavActive(false);
+                }
+                mouseMovedSinceLastTick = false;
+            } else {
+                dpadNavState = DpadNavState.INACTIVE;
+                GuiFocusRenderer.setNavActive(false);
+            }
+
+            // ---- D-pad navigation actions (only when config is ON and state is ACTIVE) ----
+            if (Config.dpadNavigation && dpadNavState == DpadNavState.ACTIVE) {
+                guiFocusNavigator.update(mc.currentScreen);
+
+                // Up/Down: move focus
+                if (isNavRisingEdge(NAV_UP_IDX, state, mapping)) {
+                    guiFocusNavigator.focusPrev();
+                }
+                if (isNavRisingEdge(NAV_DOWN_IDX, state, mapping)) {
+                    guiFocusNavigator.focusNext();
+                }
+
+                // Left/Right: slider adjustment (no-op on non-sliders)
+                if (isNavRisingEdge(NAV_LEFT_IDX, state, mapping)) {
+                    guiFocusNavigator.sliderLeft(Config.dpadSliderStep);
+                }
+                if (isNavRisingEdge(NAV_RIGHT_IDX, state, mapping)) {
+                    guiFocusNavigator.sliderRight(Config.dpadSliderStep);
+                }
+
+                // Confirm: activate the focused item.
+                if (isNavRisingEdge(NAV_CONFIRM_IDX, state, mapping)) {
+                    FocusableItem focused = guiFocusNavigator.getFocusedItem();
+                    if (focused != null) {
+                        if (focused.type == ItemType.SLOT_ENTRY) {
+                            guiFocusNavigator.confirmSlotEntry();
+                        } else if (!(focused.button instanceof GuiOptionSlider)) {
+                            java.awt.Point center = guiFocusNavigator.getFocusedCenter();
+                            if (center != null) {
+                                ScaledResolution sr = new ScaledResolution(mc, mc.displayWidth, mc.displayHeight);
+                                int guiX = (int) (center.x * sr.getScaledWidth() / mc.displayWidth);
+                                int guiY = sr.getScaledHeight()
+                                    - (int) (center.y * sr.getScaledHeight() / mc.displayHeight)
+                                    - 1;
+                                try {
+                                    GuiScreenAccessors accessors = (GuiScreenAccessors) mc.currentScreen;
+                                    accessors.callMouseClicked(guiX, guiY, 0);
+                                    accessors.callMouseMovedOrUp(guiX, guiY, 0);
+                                } catch (Exception ignored) {}
+                            }
+                        }
+                        suppressGuiLeftClick = true;
+                    }
+                }
+            } else {
+                // Keep nav edges clean when dpadNavigation is off or nav is INACTIVE
+                consumeNavEdges(state, mapping);
+            }
+
+            // Virtual-cursor click or D-pad confirm
+            if (!suppressGuiLeftClick) {
+                handleGuiClick(ControllerAction.GUI_LEFT_CLICK, 0, state, mapping, mc);
+            } else {
+                // When the D-pad confirm action suppressed a GUI left-click, we still need to
+                // advance the edge-tracking state so it doesn't fire on the next tick.
+                wasGuiLeftClick = mapping.isActive(ControllerAction.GUI_LEFT_CLICK, state, Config.triggerThreshold);
+            }
+            suppressGuiLeftClick = false;
+
             handleGuiClick(ControllerAction.GUI_RIGHT_CLICK, 1, state, mapping, mc);
             handleGuiShiftClick(state, mapping, mc);
 
@@ -280,12 +438,19 @@ public class ControllerTickHandler {
             return;
         }
 
-        // Screen is closed — reset cursor init flag and consume GUI-click edges cleanly.
+        // Screen is closed — reset cursor init flag and consume GUI-click and nav edges cleanly.
         guiCursorInitialized = false;
         guiShiftToggled = false;
+        suppressGuiLeftClick = false;
+        dpadNavState = DpadNavState.INACTIVE;
+        GuiFocusRenderer.setNavActive(false);
+        mouseMovedSinceLastTick = false;
+        lastMouseX = -1;
+        lastMouseY = -1;
         consumeGuiClick(ControllerAction.GUI_LEFT_CLICK, state, mapping);
         consumeGuiClick(ControllerAction.GUI_RIGHT_CLICK, state, mapping);
         consumeGuiClick(ControllerAction.GUI_SHIFT_CLICK, state, mapping);
+        consumeNavEdges(state, mapping);
 
         // Remove any buttons from the post-GUI block set that have now been released.
         // A button is unblocked the moment it is no longer physically held.
@@ -425,6 +590,17 @@ public class ControllerTickHandler {
         lastFrameNanos = nowNanos;
 
         if (mc.currentScreen != null) {
+            // Track OS mouse movement for D-pad nav deactivation.
+            // Use Mouse.getX/Y (LWJGL bottom-left origin) rather than event-based DX/DY
+            // to get reliable cross-frame position comparison.
+            int mx = Mouse.getX();
+            int my = Mouse.getY();
+            if (mx != lastMouseX || my != lastMouseY) {
+                mouseMovedSinceLastTick = true;
+                lastMouseX = mx;
+                lastMouseY = my;
+            }
+
             // GUI cursor — works on main menu (thePlayer may be null).
             applyGuiCursor(mc, state, deltaSeconds);
         } else if (mc.theWorld != null && mc.thePlayer != null) {
@@ -568,6 +744,12 @@ public class ControllerTickHandler {
         dropHoldFired = false;
         dropBlockedByGui = false;
         guiShiftToggled = false;
+        suppressGuiLeftClick = false;
+        dpadNavState = DpadNavState.INACTIVE;
+        GuiFocusRenderer.setNavActive(false);
+        mouseMovedSinceLastTick = false;
+        lastMouseX = -1;
+        lastMouseY = -1;
         buttonsHeldOnGuiClose.clear();
         stickHysteresis.clear();
     }
@@ -803,6 +985,33 @@ public class ControllerTickHandler {
         } else if (action == ControllerAction.GUI_SHIFT_CLICK) {
             wasGuiShiftClick = active;
         }
+    }
+
+    /**
+     * Returns true once on the rising edge of a D-pad navigation action.
+     * The edge state is consumed by {@link #wasActive} tracking.
+     *
+     * @param actionIdx ordinal of a GUI_NAV_* action
+     * @return true on the first tick the action becomes active
+     */
+    private boolean isNavRisingEdge(int actionIdx, ControllerState state, ControllerMapping mapping) {
+        boolean active = mapping.isActive(ControllerAction.values()[actionIdx], state, Config.triggerThreshold);
+        boolean rising = active && !wasActive[actionIdx];
+        wasActive[actionIdx] = active;
+        return rising;
+    }
+
+    /**
+     * Advances the five nav edge-tracking fields without firing any action.
+     * Called when {@link Config#dpadNavigation} is false (or no GUI is open) to keep nav
+     * edges clean so they don't fire if the user switches dpadNavigation on mid-session.
+     */
+    private void consumeNavEdges(ControllerState state, ControllerMapping mapping) {
+        wasActive[NAV_UP_IDX] = mapping.isActive(ControllerAction.GUI_NAV_UP, state, Config.triggerThreshold);
+        wasActive[NAV_DOWN_IDX] = mapping.isActive(ControllerAction.GUI_NAV_DOWN, state, Config.triggerThreshold);
+        wasActive[NAV_LEFT_IDX] = mapping.isActive(ControllerAction.GUI_NAV_LEFT, state, Config.triggerThreshold);
+        wasActive[NAV_RIGHT_IDX] = mapping.isActive(ControllerAction.GUI_NAV_RIGHT, state, Config.triggerThreshold);
+        wasActive[NAV_CONFIRM_IDX] = mapping.isActive(ControllerAction.GUI_NAV_CONFIRM, state, Config.triggerThreshold);
     }
 
     /**

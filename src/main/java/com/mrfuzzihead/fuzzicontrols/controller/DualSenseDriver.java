@@ -10,6 +10,15 @@ import org.hid4java.HidServicesSpecification;
 
 import com.mrfuzzihead.fuzzicontrols.FuzziControls;
 
+/**
+ * DualSense controller driver using raw HID reports.
+ *
+ * <p>
+ * <b>HID services lifecycle:</b> The {@link HidServices} instance is shared at the class
+ * level to avoid create-shutdown-recreate cycles that corrupt hid4java's internal state.
+ * Each driver instance opens/closes the USB device independently, but all instances share
+ * the same {@link HidServices} for device enumeration.
+ */
 public class DualSenseDriver implements IControllerDriver {
 
     private static final short VENDOR_ID = (short) 0x054C;
@@ -17,19 +26,63 @@ public class DualSenseDriver implements IControllerDriver {
     private static final int REPORT_SIZE = 64;
     private static final int REPORT_MIN_BYTES = 10;
 
-    private HidServices hidServices;
+    /** Shared HID services instance, null if init failed (non-fatal). */
+    private static HidServices sharedHidServices = null;
+
+    /**
+     * Returns the shared {@link HidServices} instance, creating it once on first call.
+     * Returns {@code null} if HID initialization fails — the driver simply stays
+     * disconnected without crashing the mod.
+     */
+    static synchronized HidServices getHidServices() {
+        if (sharedHidServices == null) {
+            try {
+                HidServicesSpecification spec = new HidServicesSpecification();
+                spec.setAutoShutdown(false);
+                sharedHidServices = HidManager.getHidServices(spec);
+            } catch (Exception e) {
+                FuzziControls.LOG.warn(
+                    "[FuzziControls] Failed to initialise HID services for DualSense: {}. "
+                        + "DualSense driver unavailable. The controller may still work via XInput "
+                        + "(Xbox protocol) on Windows if connected as an Xbox controller.",
+                    e.getMessage());
+            }
+        }
+        return sharedHidServices;
+    }
+
+    /** Shuts down the shared HID services. Called from the JVM shutdown hook. */
+    public static void shutdownSharedServices() {
+        if (sharedHidServices != null) {
+            try {
+                sharedHidServices.shutdown();
+            } catch (Exception e) {
+                FuzziControls.LOG.debug("[FuzziControls] HID services shutdown error: {}", e.getMessage());
+            }
+            sharedHidServices = null;
+        }
+    }
+
     private HidDevice device;
     private ControllerState lastState = null;
 
     public DualSenseDriver() {
         try {
-            HidServicesSpecification spec = new HidServicesSpecification();
-            spec.setAutoShutdown(false);
-            hidServices = HidManager.getHidServices(spec);
-            device = hidServices.getHidDevice(VENDOR_ID, PRODUCT_ID, null);
+            HidServices services = getHidServices();
+            if (services == null) {
+                FuzziControls.LOG.warn("[FuzziControls] DualSense driver unavailable (HID services not initialised).");
+                device = null;
+                return;
+            }
+            device = services.getHidDevice(VENDOR_ID, PRODUCT_ID, null);
             if (device != null && device.open()) {
                 FuzziControls.LOG.info("[FuzziControls] DualSense controller detected and opened.");
             } else {
+                if (device != null) {
+                    try {
+                        device.close();
+                    } catch (Exception ignored) {}
+                }
                 device = null;
                 FuzziControls.LOG.info("[FuzziControls] DualSense not found; driver standby.");
             }
@@ -119,14 +172,6 @@ public class DualSenseDriver implements IControllerDriver {
                 FuzziControls.LOG.debug("[FuzziControls] DualSense device close error: {}", e.getMessage());
             }
             device = null;
-        }
-        if (hidServices != null) {
-            try {
-                hidServices.shutdown();
-            } catch (Exception e) {
-                FuzziControls.LOG.debug("[FuzziControls] DualSense HID services shutdown error: {}", e.getMessage());
-            }
-            hidServices = null;
         }
         lastState = null;
     }

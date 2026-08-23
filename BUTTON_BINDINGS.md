@@ -110,6 +110,8 @@ with **every vanilla and mod GUI** automatically — no per-screen code is neede
 | `inventoryCursorSensitivity` | `300` | GUI cursor speed in **display pixels/s** at full stick deflection at the 854×480 reference resolution [1–2000]. Scales automatically with window size. |
 | `dropEntireStack` | `false` | When `true`, holding B for 0.5 s drops the entire held stack |
 | `sneakToggle` | `true` | When `true` (default), RS-click toggles sneak; when `false`, sneak is held. Pressing the keyboard sneak key while the toggle is on automatically clears the toggle so keyboard control resumes normally. |
+| `dpadNavigation` | `false` | When `true`, D-pad navigates GUI buttons discretely (console-style) instead of remaining unbound. Requires controller to be connected. |
+| `dpadSliderStep` | `0.05` | Step size for D-pad slider adjustment as a fraction of the slider's full range [0.01–0.5]. Only relevant when `dpadNavigation = true`. |
 | `driver` | `auto` | Controller driver: `auto`, `xinput`, or `dualsense` |
 | `xInputSlot` | `0` | XInput controller slot to use [0–3] |
 
@@ -119,6 +121,7 @@ with **every vanilla and mod GUI** automatically — no per-screen code is neede
 
 | Date | Change |
 |---|---|
+| 2026-03-02 | **D-pad discrete GUI navigation** — added `dpadNavigation` config (opt-in, default `false`). When enabled, D-pad up/down moves focus between GUI buttons, D-pad left/right adjusts sliders, and A/Cross confirms the focused button. A pulsing highlight border renders around the focused element. `GuiFocusNavigator`, `GuiFocusRenderer`, and `GuiOptionSliderAccessors` mixin created. |
 | 2026-02-28 | Initial bindings established from Minecraft wiki controller layout |
 | 2026-02-28 | Hotbar cycling moved from D-pad ←/→ to LB/RB; D-pad cleared; PICK_BLOCK → X; COMMAND → D-pad ↓ |
 | 2026-02-28 | B / Circle now closes open GUIs (inventory, chat, pause) on press; drops item otherwise |

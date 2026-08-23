@@ -1,4 +1,33 @@
-# Plan: D-Pad Discrete GUI Navigation System
+# Plan: D-Pad Discrete GUI Navigation System — ✅ IMPLEMENTED
+
+> **Status:** Phase 1 fully implemented and merged. See changelog below for completion timeline.
+
+---
+
+## Implementation Summary
+
+All items below have been implemented in the codebase (build passes, 131 tests pass including 22 new `GuiFocusNavigatorTest` tests).
+
+### What was built
+
+- **`GuiFocusNavigator`** (`src/main/java/.../util/GuiFocusNavigator.java`) — reusable focus-tracking utility that enumerates visible+enabled buttons from `GuiScreen.buttonList` via the `GuiScreenAccessors` mixin `@Accessor`, tracks a focused index, and provides slider adjustment via `GuiOptionSliderAccessors` mixin `@Accessor`.
+- **`GuiFocusRenderer`** (`src/main/java/.../util/GuiFocusRenderer.java`) — renders a pulsing white highlight border around the focused button using `DrawScreenEvent.Post`. Registered on `MinecraftForge.EVENT_BUS`.
+- **`GuiOptionSliderAccessors`** (`src/main/java/.../mixins/early/GuiOptionSliderAccessors.java`) — mixin `@Accessor` for private fields `field_146134_p` (sliderValue) and `field_146133_q` (options) on `GuiOptionSlider`.
+- **`GuiScreenAccessors.getButtonList()`** — added `@Accessor("buttonList")` to the existing mixin interface so `GuiFocusNavigator` can read the protected field.
+- **5 new `GUI_NAV_*` actions** (`GUI_NAV_UP`, `GUI_NAV_DOWN`, `GUI_NAV_LEFT`, `GUI_NAV_RIGHT`, `GUI_NAV_CONFIRM`) added to `ControllerAction` — defaults to DPAD_UP/DOWN/LEFT/RIGHT and A.
+- **Config keys** `dpadNavigation` (default `false`) and `dpadSliderStep` (default `0.05`) in `Config.java`.
+- **Tick handler integration** in `ControllerTickHandler`: D-pad edges are processed in the GUI block when `dpadNavigation = true`; confirm clicks the focused button and suppresses the normal cursor `GUI_LEFT_CLICK`. When `dpadNavigation = false`, all nav edges are cleanly consumed.
+- **BUTTON_BINDINGS.md** updated with D-pad navigation sections and new config entries.
+- **22 unit tests** in `GuiFocusNavigatorTest` covering focus wrapping, empty-list safety, visible/enabled filtering, slider no-op on non-sliders, and index introspection.
+
+### Deferred (Phase 2 / beyond)
+
+- `GuiSlot` row navigation for inventory item grids (not `GuiButton`-based).
+- `IFocusableGui` adapter interface for mod GUIs without `GuiButton` objects.
+- Horizontal tab navigation for Forge config screens.
+- In-game controller binding GUI (the binding GUI will itself be navigable via D-pad once built).
+
+---
 
 Add a reusable focus-based navigation layer that tracks a "focused element" index across any
 open `GuiScreen`, moves it with D-pad up/down (and left/right for sliders), renders a highlight
