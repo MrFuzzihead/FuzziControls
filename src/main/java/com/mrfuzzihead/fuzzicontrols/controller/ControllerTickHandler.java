@@ -3,7 +3,6 @@ package com.mrfuzzihead.fuzzicontrols.controller;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiChat;
 import net.minecraft.client.gui.GuiIngameMenu;
-import net.minecraft.client.gui.GuiOptionSlider;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.settings.KeyBinding;
@@ -338,20 +337,31 @@ public class ControllerTickHandler {
             if (Config.dpadNavigation && dpadNavState == DpadNavState.ACTIVE) {
                 guiFocusNavigator.update(mc.currentScreen);
 
-                // Up/Down: move focus
+                // 2D spatial navigation: up/down/left/right find the nearest item
+                // in that direction based on screen-position centroids.
                 if (isNavRisingEdge(NAV_UP_IDX, state, mapping)) {
-                    guiFocusNavigator.focusPrev();
+                    guiFocusNavigator.focusUp();
                 }
                 if (isNavRisingEdge(NAV_DOWN_IDX, state, mapping)) {
-                    guiFocusNavigator.focusNext();
+                    guiFocusNavigator.focusDown();
                 }
 
-                // Left/Right: slider adjustment (no-op on non-sliders)
+                // Left/Right: if focused on a slider, adjust value; otherwise navigate.
                 if (isNavRisingEdge(NAV_LEFT_IDX, state, mapping)) {
-                    guiFocusNavigator.sliderLeft(Config.dpadSliderStep);
+                    if (guiFocusNavigator.getFocusedButton() != null
+                        && GuiFocusNavigator.isSliderButton(guiFocusNavigator.getFocusedButton())) {
+                        guiFocusNavigator.sliderLeft(Config.dpadSliderStep);
+                    } else {
+                        guiFocusNavigator.focusLeft();
+                    }
                 }
                 if (isNavRisingEdge(NAV_RIGHT_IDX, state, mapping)) {
-                    guiFocusNavigator.sliderRight(Config.dpadSliderStep);
+                    if (guiFocusNavigator.getFocusedButton() != null
+                        && GuiFocusNavigator.isSliderButton(guiFocusNavigator.getFocusedButton())) {
+                        guiFocusNavigator.sliderRight(Config.dpadSliderStep);
+                    } else {
+                        guiFocusNavigator.focusRight();
+                    }
                 }
 
                 // Confirm: activate the focused item.
@@ -360,7 +370,7 @@ public class ControllerTickHandler {
                     if (focused != null) {
                         if (focused.type == ItemType.SLOT_ENTRY) {
                             guiFocusNavigator.confirmSlotEntry();
-                        } else if (!(focused.button instanceof GuiOptionSlider)) {
+                        } else if (!GuiFocusNavigator.isSliderButton(focused.button)) {
                             java.awt.Point center = guiFocusNavigator.getFocusedCenter();
                             if (center != null) {
                                 ScaledResolution sr = new ScaledResolution(mc, mc.displayWidth, mc.displayHeight);

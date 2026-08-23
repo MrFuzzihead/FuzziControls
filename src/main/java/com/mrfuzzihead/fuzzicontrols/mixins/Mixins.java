@@ -20,6 +20,9 @@ public enum Mixins implements IMixins {
     GUI_SCREEN_SLOT_TRACKER(new MixinBuilder().setPhase(Phase.EARLY)
         .addClientMixins("MixinGuiScreen_SlotTracker")),
 
+    GUI_OPTIONS_ROW_LIST_ROW_ACCESSORS(new MixinBuilder().setPhase(Phase.EARLY)
+        .addClientMixins("GuiOptionsRowListRowAccessors")),
+
     ANALOG_MOVEMENT(new MixinBuilder().setPhase(Phase.EARLY)
         .addClientMixins("MixinEntityPlayerSP")
         .setApplyIf(() -> Config.analogMovement));
