@@ -102,7 +102,10 @@ Every button binding can also be remapped via the `[bindings]` section.
 ./gradlew build
 ```
 
-Requires a Java 25 toolchain. Spotless and Checkstyle are applied automatically on build.
+Building requires a Java 25 toolchain (see `.java-version`). The built jar itself is a multi-release
+jar that runs on **Java 17+** (native Java 21/25 classes are shipped in `META-INF/versions/`, with a
+Java 17 fallback), since [lwjgl3ify](https://github.com/GTNewHorizons/lwjgl3ify) requires launching
+Minecraft 1.7.10 on Java 17 or newer. Spotless and Checkstyle are applied automatically on build.
 
 ---
 
