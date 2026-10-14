@@ -20,6 +20,7 @@ import com.mrfuzzihead.fuzzicontrols.util.GuiFocusRenderer;
 import com.mrfuzzihead.fuzzicontrols.util.GuiKeyHelper;
 import com.mrfuzzihead.fuzzicontrols.util.GuiMouseHelper;
 import com.mrfuzzihead.fuzzicontrols.util.KeyboardHelper;
+import com.mrfuzzihead.fuzzicontrols.util.ScrollStepper;
 
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
@@ -642,12 +643,14 @@ public class ControllerTickHandler {
             applyGuiCursor(mc, state, deltaSeconds);
 
             // Right-stick scroll wheel injection (only when a GUI is open).
-            // Applies same quadratic scaling as the cursor for precision at small deflections.
-            if (Config.rightStickScrolling && state.rightStickY() != 0f) {
-                float scrollDelta = state.rightStickY() * Config.scrollSensitivity * deltaSeconds;
-                // Quadratic scaling: gentle tilt = precise, full deflection = fast.
-                scrollDelta = Math.signum(scrollDelta) * scrollDelta * scrollDelta;
-                GuiMouseHelper.injectWheelEvent(-scrollDelta); // negate: stick up = scroll up = positive wheel
+            // ScrollStepper keeps the delivered rate at Config.scrollSensitivity notches per
+            // second regardless of frame rate, with a quadratic response curve for precision.
+            if (Config.rightStickScrolling) {
+                double wheelDelta = ScrollStepper
+                    .wheelDelta(state.rightStickY(), Config.scrollSensitivity, deltaSeconds);
+                if (wheelDelta != 0.0) {
+                    GuiMouseHelper.injectWheelEvent(wheelDelta);
+                }
             }
         } else if (mc.theWorld != null && mc.thePlayer != null) {
             // In-world camera — only when a world is loaded.

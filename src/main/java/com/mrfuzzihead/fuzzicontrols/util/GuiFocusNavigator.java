@@ -14,6 +14,7 @@ import net.minecraft.client.gui.GuiOptionsRowList;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.GuiSlot;
 import net.minecraft.client.gui.inventory.GuiContainer;
+import net.minecraft.client.settings.GameSettings;
 import net.minecraft.inventory.Slot;
 
 import com.mrfuzzihead.fuzzicontrols.interfaces.SlotAwareScreen;
@@ -645,16 +646,17 @@ public final class GuiFocusNavigator {
         // ---- Vanilla GuiOptionSlider (Video Settings sliders) ----
         if (button instanceof GuiOptionSlider slider) {
             GuiOptionSliderAccessors sliderAcc = (GuiOptionSliderAccessors) slider;
+            GameSettings.Options options = sliderAcc.getOptions();
             float current = sliderAcc.getSliderValue();
-            float newValue = Math.max(0.0f, Math.min(1.0f, current + delta));
+            // SliderStepper handles options whose discrete value grid is coarser than
+            // dpadSliderStep (Mipmap Levels, Anisotropic Filtering, …), where adding the
+            // step and re-normalising would otherwise snap straight back to the same value.
+            float normalized = SliderStepper.nextValue(options, current, delta, delta > 0f);
             Minecraft mc = Minecraft.getMinecraft();
-            float denormalized = sliderAcc.getOptions()
-                .denormalizeValue(newValue);
-            mc.gameSettings.setOptionFloatValue(sliderAcc.getOptions(), denormalized);
-            float normalized = sliderAcc.getOptions()
-                .normalizeValue(denormalized);
-            sliderAcc.setSliderValue(normalized);
-            slider.displayString = mc.gameSettings.getKeyBinding(sliderAcc.getOptions());
+            float denormalized = options.denormalizeValue(normalized);
+            mc.gameSettings.setOptionFloatValue(options, denormalized);
+            sliderAcc.setSliderValue(options.normalizeValue(denormalized));
+            slider.displayString = mc.gameSettings.getKeyBinding(options);
             return;
         }
 
