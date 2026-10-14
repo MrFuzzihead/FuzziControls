@@ -69,6 +69,22 @@ public final class GuiMouseHelper {
     }
 
     /**
+     * Injects a scroll wheel event into the LWJGL event queue via lwjgl3ify.
+     * The delta is in "notches" (typically 1.0 per notch). Fractional values are
+     * accumulated internally by lwjgl3ify and fired as discrete events when they
+     * cross an integer boundary.
+     *
+     * @param delta scroll wheel delta in notches (positive = scroll up, negative = scroll down)
+     */
+    public static void injectWheelEvent(double delta) {
+        try {
+            org.lwjglx.input.Mouse.addWheelEvent(delta);
+        } catch (Exception e) {
+            FuzziControls.LOG.debug("[FuzziControls] lwjgl3ify wheel injection failed.", e);
+        }
+    }
+
+    /**
      * Dispatches a mouse press synchronously (used for shift-clicks, where the keyboard
      * state must be patched for exactly the duration of the dispatch).
      *

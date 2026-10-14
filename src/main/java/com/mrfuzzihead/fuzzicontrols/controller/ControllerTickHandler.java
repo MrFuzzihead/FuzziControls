@@ -370,6 +370,33 @@ public class ControllerTickHandler {
                     if (focused != null) {
                         if (focused.type == ItemType.SLOT_ENTRY) {
                             guiFocusNavigator.confirmSlotEntry();
+                        } else if (focused.type == ItemType.INVENTORY_SLOT) {
+                            // Move the OS cursor to the slot position so the LWJGL event state
+                            // is consistent, then dispatch mouseClicked directly with the correct
+                            // GUI coordinates. This bypasses the LWJGL event queue (which would
+                            // use stale cursor coordinates) and makes GuiContainer.getSlotAtPosition()
+                            // see the right slot via the method parameters.
+                            java.awt.Point center = guiFocusNavigator.getFocusedCenter();
+                            if (center != null) {
+                                // Move OS cursor to the slot's display coordinates.
+                                Mouse.setCursorPosition(center.x, center.y);
+                                guiCursorX = center.x;
+                                guiCursorY = center.y;
+
+                                ScaledResolution sr = new ScaledResolution(mc, mc.displayWidth, mc.displayHeight);
+                                int guiX = (int) (center.x * sr.getScaledWidth() / mc.displayWidth);
+                                int guiY = sr.getScaledHeight()
+                                    - (int) (center.y * sr.getScaledHeight() / mc.displayHeight)
+                                    - 1;
+                                // Direct dispatch: mouseClicked receives the correct coordinates
+                                // as method parameters, so GuiContainer.getSlotAtPosition() finds
+                                // the right slot regardless of cursor position.
+                                try {
+                                    GuiScreenAccessors accessors = (GuiScreenAccessors) mc.currentScreen;
+                                    accessors.callMouseClicked(guiX, guiY, 0);
+                                    accessors.callMouseMovedOrUp(guiX, guiY, 0);
+                                } catch (Exception ignored) {}
+                            }
                         } else if (!GuiFocusNavigator.isSliderButton(focused.button)) {
                             java.awt.Point center = guiFocusNavigator.getFocusedCenter();
                             if (center != null) {
@@ -613,6 +640,15 @@ public class ControllerTickHandler {
 
             // GUI cursor — works on main menu (thePlayer may be null).
             applyGuiCursor(mc, state, deltaSeconds);
+
+            // Right-stick scroll wheel injection (only when a GUI is open).
+            // Applies same quadratic scaling as the cursor for precision at small deflections.
+            if (Config.rightStickScrolling && state.rightStickY() != 0f) {
+                float scrollDelta = state.rightStickY() * Config.scrollSensitivity * deltaSeconds;
+                // Quadratic scaling: gentle tilt = precise, full deflection = fast.
+                scrollDelta = Math.signum(scrollDelta) * scrollDelta * scrollDelta;
+                GuiMouseHelper.injectWheelEvent(-scrollDelta); // negate: stick up = scroll up = positive wheel
+            }
         } else if (mc.theWorld != null && mc.thePlayer != null) {
             // In-world camera — only when a world is loaded.
             applyLook(mc, state, deltaSeconds);

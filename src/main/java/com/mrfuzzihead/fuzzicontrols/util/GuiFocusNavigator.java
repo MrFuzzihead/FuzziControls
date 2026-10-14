@@ -13,8 +13,11 @@ import net.minecraft.client.gui.GuiOptionSlider;
 import net.minecraft.client.gui.GuiOptionsRowList;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.GuiSlot;
+import net.minecraft.client.gui.inventory.GuiContainer;
+import net.minecraft.inventory.Slot;
 
 import com.mrfuzzihead.fuzzicontrols.interfaces.SlotAwareScreen;
+import com.mrfuzzihead.fuzzicontrols.mixins.early.GuiContainerAccessors;
 import com.mrfuzzihead.fuzzicontrols.mixins.early.GuiOptionSliderAccessors;
 import com.mrfuzzihead.fuzzicontrols.mixins.early.GuiOptionsRowListRowAccessors;
 import com.mrfuzzihead.fuzzicontrols.mixins.early.GuiScreenAccessors;
@@ -42,13 +45,15 @@ import cpw.mods.fml.relauncher.SideOnly;
 @SideOnly(Side.CLIENT)
 public final class GuiFocusNavigator {
 
-    /** Distinguishes a real GUI button from a virtual slot entry in the focusable list. */
+    /** Distinguishes a real GUI button, a virtual {@link GuiSlot} entry, or an inventory slot. */
     public enum ItemType {
         BUTTON,
-        SLOT_ENTRY
+        SLOT_ENTRY,
+        /** A {@link net.minecraft.inventory.Slot} from a {@link GuiContainer} (inventory) screen. */
+        INVENTORY_SLOT
     }
 
-    /** A focusable item: either a real {@link GuiButton} or a virtual slot entry. */
+    /** A focusable item: a {@link GuiButton}, a virtual {@link GuiSlot} entry, or an inventory slot. */
     public static final class FocusableItem {
 
         public final ItemType type;
@@ -58,12 +63,23 @@ public final class GuiFocusNavigator {
         public final GuiSlot slot;
         /** The entry index within the slot (valid for {@link ItemType#SLOT_ENTRY}). */
         public final int slotIndex;
+        /** The inventory {@link Slot} (non-null for {@link ItemType#INVENTORY_SLOT}). */
+        public final Slot inventorySlot;
+        /**
+         * The container's {@code guiLeft} offset captured at build time (valid for {@link ItemType#INVENTORY_SLOT}).
+         */
+        public final int guiLeft;
+        /** The container's {@code guiTop} offset captured at build time (valid for {@link ItemType#INVENTORY_SLOT}). */
+        public final int guiTop;
 
         FocusableItem(GuiButton button) {
             this.type = ItemType.BUTTON;
             this.button = button;
             this.slot = null;
             this.slotIndex = -1;
+            this.inventorySlot = null;
+            this.guiLeft = 0;
+            this.guiTop = 0;
         }
 
         FocusableItem(GuiSlot slot, int slotIndex) {
@@ -71,6 +87,19 @@ public final class GuiFocusNavigator {
             this.button = null;
             this.slot = slot;
             this.slotIndex = slotIndex;
+            this.inventorySlot = null;
+            this.guiLeft = 0;
+            this.guiTop = 0;
+        }
+
+        FocusableItem(Slot inventorySlot, int guiLeft, int guiTop) {
+            this.type = ItemType.INVENTORY_SLOT;
+            this.button = null;
+            this.slot = null;
+            this.slotIndex = -1;
+            this.inventorySlot = inventorySlot;
+            this.guiLeft = guiLeft;
+            this.guiTop = guiTop;
         }
     }
 
@@ -188,7 +217,7 @@ public final class GuiFocusNavigator {
 
     /**
      * Returns the currently focused {@link GuiButton}, or {@code null} if the focused
-     * item is a slot entry or no item is focused.
+     * item is a slot entry, inventory slot, or no item is focused.
      */
     @Nullable
     public GuiButton getFocusedButton() {
@@ -286,6 +315,32 @@ public final class GuiFocusNavigator {
         }
         focusableItems = Collections.unmodifiableList(focusableItems);
         focusedIndex = 0;
+        lastButtonStateHash = 0;
+    }
+
+    /**
+     * Package-private test support: rebuilds the focusable list with inventory slots at
+     * the given display positions. Each slot is created with a null inventory (safe because
+     * the navigator never calls inventory methods — it only reads coordinates).
+     *
+     * @param xDisplayPositions slot xDisplayPosition values (parallel to yDisplayPositions)
+     * @param yDisplayPositions slot yDisplayPosition values (parallel to xDisplayPositions)
+     * @param guiLeft           container guiLeft
+     * @param guiTop            container guiTop
+     */
+    void rebuildForTestInventory(int[] xDisplayPositions, int[] yDisplayPositions, int guiLeft, int guiTop) {
+        currentScreen = null;
+        focusableItems = new ArrayList<>();
+        if (xDisplayPositions != null && yDisplayPositions != null) {
+            int len = Math.min(xDisplayPositions.length, yDisplayPositions.length);
+            for (int i = 0; i < len; i++) {
+                Slot slot = new Slot(null, i, xDisplayPositions[i], yDisplayPositions[i]);
+                focusableItems.add(new FocusableItem(slot, guiLeft, guiTop));
+            }
+        }
+        focusableItems = Collections.unmodifiableList(focusableItems);
+        focusedIndex = 0;
+        lastButtonStateHash = 0;
     }
 
     // -------------------------------------------------------------------------
@@ -441,7 +496,15 @@ public final class GuiFocusNavigator {
                 btn.yPosition + (btn.height > 0 ? btn.height : 20) / 2);
         }
 
-        // Slot entry
+        if (item.type == ItemType.INVENTORY_SLOT) {
+            // Slot background is 18x18 centred at (guiLeft + xDisplayPosition, guiTop + yDisplayPosition).
+            // The center of that 18x18 area is (guiLeft + xDisplayPosition, guiTop + yDisplayPosition).
+            return new Point(
+                item.guiLeft + item.inventorySlot.xDisplayPosition,
+                item.guiTop + item.inventorySlot.yDisplayPosition);
+        }
+
+        // Slot entry (GuiSlot list)
         GuiSlotAccessors slotAcc = (GuiSlotAccessors) item.slot;
         int scrollOffset = (int) Math.ceil(slotAcc.getAmountScrolled());
         int y = item.slot.top + item.slot.headerPadding
@@ -465,6 +528,14 @@ public final class GuiFocusNavigator {
                 btn.yPosition + (btn.height > 0 ? btn.height : 20));
         }
 
+        if (item.type == ItemType.INVENTORY_SLOT) {
+            // Slot background is 18x18: left/top = guiLeft + xDisplayPosition - 1, right/bottom = +18
+            int left = item.guiLeft + item.inventorySlot.xDisplayPosition - 1;
+            int top = item.guiTop + item.inventorySlot.yDisplayPosition - 1;
+            return new AxisAligned(left, left + 18, top, top + 18);
+        }
+
+        // Slot entry (GuiSlot list)
         GuiSlotAccessors slotAcc = (GuiSlotAccessors) item.slot;
         int scrollOffset = (int) Math.ceil(slotAcc.getAmountScrolled());
         int y = item.slot.top + item.slot.headerPadding - scrollOffset + 4 + item.slotIndex * item.slot.slotHeight;
@@ -505,6 +576,19 @@ public final class GuiFocusNavigator {
                     for (int i = 0; i < count; i++) {
                         items.add(new FocusableItem(slot, i));
                     }
+                }
+            }
+        }
+
+        // ---- Inventory slots from GuiContainer (chests, player inventory, crafting, etc.) ----
+        if (screen instanceof GuiContainer container) {
+            GuiContainerAccessors acc = (GuiContainerAccessors) container;
+            int guiLeft = acc.getGuiLeft();
+            int guiTop = acc.getGuiTop();
+            net.minecraft.inventory.Container cont = acc.getInventorySlots();
+            if (cont != null) {
+                for (Slot slot : cont.inventorySlots) {
+                    items.add(new FocusableItem(slot, guiLeft, guiTop));
                 }
             }
         }

@@ -23,6 +23,9 @@ public enum Mixins implements IMixins {
     GUI_OPTIONS_ROW_LIST_ROW_ACCESSORS(new MixinBuilder().setPhase(Phase.EARLY)
         .addClientMixins("GuiOptionsRowListRowAccessors")),
 
+    GUI_CONTAINER_ACCESSORS(new MixinBuilder().setPhase(Phase.EARLY)
+        .addClientMixins("GuiContainerAccessors")),
+
     ANALOG_MOVEMENT(new MixinBuilder().setPhase(Phase.EARLY)
         .addClientMixins("MixinEntityPlayerSP")
         .setApplyIf(() -> Config.analogMovement));

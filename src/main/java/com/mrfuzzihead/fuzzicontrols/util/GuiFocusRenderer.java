@@ -24,8 +24,9 @@ import cpw.mods.fml.relauncher.SideOnly;
  * when the mouse is being used, or when no D-pad navigation has been initiated.
  *
  * <p>
- * Supports both real {@link GuiButton} instances and virtual slot entries (from
- * {@link GuiSlot}-based lists like the world/sever selector).
+ * Supports real {@link GuiButton} instances, virtual slot entries (from
+ * {@link GuiSlot}-based lists like the world/sever selector), and inventory
+ * {@link net.minecraft.inventory.Slot} instances from {@link GuiContainer} screens.
  *
  * <p>
  * Registered on {@link net.minecraftforge.common.MinecraftForge#EVENT_BUS} for
@@ -85,8 +86,14 @@ public final class GuiFocusRenderer {
             y = button.yPosition;
             w = button.getButtonWidth();
             h = button.height > 0 ? button.height : 20;
+        } else if (focused.type == ItemType.INVENTORY_SLOT) {
+            // Slot background is 18x18 centred at (guiLeft + xDisplayPosition, guiTop + yDisplayPosition)
+            x = focused.guiLeft + focused.inventorySlot.xDisplayPosition - 1;
+            y = focused.guiTop + focused.inventorySlot.yDisplayPosition - 1;
+            w = 18;
+            h = 18;
         } else {
-            // Slot entry — use the slot's layout to calculate the entry bounds.
+            // GuiSlot entry — use the slot's layout to calculate the entry bounds.
             GuiSlotAccessors slotAcc = (GuiSlotAccessors) focused.slot;
             int slotLeft = focused.slot.width / 2 - slotAcc.callGetListWidth() / 2;
             int scrollOffset = (int) Math.ceil(slotAcc.getAmountScrolled());

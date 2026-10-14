@@ -77,16 +77,45 @@ switches from game-play mode to cursor mode automatically.
 The left stick drives the real OS cursor via LWJGL `Mouse.setCursorPosition`, so this works
 with **every vanilla and mod GUI** automatically — no per-screen code is needed.
 
+**D-pad inventory navigation:** When `dpadNavigation = true` in config, D-pad ↑/↓/←/→
+moves focus between individual inventory slots in a console-like grid pattern.
+This works with every `GuiContainer` subclass — player inventory, chests, crafting tables,
+furnaces, and modded container screens — automatically, because the navigation system
+reads the standard `Container.inventorySlots` list. A/Cross clicks the focused slot.
+The highlight border renders over the selected slot.
+
+**Right-stick scrolling:** When a GUI is open, pushing the right stick up/down scrolls
+lists, inventory panels, and modded scrolling GUIs via the same LWJGL scroll-wheel
+injection system. Controlled by `rightStickScrolling` and `scrollSensitivity` config keys.
+
 ---
 
 ## D-Pad
 
+When `dpadNavigation = true` in config, the D-pad activates discrete **inventory slot** navigation in addition to button menu navigation:
+
 | Xbox Button | PS Button | Action | Notes |
 |---|---|---|---|
-| D-pad ↑ | D-pad ↑ | *(unbound)* | Available for custom binding |
-| D-pad ↓ | D-pad ↓ | *(unbound)* | Available for custom binding (was COMMAND — bind `COMMAND=DPAD_DOWN` in config to restore) |
-| D-pad ← | D-pad ← | *(unbound)* | Available for custom binding |
-| D-pad → | D-pad → | *(unbound)* | Available for custom binding |
+| D-pad ↑ | D-pad ↑ | **GUI focus up** (when `dpadNavigation=true`) | Moves focus to the nearest item above the current one in any screen. In inventory screens, navigates between item slots. |
+| D-pad ↓ | D-pad ↓ | **GUI focus down** (when `dpadNavigation=true`) | Moves focus to the nearest item below. In inventory screens, navigates between item slots in the container grid. |
+| D-pad ← | D-pad ← | **GUI focus left / slider decrease** (when `dpadNavigation=true`) | Moves focus left in button lists and inventory slot grids. If focused on a slider, decreases its value by `dpadSliderStep`. |
+| D-pad → | D-pad → | **GUI focus right / slider increase** (when `dpadNavigation=true`) | Moves focus right. If focused on a slider, increases its value by `dpadSliderStep`. |
+| A / Cross | A / Cross | **Confirm focused element** (when `dpadNavigation=true`) | Activates the focused button, selects a focused world/server list entry, or clicks the focused inventory slot. |
+
+When `dpadNavigation = false` (the default), all D-pad directions remain **unbound** as before — the left-stick virtual cursor is the only GUI navigation method.
+
+---
+
+## Right Stick Scroll Wheel
+
+When any GUI screen is open, the right stick's vertical axis can be used as a scroll wheel:
+
+| Xbox Button | PS Button | Action | Notes |
+|---|---|---|---|
+| Right Stick ↑ | Right Stick ↑ | **Scroll up** (in GUI) | Scrolls up in lists, inventories, modded scrolling GUIs, etc. Uses quadratic speed curve for precision at gentle tilts. |
+| Right Stick ↓ | Right Stick ↓ | **Scroll down** (in GUI) | Scrolls down. Speed is proportional to deflection squared. |
+
+Scroll behavior is controlled by `rightStickScrolling` (default `true`) and `scrollSensitivity` (default `10.0`, range 1.0–100.0).
 
 ---
 
@@ -112,6 +141,8 @@ with **every vanilla and mod GUI** automatically — no per-screen code is neede
 | `sneakToggle` | `true` | When `true` (default), RS-click toggles sneak; when `false`, sneak is held. Pressing the keyboard sneak key while the toggle is on automatically clears the toggle so keyboard control resumes normally. |
 | `dpadNavigation` | `false` | When `true`, D-pad navigates GUI buttons discretely (console-style) instead of remaining unbound. Requires controller to be connected. |
 | `dpadSliderStep` | `0.05` | Step size for D-pad slider adjustment as a fraction of the slider's full range [0.01–0.5]. Only relevant when `dpadNavigation = true`. |
+| `rightStickScrolling` | `true` | When `true`, the right stick can scroll in GUI screens (inventories, lists, modded scrolling GUIs, etc.) by pushing up/down. |
+| `scrollSensitivity` | `10.0` | Scroll speed in notches per second at full right-stick deflection [1.0–100.0]. |
 | `driver` | `auto` | Controller driver: `auto`, `xinput`, or `dualsense` |
 | `xInputSlot` | `0` | XInput controller slot to use [0–3] |
 
@@ -121,7 +152,8 @@ with **every vanilla and mod GUI** automatically — no per-screen code is neede
 
 | Date | Change |
 |---|---|
-| 2026-03-02 | **D-pad discrete GUI navigation** — added `dpadNavigation` config (opt-in, default `false`). When enabled, D-pad up/down moves focus between GUI buttons, D-pad left/right adjusts sliders, and A/Cross confirms the focused button. A pulsing highlight border renders around the focused element. `GuiFocusNavigator`, `GuiFocusRenderer`, and `GuiOptionSliderAccessors` mixin created. |
+| 2026-03-02 | **Inventory D-pad navigation** — `GuiFocusNavigator` now enumerates inventory `Slot` objects from any `GuiContainer` screen (player inventory, chests, crafting tables, furnaces, and modded containers). D-pad up/down/left/right navigates the slot grid spatially; A/Cross confirms by injecting a click at the focused slot position. `GuiContainerAccessors` mixin added to expose layout fields. |
+| 2026-03-02 | **Right-stick scroll wheel** — when a GUI is open, the right stick's vertical axis scrolls lists and inventories with quadratic precision. Controlled by `rightStickScrolling` and `scrollSensitivity` config keys. Uses lwjgl3ify `addWheelEvent()` for reliable event injection. |
 | 2026-02-28 | Initial bindings established from Minecraft wiki controller layout |
 | 2026-02-28 | Hotbar cycling moved from D-pad ←/→ to LB/RB; D-pad cleared; PICK_BLOCK → X; COMMAND → D-pad ↓ |
 | 2026-02-28 | B / Circle now closes open GUIs (inventory, chat, pause) on press; drops item otherwise |

@@ -82,6 +82,19 @@ public class Config {
      */
     public static float dpadSliderStep = 0.05f;
 
+    /**
+     * When true (default), the right stick can be used to scroll in GUI screens
+     * (inventories, lists, modded scrolling GUIs, etc.) by pushing up/down.
+     * This is independent of D-pad navigation and the virtual cursor.
+     */
+    public static boolean rightStickScrolling = true;
+
+    /**
+     * Scroll speed in "notches per second" at full right-stick deflection.
+     * Higher values scroll faster. Range [1.0, 100.0], default 10.0.
+     */
+    public static float scrollSensitivity = 10.0f;
+
     // ---- Action → Button mapping (populated by synchroniseConfiguration) ----
     public static ControllerMapping controllerMapping = new ControllerMapping();
 
@@ -175,6 +188,20 @@ public class Config {
             0.5f,
             "Step size for D-pad slider adjustment as a fraction of the full range [0.0, 1.0]. "
                 + "Each D-pad left/right press moves the slider by this fraction.");
+
+        rightStickScrolling = configuration.getBoolean(
+            "rightStickScrolling",
+            CAT_CONTROLLER,
+            rightStickScrolling,
+            "When true (default), the right stick scrolls in GUI screens (inventories, lists, etc.).");
+
+        scrollSensitivity = configuration.getFloat(
+            "scrollSensitivity",
+            CAT_CONTROLLER,
+            scrollSensitivity,
+            1.0f,
+            100.0f,
+            "Scroll speed in notches per second at full right-stick deflection [1.0 – 100.0].");
 
         // Bindings: persist each action → button pair
         ControllerMapping defaults = new ControllerMapping();

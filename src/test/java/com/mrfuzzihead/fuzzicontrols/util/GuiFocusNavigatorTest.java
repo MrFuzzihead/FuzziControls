@@ -285,4 +285,119 @@ public class GuiFocusNavigatorTest {
         navigator.rebuildForTest(new ArrayList<>());
         assertNull(navigator.getFocusedButton());
     }
+
+    // -------------------------------------------------------------------------
+    // Inventory slot navigation
+    // -------------------------------------------------------------------------
+
+    @Test
+    public void inventorySlotFocusedItemIsInventorySlotType() {
+        navigator.rebuildForTestInventory(new int[] { 44, 62 }, new int[] { 8, 8 }, 0, 0);
+        assertEquals(ItemType.INVENTORY_SLOT, navigator.getFocusedItem().type);
+        assertNull(navigator.getFocusedButton());
+    }
+
+    @Test
+    public void inventorySlotFocusStartsAtFirstSlot() {
+        navigator.rebuildForTestInventory(new int[] { 44, 62 }, new int[] { 8, 8 }, 0, 0);
+        assertEquals(0, navigator.getFocusedIndex());
+    }
+
+    @Test
+    public void inventorySlotEmptyListIsNoOp() {
+        navigator.rebuildForTestInventory(new int[] {}, new int[] {}, 0, 0);
+        assertNull(navigator.getFocusedItem());
+        navigator.focusNext();
+        assertNull(navigator.getFocusedItem());
+        navigator.focusPrev();
+        assertNull(navigator.getFocusedItem());
+    }
+
+    @Test
+    public void inventorySlotNullListsAreNoOp() {
+        navigator.rebuildForTestInventory(null, null, 0, 0);
+        assertNull(navigator.getFocusedItem());
+    }
+
+    @Test
+    public void inventorySlotNavigatesHorizontally() {
+        // 3 slots in a row: (44,8), (62,8), (80,8) — guiLeft=0, guiTop=0
+        navigator.rebuildForTestInventory(new int[] { 44, 62, 80 }, new int[] { 8, 8, 8 }, 0, 0);
+        assertEquals(0, navigator.getFocusedIndex());
+
+        navigator.focusRight();
+        assertEquals(1, navigator.getFocusedIndex());
+
+        navigator.focusRight();
+        assertEquals(2, navigator.getFocusedIndex());
+
+        // Wrap: right from last should go to first
+        navigator.focusRight();
+        assertEquals(0, navigator.getFocusedIndex());
+    }
+
+    @Test
+    public void inventorySlotNavigatesVertically() {
+        // 3 slots in a column: (44,8), (44,26), (44,44) — guiLeft=0, guiTop=0
+        navigator.rebuildForTestInventory(new int[] { 44, 44, 44 }, new int[] { 8, 26, 44 }, 0, 0);
+        assertEquals(0, navigator.getFocusedIndex());
+
+        navigator.focusDown();
+        assertEquals(1, navigator.getFocusedIndex());
+
+        navigator.focusDown();
+        assertEquals(2, navigator.getFocusedIndex());
+
+        // Wrap: down from last should go to first
+        navigator.focusDown();
+        assertEquals(0, navigator.getFocusedIndex());
+    }
+
+    @Test
+    public void inventorySlotFocusWrapsUpFromFirst() {
+        navigator.rebuildForTestInventory(new int[] { 44, 44 }, new int[] { 8, 26 }, 0, 0);
+        navigator.focusUp(); // wraps to index 1
+        assertEquals(1, navigator.getFocusedIndex());
+    }
+
+    @Test
+    public void inventorySlotFocusMovesInGrid() {
+        // 2x2 grid: slots at (8,8), (26,8), (8,26), (26,26) — guiLeft=0, guiTop=0
+        navigator.rebuildForTestInventory(new int[] { 8, 26, 8, 26 }, new int[] { 8, 8, 26, 26 }, 0, 0);
+        assertEquals(0, navigator.getFocusedIndex());
+
+        // Right from (8,8) → (26,8)
+        navigator.focusRight();
+        assertEquals(1, navigator.getFocusedIndex());
+
+        // Down from (26,8) → (26,26)
+        navigator.focusDown();
+        assertEquals(3, navigator.getFocusedIndex());
+
+        // Left from (26,26) → (8,26)
+        navigator.focusLeft();
+        assertEquals(2, navigator.getFocusedIndex());
+
+        // Up from (8,26) → (8,8)
+        navigator.focusUp();
+        assertEquals(0, navigator.getFocusedIndex());
+    }
+
+    @Test
+    public void inventorySlotGuiOffsetAffectsPosition() {
+        // Same slot positions with different guiLeft — should still navigate correctly
+        // because spatial navigation uses relative positions preserved by the same offset.
+        navigator.rebuildForTestInventory(new int[] { 44, 62 }, new int[] { 8, 8 }, 100, 50);
+        assertEquals(0, navigator.getFocusedIndex());
+        navigator.focusRight();
+        assertEquals(1, navigator.getFocusedIndex());
+        navigator.focusLeft();
+        assertEquals(0, navigator.getFocusedIndex());
+    }
+
+    @Test
+    public void inventorySlotGetFocusedItemCenterReturnsNullForEmpty() {
+        navigator.rebuildForTestInventory(new int[] {}, new int[] {}, 0, 0);
+        assertNull(navigator.getFocusedItemCenter());
+    }
 }
