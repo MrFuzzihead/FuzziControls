@@ -10,7 +10,7 @@ Analysis of `feature-InventoryNavigation` vs `main` (read-only review, no code c
 | 2 | Right-stick scroll rate wrong / FPS-dependent | **FIXED** — `ScrollStepper` + 12 unit tests |
 | 3 | `guiCursorY` origin inversion | open |
 | 4 | Slot "center" off by (8,8) | open |
-| 5 | Stale geometry after resize | open |
+| 5 | Stale geometry after resize | **FIXED** — `ScreenLayoutTracker` + 9 tests (awaiting in-game check) |
 | 6 | Nav self-deactivates after slot confirm | open |
 | 7–13 | High / medium issues | open |
 
@@ -44,6 +44,30 @@ Analysis of `feature-InventoryNavigation` vs `main` (read-only review, no code c
   `halfDeflectionGivesAQuarterOfTheRate`, `smallDeflectionIsPrecise` and
   `deltaIsProportionalToElapsedTime` (a 100 ms hitch equals six 16.6 ms frames).
 * Coverage proven: temporarily restoring the old formula fails **7** of the 12 tests.
+
+**#5 — Stale geometry after resize (fixed, awaiting in-game check)**
+
+* New `util/ScreenLayoutTracker.java`: a monotonic layout generation, bumped by
+  `MixinGuiScreen_SlotTracker` at the tail of every `setWorldAndResolution`. That method is what
+  `Minecraft.resize()` calls (`Minecraft.java:1633-1639`), and both resize paths go through it —
+  F11 fullscreen (`toggleFullscreen` → `resize`, `Minecraft.java:1608`) and window drag-resize
+  (`Display.wasResized()` → `resize`, `Minecraft.java:1146-1165`).
+* `GuiFocusNavigator.update()` now rebuilds when the layout generation changed, or when the
+  container slot count / `GuiSlot` entry count changed, in addition to the existing button hash.
+  Previously a re-init left the cached `guiLeft`/`guiTop`, the cached `GuiSlot` instance and the
+  cached `Slot` objects pointing at the pre-resize layout, because the button list (and its hash)
+  is rebuilt identically — so the highlight drifted off the panel and A clicked whatever slot sat
+  at the stale offset.
+* Focus is now clamped rather than reset on a layout rebuild, so a resize no longer throws the
+  player back to the first slot.
+* Tests: 9 new (3 in `ScreenLayoutTrackerTest`, 6 in `GuiFocusNavigatorTest`) covering the pure
+  change-detection logic (`layoutChanged`), the rebuild wiring (`update`), index clamping, and
+  idempotence. `getScreenButtonList(null)`/`buttonStateHash(null)` are now null-safe so the
+  change-detection path can be tested without instantiating a `GuiScreen` (its static initialiser
+  needs a live `Minecraft`, which the unit test JVM does not have).
+* Coverage proven: ignoring the generation in `layoutChanged(GuiScreen)` (the old behaviour) fails
+  `update_rebuildsWhenScreenIsReinitialised`. Note the pure `layoutChanged(...)` test alone would
+  *not* catch that — the wiring test is what pins the behaviour.
 
 ---
 
@@ -389,3 +413,22 @@ nudge in the preceding frame swallows the first D-pad press (same mechanism as #
    (Options → Video Settings → Max Framerate) — it must not change with FPS.
 4. Confirm no scrolling happens when the stick is centred, and that in-world right-stick camera
    look still works (scrolling must only apply while a GUI is open).
+
+### #5 — stale geometry after resize (awaiting validation)
+
+The repro needs a screen whose layout depends on the window size, and it must stay open across the
+resize:
+
+1. `dpadNavigation=true`, enter a world, open a **chest** (or the player inventory).
+2. Press D-pad ↑ once so the focus highlight appears, and note which slot it is on.
+3. Press **F11** (or drag-resize the window) while the screen stays open.
+4. Expected: the highlight is still drawn on the *same* slot, now at its new position, and the
+   focused slot does not jump back to the first slot.
+5. Press A on a highlighted slot: the click must land on the highlighted slot (items move
+   correctly). Before the fix the highlight drifted away from the panel and the click hit whatever
+   slot sat at the pre-resize offset.
+6. Repeat with a **world-select list** (Options-free path: Singleplayer screen) — highlight should
+   follow the rows, and A should activate the row it is highlighting.
+
+Note: only the *same screen object* re-initialised matters here; closing and reopening the screen
+always rebuilt the list and already worked.

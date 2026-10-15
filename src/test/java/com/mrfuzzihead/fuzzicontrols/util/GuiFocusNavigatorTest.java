@@ -1,8 +1,10 @@
 package com.mrfuzzihead.fuzzicontrols.util;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -399,5 +401,85 @@ public class GuiFocusNavigatorTest {
     public void inventorySlotGetFocusedItemCenterReturnsNullForEmpty() {
         navigator.rebuildForTestInventory(new int[] {}, new int[] {}, 0, 0);
         assertNull(navigator.getFocusedItemCenter());
+    }
+
+    // -------------------------------------------------------------------------
+    // Layout invalidation (window resize / fullscreen toggle / GUI scale change)
+    // -------------------------------------------------------------------------
+    //
+    // A window resize, fullscreen toggle or GUI scale change re-runs initGui() on the *same*
+    // screen object, so the screen-change check does not fire and the button list (and its hash)
+    // is identical. Before the fix the cached guiLeft/guiTop and GuiSlot references were reused,
+    // leaving the focus highlight and the synthetic slot clicks pointing at the pre-resize layout.
+    //
+    // These tests drive the pure change-detection logic directly, plus the rebuild wiring through
+    // update(). update() is called with a null screen: instantiating a GuiScreen in the unit test
+    // JVM is impossible (GuiScreen's static initialiser needs a live Minecraft), and with no
+    // container/GuiSlot involved the detection path never dereferences the screen.
+
+    @Test
+    public void layoutChange_detectedFromGeneration() {
+        assertTrue(
+            "A screen re-initialisation must invalidate cached layout",
+            GuiFocusNavigator.layoutChanged(2, 1, -1, -1, -1, -1));
+        assertFalse(GuiFocusNavigator.layoutChanged(1, 1, -1, -1, -1, -1));
+        assertFalse(
+            "First build captures the current generation",
+            GuiFocusNavigator.layoutChanged(0, 0, -1, -1, -1, -1));
+    }
+
+    @Test
+    public void layoutChange_detectedFromSlotCounts() {
+        assertTrue(
+            "A container gaining/losing slots must invalidate cached layout",
+            GuiFocusNavigator.layoutChanged(1, 1, 10, 45, -1, -1));
+        assertTrue(
+            "A GuiSlot list gaining/losing entries must invalidate cached layout",
+            GuiFocusNavigator.layoutChanged(1, 1, -1, -1, 12, 11));
+        assertFalse(GuiFocusNavigator.layoutChanged(1, 1, 45, 45, 12, 12));
+    }
+
+    @Test
+    public void update_rebuildsWhenScreenIsReinitialised() {
+        navigator.update(null);
+        int afterFirstBuild = navigator.getRebuildCountForTest();
+        assertEquals("First update builds the list", 1, afterFirstBuild);
+
+        navigator.update(null);
+        assertEquals("Unchanged layout must not rebuild", afterFirstBuild, navigator.getRebuildCountForTest());
+
+        // setWorldAndResolution ran again (resize / fullscreen / GUI scale).
+        ScreenLayoutTracker.bumpGeneration();
+        navigator.update(null);
+        assertEquals(
+            "A re-initialised screen must rebuild its focus list",
+            afterFirstBuild + 1,
+            navigator.getRebuildCountForTest());
+    }
+
+    @Test
+    public void clampIndex_preservesValidFocusAcrossResize() {
+        // Focus survives a rebuild when the item still exists (resize of the same screen).
+        assertEquals(2, GuiFocusNavigator.clampIndex(2, 3));
+        assertEquals(0, GuiFocusNavigator.clampIndex(0, 3));
+        assertEquals(2, GuiFocusNavigator.clampIndex(2, 3));
+    }
+
+    @Test
+    public void clampIndex_clampsWhenListShrinks() {
+        // A smaller GUI scale can leave fewer focusable items than the cached index.
+        assertEquals(0, GuiFocusNavigator.clampIndex(2, 1));
+        assertEquals(0, GuiFocusNavigator.clampIndex(5, 0));
+        assertEquals(0, GuiFocusNavigator.clampIndex(-1, 3));
+    }
+
+    @Test
+    public void layoutRebuildIsIdempotent() {
+        // Two consecutive updates with no layout or button change rebuild at most once.
+        navigator.update(null);
+        int afterFirstBuild = navigator.getRebuildCountForTest();
+        navigator.update(null);
+        navigator.update(null);
+        assertEquals(afterFirstBuild, navigator.getRebuildCountForTest());
     }
 }

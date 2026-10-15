@@ -15,6 +15,7 @@ import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.GuiSlot;
 import net.minecraft.client.gui.inventory.GuiContainer;
 import net.minecraft.client.settings.GameSettings;
+import net.minecraft.inventory.Container;
 import net.minecraft.inventory.Slot;
 
 import com.mrfuzzihead.fuzzicontrols.interfaces.SlotAwareScreen;
@@ -122,6 +123,23 @@ public final class GuiFocusNavigator {
      */
     private int lastButtonStateHash = 0;
 
+    /**
+     * {@link ScreenLayoutTracker} generation captured at the last rebuild. A different value means
+     * the screen was re-initialised (resize, fullscreen toggle, GUI scale change) and all cached
+     * layout data — {@code guiLeft}/{@code guiTop}, {@link GuiSlot} instances, {@link Slot} objects
+     * — may belong to the previous layout.
+     */
+    private int lastLayoutGeneration = -1;
+
+    /** Container slot count at the last rebuild, or {@code -1} for non-container screens. */
+    private int lastContainerSlotCount = -1;
+
+    /** Entry count of the cached {@link GuiSlot} at the last rebuild, or {@code -1} if none. */
+    private int lastSlotEntryCount = -1;
+
+    /** How many times the focus list has been built. Test-only diagnostic. */
+    private int rebuildCount = 0;
+
     // -------------------------------------------------------------------------
     // Public API
     // -------------------------------------------------------------------------
@@ -138,15 +156,94 @@ public final class GuiFocusNavigator {
             currentScreen = screen;
             rebuildFocusableList(screen);
             focusedIndex = 0;
-        } else {
-            int newHash = buttonStateHash(screen);
-            if (newHash != lastButtonStateHash) {
-                rebuildFocusableList(screen);
-                if (focusedIndex >= focusableItems.size()) {
-                    focusedIndex = focusableItems.isEmpty() ? 0 : focusableItems.size() - 1;
-                }
-            }
+            return;
         }
+
+        // Rebuild when the layout changed (screen re-initialised or a list/container resized) or
+        // when button visibility/enabled state changed. Focus is preserved across the rebuild so a
+        // window resize does not throw the player back to the first slot.
+        if (layoutChanged(screen) || buttonStateHash(screen) != lastButtonStateHash) {
+            rebuildFocusableList(screen);
+            clampFocusedIndex();
+        }
+    }
+
+    /**
+     * Returns true when the cached focus list no longer matches the screen's layout.
+     *
+     * <p>
+     * The {@link ScreenLayoutTracker} generation covers screen (re)initialisation, which recreates
+     * {@link GuiSlot} instances and moves container {@code guiLeft}/{@code guiTop} while leaving
+     * the button list (and therefore {@link #buttonStateHash}) unchanged. The slot counts cover
+     * lists and containers whose contents change in place, such as a world being deleted from the
+     * select-world list or a container adding slots at runtime.
+     */
+    private boolean layoutChanged(GuiScreen screen) {
+        int containerSlotCount = -1;
+        int slotEntryCount = -1;
+
+        if (screen instanceof GuiContainer container) {
+            Container slots = ((GuiContainerAccessors) container).getInventorySlots();
+            if (slots != null) containerSlotCount = slots.inventorySlots.size();
+        }
+
+        if (screen instanceof SlotAwareScreen aware) {
+            GuiSlot slot = aware.getSlot();
+            if (slot != null) slotEntryCount = ((GuiSlotAccessors) slot).callGetSize();
+        }
+
+        return layoutChanged(
+            ScreenLayoutTracker.getGeneration(),
+            lastLayoutGeneration,
+            containerSlotCount,
+            lastContainerSlotCount,
+            slotEntryCount,
+            lastSlotEntryCount);
+    }
+
+    /**
+     * Pure comparison behind {@link #layoutChanged(GuiScreen)}, separated so it can be unit tested
+     * without constructing a {@link GuiScreen} (whose static initialiser requires a live client).
+     *
+     * <p>
+     * A generation difference means the screen was re-initialised — a window resize, fullscreen
+     * toggle or GUI scale change re-runs {@code initGui()} on the same screen object, which
+     * recreates {@link GuiSlot} instances and moves container {@code guiLeft}/{@code guiTop} while
+     * leaving the button list (and therefore the button hash) identical. Count differences cover
+     * lists and containers whose contents change in place.
+     *
+     * @param generation             current {@link ScreenLayoutTracker} generation
+     * @param lastGeneration         generation captured at the last rebuild
+     * @param containerSlotCount     live container slot count, or {@code -1} when not a container
+     * @param lastContainerSlotCount container slot count at the last rebuild
+     * @param slotEntryCount         live {@link GuiSlot} entry count, or {@code -1} when none
+     * @param lastSlotEntryCount     {@link GuiSlot} entry count at the last rebuild
+     * @return true when the cached focus list must be rebuilt
+     */
+    static boolean layoutChanged(int generation, int lastGeneration, int containerSlotCount, int lastContainerSlotCount,
+        int slotEntryCount, int lastSlotEntryCount) {
+        if (generation != lastGeneration) return true;
+        if (containerSlotCount != lastContainerSlotCount) return true;
+        return slotEntryCount != lastSlotEntryCount;
+    }
+
+    /** Keeps {@link #focusedIndex} inside the current focus list. */
+    private void clampFocusedIndex() {
+        focusedIndex = clampIndex(focusedIndex, focusableItems.size());
+    }
+
+    /**
+     * Clamps a focus index into {@code [0, size)}, keeping it when it is still valid so a resize
+     * does not throw the player back to the first slot.
+     *
+     * @param index candidate index
+     * @param size  number of focusable items
+     * @return an index safe to use with the current list
+     */
+    static int clampIndex(int index, int size) {
+        if (size <= 0) return 0;
+        if (index < 0) return 0;
+        return index >= size ? size - 1 : index;
     }
 
     /**
@@ -304,6 +401,11 @@ public final class GuiFocusNavigator {
         return focusableItems.size();
     }
 
+    /** Number of times the focus list has been built. Test-only diagnostic. */
+    int getRebuildCountForTest() {
+        return rebuildCount;
+    }
+
     void rebuildForTest(List<GuiButton> buttons) {
         currentScreen = null;
         focusableItems = new ArrayList<>();
@@ -317,6 +419,7 @@ public final class GuiFocusNavigator {
         focusableItems = Collections.unmodifiableList(focusableItems);
         focusedIndex = 0;
         lastButtonStateHash = 0;
+        lastLayoutGeneration = ScreenLayoutTracker.getGeneration();
     }
 
     /**
@@ -342,6 +445,7 @@ public final class GuiFocusNavigator {
         focusableItems = Collections.unmodifiableList(focusableItems);
         focusedIndex = 0;
         lastButtonStateHash = 0;
+        lastLayoutGeneration = ScreenLayoutTracker.getGeneration();
     }
 
     // -------------------------------------------------------------------------
@@ -550,16 +654,19 @@ public final class GuiFocusNavigator {
 
     private void rebuildFocusableList(GuiScreen screen) {
         List<FocusableItem> items = new ArrayList<>();
+        lastSlotEntryCount = -1;
+        lastContainerSlotCount = -1;
 
         if (screen instanceof SlotAwareScreen aware) {
             GuiSlot slot = aware.getSlot();
             if (slot != null) {
                 GuiSlotAccessors slotAcc = (GuiSlotAccessors) slot;
+                lastSlotEntryCount = slotAcc.callGetSize();
 
                 // GuiOptionsRowList (Video Settings) rows contain individual buttons;
                 // enumerate them separately for individual focus.
                 if (slot instanceof GuiOptionsRowList rowList) {
-                    int count = slotAcc.callGetSize();
+                    int count = lastSlotEntryCount;
                     for (int i = 0; i < count; i++) {
                         Object row = rowList.getListEntry(i);
                         GuiOptionsRowListRowAccessors rowAcc = (GuiOptionsRowListRowAccessors) row;
@@ -573,7 +680,7 @@ public final class GuiFocusNavigator {
                         }
                     }
                 } else {
-                    int count = slotAcc.callGetSize();
+                    int count = lastSlotEntryCount;
                     for (int i = 0; i < count; i++) {
                         items.add(new FocusableItem(slot, i));
                     }
@@ -586,8 +693,9 @@ public final class GuiFocusNavigator {
             GuiContainerAccessors acc = (GuiContainerAccessors) container;
             int guiLeft = acc.getGuiLeft();
             int guiTop = acc.getGuiTop();
-            net.minecraft.inventory.Container cont = acc.getInventorySlots();
+            Container cont = acc.getInventorySlots();
             if (cont != null) {
+                lastContainerSlotCount = cont.inventorySlots.size();
                 for (Slot slot : cont.inventorySlots) {
                     items.add(new FocusableItem(slot, guiLeft, guiTop));
                 }
@@ -605,11 +713,16 @@ public final class GuiFocusNavigator {
 
         focusableItems = Collections.unmodifiableList(items);
         lastButtonStateHash = buttonStateHash(screen, buttons);
+        lastLayoutGeneration = ScreenLayoutTracker.getGeneration();
+        rebuildCount++;
     }
 
     @SuppressWarnings("unchecked")
     @Nullable
     private static List<GuiButton> getScreenButtonList(GuiScreen screen) {
+        // No screen means no buttons; also keeps the change-detection path free of any GuiScreen
+        // access, which is what lets the layout-invalidation logic be unit tested.
+        if (screen == null) return null;
         try {
             return ((GuiScreenAccessors) screen).getButtonList();
         } catch (Exception e) {
@@ -624,6 +737,7 @@ public final class GuiFocusNavigator {
     }
 
     private static int buttonStateHash(GuiScreen screen) {
+        if (screen == null) return 0;
         return buttonStateHash(screen, getScreenButtonList(screen));
     }
 

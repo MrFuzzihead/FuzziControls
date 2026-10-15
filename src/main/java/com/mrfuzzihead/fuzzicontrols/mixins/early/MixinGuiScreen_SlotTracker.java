@@ -13,6 +13,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import com.mrfuzzihead.fuzzicontrols.interfaces.SlotAwareScreen;
+import com.mrfuzzihead.fuzzicontrols.util.ScreenLayoutTracker;
 
 /**
  * Mixin that caches a reference to the first {@link GuiSlot} found on this screen.
@@ -31,6 +32,11 @@ public abstract class MixinGuiScreen_SlotTracker implements SlotAwareScreen {
 
     @Inject(method = "setWorldAndResolution", at = @At("TAIL"))
     private void fuzzicontrols$onSetWorldAndResolution(Minecraft mc, int width, int height, CallbackInfo ci) {
+        // This method calls initGui(), so the screen's layout is (re)built here — including on a
+        // window resize or fullscreen toggle, which re-run it on the same screen object. Signal it
+        // so cached slot geometry (GuiSlot instances, guiLeft/guiTop) is discarded rather than reused.
+        ScreenLayoutTracker.bumpGeneration();
+
         // Scan the concrete runtime class hierarchy for any GuiSlot field.
         fuzzicontrols$guiSlot = null;
         GuiScreen self = (GuiScreen) (Object) this;
