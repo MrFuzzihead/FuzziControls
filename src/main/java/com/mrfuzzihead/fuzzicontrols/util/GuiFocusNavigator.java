@@ -18,6 +18,7 @@ import net.minecraft.client.settings.GameSettings;
 import net.minecraft.inventory.Container;
 import net.minecraft.inventory.Slot;
 
+import com.mrfuzzihead.fuzzicontrols.FuzziControls;
 import com.mrfuzzihead.fuzzicontrols.interfaces.SlotAwareScreen;
 import com.mrfuzzihead.fuzzicontrols.mixins.early.GuiContainerAccessors;
 import com.mrfuzzihead.fuzzicontrols.mixins.early.GuiOptionSliderAccessors;
@@ -324,33 +325,16 @@ public final class GuiFocusNavigator {
     }
 
     /**
-     * Returns the center point (in GUI scaled coordinates, top-left origin) of the
-     * currently focused item, or {@code null} if no item is focused.
+     * Returns the centre of the currently focused item in scaled GUI coordinates (top-left origin),
+     * or {@code null} if no item is focused. This is the point used as the click target and as the
+     * {@code mouseX}/{@code mouseY} passed to slot-list callbacks, and it matches the box returned
+     * by {@link #getItemBox}. Used by the D-pad confirm and by the right-click action.
      */
     @Nullable
     public Point getFocusedItemCenter() {
         FocusableItem item = getFocusedItem();
         if (item == null) return null;
         return getItemCenter(item);
-    }
-
-    /**
-     * Returns the center point (in display pixels, LWJGL bottom-left origin) of the
-     * currently focused item, or {@code null} if no item is focused.
-     */
-    @Nullable
-    public Point getFocusedCenter() {
-        FocusableItem item = getFocusedItem();
-        if (item == null) return null;
-
-        Minecraft mc = Minecraft.getMinecraft();
-        Point guiCenter = getItemCenter(item);
-        float scaleX = (float) mc.displayWidth / (float) mc.currentScreen.width;
-        float scaleY = (float) mc.displayHeight / (float) mc.currentScreen.height;
-
-        int displayX = (int) (guiCenter.x * scaleX);
-        int displayY = (int) (guiCenter.y * scaleY);
-        return new Point(displayX, mc.displayHeight - displayY);
     }
 
     /**
@@ -609,11 +593,14 @@ public final class GuiFocusNavigator {
         }
 
         if (item.type == ItemType.INVENTORY_SLOT) {
-            // Slot background is 18x18 centred at (guiLeft + xDisplayPosition, guiTop + yDisplayPosition).
-            // The center of that 18x18 area is (guiLeft + xDisplayPosition, guiTop + yDisplayPosition).
+            // The 18x18 slot background is drawn at (xDisplayPosition - 1, yDisplayPosition - 1)
+            // and the 16x16 click hotspot starts at (xDisplayPosition, yDisplayPosition), so both
+            // are centred 8 px inside. This must agree with getItemBox(): a click point offset from
+            // the highlighted box would only land in the right slot thanks to vanilla's ±1 px
+            // tolerance in GuiContainer.func_146978_c().
             return new Point(
-                item.guiLeft + item.inventorySlot.xDisplayPosition,
-                item.guiTop + item.inventorySlot.yDisplayPosition);
+                item.guiLeft + item.inventorySlot.xDisplayPosition + 8,
+                item.guiTop + item.inventorySlot.yDisplayPosition + 8);
         }
 
         // Slot entry (GuiSlot list)
@@ -852,14 +839,14 @@ public final class GuiFocusNavigator {
         if (screen == null) return null;
         try {
             return ((GuiScreenAccessors) screen).getButtonList();
-        } catch (Exception e) {
-            try {
-                java.lang.reflect.Field f = GuiScreen.class.getDeclaredField("buttonList");
-                f.setAccessible(true);
-                return (List<GuiButton>) f.get(screen);
-            } catch (Exception ex) {
-                return null;
-            }
+        } catch (ClassCastException e) {
+            // GuiScreenAccessors is a required client mixin, so this means the mod's mixins are not
+            // applied at all, in which case navigation cannot enumerate buttons. (The previous
+            // reflective fallback looked up the MCP field name "buttonList", which does not exist
+            // in production where fields carry SRG names, so it could never work either.)
+            FuzziControls.LOG.error(
+                "[FuzziControls] GuiScreenAccessors mixin is missing; D-pad navigation cannot enumerate GUI buttons.");
+            return null;
         }
     }
 

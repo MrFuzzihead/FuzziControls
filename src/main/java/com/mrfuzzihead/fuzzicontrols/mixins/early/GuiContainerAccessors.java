@@ -5,7 +5,6 @@ import net.minecraft.inventory.Container;
 
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.gen.Accessor;
-import org.spongepowered.asm.mixin.gen.Invoker;
 
 /**
  * {@link @Accessor} and {@link @Invoker} mixin for {@link GuiContainer} (the base class of
@@ -38,7 +37,4 @@ public interface GuiContainerAccessors {
 
     @Accessor("inventorySlots")
     Container getInventorySlots();
-
-    @Invoker("getSlotAtPosition")
-    net.minecraft.inventory.Slot callGetSlotAtPosition(int mouseX, int mouseY);
 }

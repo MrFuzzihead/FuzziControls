@@ -4,6 +4,8 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiButton;
 import net.minecraftforge.client.event.GuiScreenEvent;
 
+import org.lwjgl.opengl.GL11;
+
 import com.mrfuzzihead.fuzzicontrols.Config;
 import com.mrfuzzihead.fuzzicontrols.mixins.early.GuiSlotAccessors;
 import com.mrfuzzihead.fuzzicontrols.util.GuiFocusNavigator.FocusableItem;
@@ -130,8 +132,13 @@ public final class GuiFocusRenderer {
     }
 
     /**
-     * Draws a filled rectangle using the tessellator (vanilla-style).
-     * Coordinates are in scaled GUI space (top-left origin).
+     * Draws a filled rectangle using immediate-mode GL.
+     *
+     * <p>
+     * Coordinates are in scaled GUI space (top-left origin). The shared
+     * {@link net.minecraft.client.renderer.Tessellator} is deliberately not used: this renderer runs
+     * from {@code DrawScreenEvent.Post}, so it must neither depend on nor disturb tessellator state
+     * that a screen (or another mod) may have left behind.
      */
     private static void drawRect(int left, int top, int right, int bottom, int color) {
         if (left >= right || top >= bottom) return;
@@ -141,21 +148,19 @@ public final class GuiFocusRenderer {
         float g = (float) (color >> 8 & 255) / 255.0F;
         float b = (float) (color & 255) / 255.0F;
 
-        net.minecraft.client.renderer.Tessellator tessellator = net.minecraft.client.renderer.Tessellator.instance;
-        org.lwjgl.opengl.GL11.glEnable(org.lwjgl.opengl.GL11.GL_BLEND);
-        org.lwjgl.opengl.GL11.glDisable(org.lwjgl.opengl.GL11.GL_TEXTURE_2D);
-        org.lwjgl.opengl.GL11
-            .glBlendFunc(org.lwjgl.opengl.GL11.GL_SRC_ALPHA, org.lwjgl.opengl.GL11.GL_ONE_MINUS_SRC_ALPHA);
-        org.lwjgl.opengl.GL11.glColor4f(r, g, b, a);
+        GL11.glEnable(GL11.GL_BLEND);
+        GL11.glDisable(GL11.GL_TEXTURE_2D);
+        GL11.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA);
+        GL11.glColor4f(r, g, b, a);
 
-        tessellator.startDrawingQuads();
-        tessellator.addVertex((double) left, (double) bottom, 0.0D);
-        tessellator.addVertex((double) right, (double) bottom, 0.0D);
-        tessellator.addVertex((double) right, (double) top, 0.0D);
-        tessellator.addVertex((double) left, (double) top, 0.0D);
-        tessellator.draw();
+        GL11.glBegin(GL11.GL_QUADS);
+        GL11.glVertex2i(left, bottom);
+        GL11.glVertex2i(right, bottom);
+        GL11.glVertex2i(right, top);
+        GL11.glVertex2i(left, top);
+        GL11.glEnd();
 
-        org.lwjgl.opengl.GL11.glEnable(org.lwjgl.opengl.GL11.GL_TEXTURE_2D);
-        org.lwjgl.opengl.GL11.glDisable(org.lwjgl.opengl.GL11.GL_BLEND);
+        GL11.glEnable(GL11.GL_TEXTURE_2D);
+        GL11.glDisable(GL11.GL_BLEND);
     }
 }

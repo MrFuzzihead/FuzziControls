@@ -9,14 +9,14 @@ Analysis of `feature-InventoryNavigation` vs `main` (read-only review, no code c
 | 1 | Slider stepping no-op on coarse-step options | **FIXED** — `SliderStepper` + 17 unit tests |
 | 2 | Right-stick scroll rate wrong / FPS-dependent | **FIXED** — `ScrollStepper` + 12 unit tests |
 | 3 | `guiCursorY` origin inversion | **FIXED** (side effect of #6) |
-| 4 | Slot "center" off by (8,8) | open |
+| 4 | Slot "center" off by (8,8) | **FIXED** (cleanup batch) |
 | 5 | Stale geometry after resize | **FIXED** — `ScreenLayoutTracker` + 9 tests (awaiting in-game check) |
 | 6 | Nav self-deactivates after slot confirm | **FIXED** — `MouseMotionTracker` + 12 tests (awaiting in-game check) |
 | 7 | Off-panel slots → held-stack drop hazard | **FIXED** — `isSlotFocusable` + 5 tests (awaiting in-game check) |
 | 8 | List entries activated/drawn outside the viewport | **FIXED** — visibility + scroll-into-view + 8 tests (awaiting in-game check) |
 | 9 | Right-click/shift-click ignored in nav mode | **FIXED** — `activateFocused` (awaiting in-game check) |
 | 10 | lwjgl3ify `Error` vs `Exception` fallbacks | **FIXED** — `Exception \| LinkageError` + 1 test |
-| 12 | `/fuzzicontrols reload` does not re-read the config | open |
+| 12 | `/fuzzicontrols reload` does not re-read the config | **FIXED** — `Config.reload()` + 4 tests |
 | 11 | Deactivation thresholds disagree | **FIXED** (side effect of #6) |
 | 13 | Activation race | **FIXED** (side effect of #6) |
 
@@ -160,6 +160,105 @@ Analysis of `feature-InventoryNavigation` vs `main` (read-only review, no code c
 * Test: `GuiMouseHelperLinkageTest` runs in a JVM with no usable lwjgl3ify, which is exactly the
   failing environment. Coverage proven: with the old `catch (Exception)` the test fails with
   `NoClassDefFoundError`.
+
+---
+
+## Cleanup batch
+
+**#4 — click target geometry (fixed)**
+
+The click point for a focused slot was the slot's top-left hotspot corner, 8 px away from the centre
+of the box that `GuiFocusRenderer` highlights, and `getFocusedItemCenter()` disagreed with
+`getItemBox()`. It only landed in the right slot because vanilla's `func_146978_c()` has a ±1 px
+tolerance. The centre is now computed consistently (slot background spans `[x-1, x+17]`, hotspot
+`[x, x+16]`, both centred at `x+8`).
+
+This also removed a redundant conversion: `getFocusedCenter()` converted GUI coordinates to display
+pixels and the caller converted them straight back, including a `ScaledResolution` allocation per
+click. The confirm path now uses `getFocusedItemCenter()` (already in scaled GUI coordinates, the
+space `mouseClicked`/`getSlotAtPosition` expect) and `getFocusedCenter()` is gone.
+
+Tests: 4 new assertions on the click target (slot with/without container offset, button, button with
+default height) — previously **no** test asserted a single coordinate. Coverage proven: restoring the
+corner-point computation fails two of them.
+
+**#12 — config reload (fixed)**
+
+`/fuzzicontrols reload` only re-initialised the driver, so config edits (including `dpadNavigation`
+and `rightStickScrolling`) needed a restart. `Config` now remembers the file it loaded and exposes
+`reload()`; the command re-reads the config, re-initialises the driver and reports when no config has
+been loaded yet.
+
+Documented semantics: keys present in the file win; a key absent from the file keeps its current
+value, because Forge's `Configuration` getters use the in-memory value as the default for a missing
+key (then write it back). That is now pinned by a test.
+
+Tests: 4 in `ConfigReloadTest`, driving the real Forge parser over a real temp config file. Forge's
+`Configuration` resolves paths against FML injection data, which only exists at game launch, so the
+test populates `FMLInjectionData.minecraftHome` reflectively rather than stubbing the config layer.
+
+**Test quality — `DualSenseDriverCacheTest` no longer tests a stub**
+
+It previously tested a hand-written `StubDriver` that duplicated `poll()`'s cache logic, so it could
+never fail when the real driver broke. Now:
+
+* The cache contract lives in `LastReportCache` (used by `DualSenseDriver.poll`/`close`) and is tested
+  directly: first poll without a report, cached-state fallback across 10 polls, replacement by a
+  newer report, and clearing on close.
+* `DualSenseDriver.parseReport` is package-private and tested against real HID byte layouts: axis
+  centring, full-deflection scaling/clamping, dead-zone handling, trigger threshold, face-button
+  nibble, shoulder/stick/menu bits, and all eight D-pad hat directions plus neutral. 14 tests
+  (was 6) over production code.
+
+**Dead code removed**
+
+* `GuiContainerAccessors.callGetSlotAtPosition` and `GuiSlotAccessors.getHeaderPadding` (never used).
+* The reflective `buttonList` fallback in `GuiFocusNavigator.getScreenButtonList`: it looked up the
+  MCP field name, which does not exist in production where fields carry SRG names, so it could never
+  work. A missing `GuiScreenAccessors` mixin now logs an explicit error instead of silently
+  returning no buttons.
+
+**Renderer hardening**
+
+`GuiFocusRenderer.drawRect` used the shared `Tessellator` from `DrawScreenEvent.Post`, so it depended
+on (and could disturb) tessellator state a screen or another mod may have left behind. It now uses
+immediate-mode `GL_QUADS`, which is immune to that and drops the `startDrawingQuads()`/`draw()`
+bookkeeping.
+
+**Docs**
+
+* `README.md`: added the four missing config keys (`analogMovement`, `dpadNavigation`,
+  `dpadSliderStep`, `rightStickScrolling`, `scrollSensitivity`), corrected `dropEntireStack`
+  (documented `false`, actual default `true`), documented D-pad discrete navigation and list
+  scrolling, mentioned `/fuzzicontrols reload`, and removed two entries from "Future Plans" that are
+  already implemented (D-pad navigation, Mixin `@Invoker` migration).
+* `BUTTON_BINDINGS.md`: documented X/right-click and LT/shift-click on the focused element, list
+  scroll-into-view, the off-panel slot filter, the slider grid stepping, and a changelog entry for
+  the whole bug-fix pass.
+* `Config.dpadSliderStep` javadoc said the valid range was `[0.0, 1.0]`; it is `[0.01, 0.5]`.
+* `ControllerManager.shutdown()` still claimed `HidServices` were per-driver and closed in `close()`;
+  they are shared and released by the shutdown hook.
+* `gradle.properties`: documented why `minimizeShadowedDependencies` stays `false` (hid4java/JNA
+  resolve their own classes reflectively).
+* `build.gradle.kts`: restored the missing trailing newline.
+
+---
+
+## Remaining nits (accepted, not fixed)
+
+* **Test seams in production code** — `GuiFocusNavigator.rebuildForTest*`, `getRebuildCountForTest`
+  and `getFocusableCount` exist only for tests. They are package-private and documented, but a
+  cleaner design would move the focus-list source behind an interface. Not worth the churn now.
+* **`MixinGuiScreen_SlotTracker` reflects per screen open** — the `GuiSlot` field scan walks the class
+  hierarchy with `getDeclaredFields()` + `setAccessible` on every `setWorldAndResolution`. Caching per
+  screen class would remove it, but it happens once per screen open.
+* **`DualSenseDriver.byteToAxis` is slightly asymmetric** — `(unsigned - 128) / 127.5` maps 0..255 to
+  -1.004..0.996, so full right/down deflection reaches 0.9954 instead of 1.0 (left/up clamps to -1).
+  A 0.4 % asymmetry in movement speed; left as-is to avoid changing in-world movement feel. Pinned by
+  a test.
+* **`ControllerManager.pollFresh()` reads the device every rendered frame** — a HID read per frame on
+  DualSense. Deliberate (the camera/cursor must not run on 20 Hz data); polling at tick rate and
+  interpolating would be the alternative if it ever shows up in profiles.
 
 ---
 
@@ -575,3 +674,17 @@ always rebuilt the list and already worked.
    happen (a right click must not press the focused button).
 5. Regression: A on a focused button/slot and D-pad left/right on sliders must behave exactly as
    before.
+
+### Cleanup batch — what to check in game
+
+Most of this batch is internal (dead code, docs, tests), but three changes are visible:
+
+1. **#4 click target** — in a chest, D-pad to a slot and press A. The click must still land on the
+   highlighted slot (the target moved from the slot's top-left corner to its centre). Repeat with the
+   D-pad on a slot near the panel edge.
+2. **Focus border rendering** — the border is now drawn with immediate-mode GL instead of the shared
+   tessellator. Check it still looks identical (pulsing 2 px border, correct position) on a
+   container screen, on a button screen, and on a list screen.
+3. **#12 config reload** — with the game running, change something in `config/fuzzicontrols.cfg`
+   (e.g. `lookSensitivity`) and run `/fuzzicontrols reload`; the new value must take effect without a
+   restart. Also confirm the driver still re-initialises as before.

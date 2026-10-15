@@ -405,6 +405,42 @@ public class GuiFocusNavigatorTest {
     }
 
     // -------------------------------------------------------------------------
+    // Click target geometry
+    // -------------------------------------------------------------------------
+    //
+    // The point returned here is both the D-pad confirm target and the mouseX/mouseY passed to
+    // slot-list callbacks. It must be the centre of the box that GuiFocusRenderer highlights: a
+    // click point offset from that box would only land in the right slot thanks to vanilla's ±1 px
+    // tolerance in GuiContainer.func_146978_c().
+
+    @Test
+    public void inventorySlotCentreIsInsideTheSlotHotspot() {
+        // Slot at (44, 8): the 18x18 background spans [43, 61] x [7, 25] and the 16x16 click
+        // hotspot spans [44, 60] x [8, 24], so both are centred at (52, 16).
+        navigator.rebuildForTestInventory(new int[] { 44 }, new int[] { 8 }, 0, 0);
+        assertEquals(new java.awt.Point(52, 16), navigator.getFocusedItemCenter());
+    }
+
+    @Test
+    public void inventorySlotCentreIncludesTheContainerOffset() {
+        navigator.rebuildForTestInventory(new int[] { 44 }, new int[] { 8 }, 100, 50);
+        assertEquals(new java.awt.Point(152, 66), navigator.getFocusedItemCenter());
+    }
+
+    @Test
+    public void buttonCentreIsTheButtonMiddle() {
+        navigator.rebuildForTest(Arrays.asList(btn(0, 10, 20, 100, 20, true, true)));
+        assertEquals(new java.awt.Point(60, 30), navigator.getFocusedItemCenter());
+    }
+
+    @Test
+    public void buttonCentreUsesDefaultHeightWhenUnset() {
+        // GuiButton(…, height 0) is drawn 20 px tall, which getItemBox() also assumes.
+        navigator.rebuildForTest(Arrays.asList(btn(0, 0, 0, 100, 0, true, true)));
+        assertEquals(new java.awt.Point(50, 10), navigator.getFocusedItemCenter());
+    }
+
+    // -------------------------------------------------------------------------
     // Layout invalidation (window resize / fullscreen toggle / GUI scale change)
     // -------------------------------------------------------------------------
     //

@@ -77,8 +77,10 @@ public class Config {
     public static boolean dpadNavigation = false;
 
     /**
-     * Step size for D-pad slider adjustment, as a fraction of the slider's full range [0.0, 1.0].
-     * A value of 0.05 means each D-pad left/right press moves the slider by 5%.
+     * Step size for D-pad slider adjustment, as a fraction of the slider's full range.
+     * A value of 0.05 means each D-pad left/right press moves the slider by 5% of its range, or by
+     * one step of the option's own value grid when that grid is coarser (see
+     * {@link com.mrfuzzihead.fuzzicontrols.util.SliderStepper}). Valid range is [0.01, 0.5].
      */
     public static float dpadSliderStep = 0.05f;
 
@@ -101,7 +103,11 @@ public class Config {
     // ---- Internal config reference ----
     private static Configuration configuration;
 
+    /** The file the current {@link #configuration} was read from, for {@link #reload()}. */
+    private static File configurationFile;
+
     public static void synchronizeConfiguration(File configFile) {
+        configurationFile = configFile;
         configuration = new Configuration(configFile);
 
         // Controller
@@ -229,6 +235,24 @@ public class Config {
         if (configuration.hasChanged()) {
             configuration.save();
         }
+    }
+
+    /**
+     * Re-reads the configuration file, so config changes apply without restarting the game.
+     * Called by {@code /fuzzicontrols reload}.
+     *
+     * <p>
+     * Keys present in the file override the current values. A key <em>absent</em> from the file
+     * keeps its current value rather than reverting to the documented default, because Forge's
+     * {@code Configuration} getters use the in-memory value as the default for a missing key (and
+     * that value is then written back to the file).
+     *
+     * @return true when a config file has been loaded at least once and was re-read
+     */
+    public static boolean reload() {
+        if (configurationFile == null) return false;
+        synchronizeConfiguration(configurationFile);
+        return true;
     }
 
     /** Saves the current mapping back to disk (e.g. after GUI remapping). */

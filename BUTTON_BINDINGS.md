@@ -99,8 +99,15 @@ When `dpadNavigation = true` in config, the D-pad activates discrete **inventory
 | D-pad ↑ | D-pad ↑ | **GUI focus up** (when `dpadNavigation=true`) | Moves focus to the nearest item above the current one in any screen. In inventory screens, navigates between item slots. |
 | D-pad ↓ | D-pad ↓ | **GUI focus down** (when `dpadNavigation=true`) | Moves focus to the nearest item below. In inventory screens, navigates between item slots in the container grid. |
 | D-pad ← | D-pad ← | **GUI focus left / slider decrease** (when `dpadNavigation=true`) | Moves focus left in button lists and inventory slot grids. If focused on a slider, decreases its value by `dpadSliderStep`. |
-| D-pad → | D-pad → | **GUI focus right / slider increase** (when `dpadNavigation=true`) | Moves focus right. If focused on a slider, increases its value by `dpadSliderStep`. |
-| A / Cross | A / Cross | **Confirm focused element** (when `dpadNavigation=true`) | Activates the focused button, selects a focused world/server list entry, or clicks the focused inventory slot. |
+| D-pad → | D-pad → | **GUI focus right / slider increase** (when `dpadNavigation=true`) | Moves focus right. If focused on a slider, increases its value by `dpadSliderStep` (or one step of the option's own value grid when that grid is coarser — e.g. Mipmap Levels, Anisotropic Filtering). |
+| A / Cross | A / Cross | **Confirm focused element** (when `dpadNavigation=true`) | Activates the focused button, selects a focused world/server list entry, or clicks the focused inventory slot. With shift-click armed (LT), a focused slot moves the entire stack. |
+| X / Square | X / Square | **Right-click focused slot** (when `dpadNavigation=true`) | Splits a stack / places a single item on the focused inventory slot. Does nothing on a focused button or slider (a right-click would otherwise press the button). |
+| LT / L2 | L2 | **Arm shift-click** (when `dpadNavigation=true`) | As in cursor mode: the next A/Cross on a focused slot moves the entire stack. |
+
+While `dpadNavigation=true`, list screens (world select, server list, video settings) scroll themselves so
+the focused entry stays visible, and an entry that is scrolled out of view is never activated — pressing
+A scrolls it back into view instead. Slots that the screen cannot interact with (hidden/off-panel slots in
+modded containers, horse armour before the saddle) are skipped entirely.
 
 When `dpadNavigation = false` (the default), all D-pad directions remain **unbound** as before — the left-stick virtual cursor is the only GUI navigation method.
 
@@ -152,6 +159,8 @@ Scroll behavior is controlled by `rightStickScrolling` (default `true`) and `scr
 
 | Date | Change |
 |---|---|
+| 2026-08-23 | **Bug-fix pass over the GUI navigation feature** — slider stepping now walks the option's own value grid (Mipmap Levels and Anisotropic Filtering could not be adjusted at all); right-stick scroll rate is frame-rate independent (`scrollSensitivity` notches/second instead of `sensitivity²/fps`); cached slot geometry is invalidated when a screen is re-initialised (resize / fullscreen / GUI scale) so the highlight and clicks no longer use pre-resize coordinates; D-pad navigation no longer deactivates itself after a slot confirm (the mod's own cursor warps were mistaken for mouse movement); off-panel/non-hoverable container slots are no longer focusable (clicking one used to drop the carried stack into the world); list entries scrolled out of view are never activated and the list scrolls to follow the focus; X and LT now act on the focused element in D-pad mode; lwjgl3ify linkage failures no longer escape into the game loop. |
+| 2026-08-23 | `/fuzzicontrols reload` now re-reads `config/fuzzicontrols.cfg` as well as re-initialising the driver, so config edits apply without restarting. |
 | 2026-03-02 | **Inventory D-pad navigation** — `GuiFocusNavigator` now enumerates inventory `Slot` objects from any `GuiContainer` screen (player inventory, chests, crafting tables, furnaces, and modded containers). D-pad up/down/left/right navigates the slot grid spatially; A/Cross confirms by injecting a click at the focused slot position. `GuiContainerAccessors` mixin added to expose layout fields. |
 | 2026-03-02 | **Right-stick scroll wheel** — when a GUI is open, the right stick's vertical axis scrolls lists and inventories with quadratic precision. Controlled by `rightStickScrolling` and `scrollSensitivity` config keys. Uses lwjgl3ify `addWheelEvent()` for reliable event injection. |
 | 2026-02-28 | Initial bindings established from Minecraft wiki controller layout |

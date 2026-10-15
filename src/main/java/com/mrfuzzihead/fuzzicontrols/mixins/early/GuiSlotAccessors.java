@@ -37,9 +37,6 @@ public interface GuiSlotAccessors {
     @Accessor("lastClicked")
     void setLastClicked(long value);
 
-    @Accessor("headerPadding")
-    int getHeaderPadding();
-
     @Accessor("amountScrolled")
     float getAmountScrolled();
 

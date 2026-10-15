@@ -1021,13 +1021,15 @@ public class ControllerTickHandler {
             return true;
         }
 
-        java.awt.Point center = guiFocusNavigator.getFocusedCenter();
+        java.awt.Point center = guiFocusNavigator.getFocusedItemCenter();
         if (center == null) return true;
 
+        // getFocusedItemCenter() is already in scaled GUI coordinates, which is the space
+        // GuiScreen.mouseClicked()/mouseMovedOrUp() and GuiContainer.getSlotAtPosition() expect.
+        int guiX = center.x;
+        int guiY = center.y;
+
         Minecraft mc = Minecraft.getMinecraft();
-        ScaledResolution sr = new ScaledResolution(mc, mc.displayWidth, mc.displayHeight);
-        int guiX = (int) (center.x * sr.getScaledWidth() / mc.displayWidth);
-        int guiY = sr.getScaledHeight() - (int) (center.y * sr.getScaledHeight() / mc.displayHeight) - 1;
 
         try {
             GuiScreenAccessors accessors = (GuiScreenAccessors) mc.currentScreen;

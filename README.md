@@ -51,9 +51,21 @@ When any screen is open — inventory, crafting table, chest, the pause menu, or
 - **A / Cross** → left-click (select slots, press buttons, pick items)
 - **X / Square** → right-click (split stacks, etc.)
 - **LT / L2** → arm shift-click mode — the next left-click moves an entire stack, just like Shift+clicking with a mouse
+- **Right stick ↑/↓** → scroll lists, inventories and other scrolling GUIs (quadratic response, speed set by `scrollSensitivity`)
 - **B / Circle** → close the screen
 
 Because the real OS cursor is driven, this works with **every vanilla and mod GUI automatically**.
+
+### D-pad discrete navigation (optional)
+
+With `dpadNavigation = true` the D-pad navigates GUI elements discretely instead of relying on the
+virtual cursor:
+
+- **D-pad ↑/↓/←/→** → move focus to the nearest element (inventory slot, button or list entry), scrolling lists so the focused entry stays visible
+- **D-pad ←/→ on a slider** → adjust the value by `dpadSliderStep` (or one step of the option's own value grid)
+- **A / Cross** → activate the focused element; with shift-click armed, moves the whole stack
+- **X / Square** → right-click the focused slot (split stacks, place one item)
+- The focus is highlighted with a pulsing border and is dropped as soon as you use the left stick or the mouse
 
 ---
 
@@ -70,9 +82,17 @@ All options live in `config/fuzzicontrols.cfg`:
 | `lookSensitivity` | `2.0` | Right-stick camera speed multiplier |
 | `inventoryCursorSensitivity` | `300` | GUI cursor speed (display px/s at reference resolution, [1–2000]) |
 | `sneakToggle` | `true` | `true` = press RS to toggle sneak; `false` = hold RS to sneak |
-| `dropEntireStack` | `false` | Hold B/○ to drop entire stack instead of one item |
+| `dropEntireStack` | `true` | Hold B/○ to drop entire stack instead of one item |
+| `analogMovement` | `true` | Scale movement speed with left-stick deflection instead of on/off |
+| `dpadNavigation` | `false` | `true` = D-pad navigates GUI elements discretely (see above) |
+| `dpadSliderStep` | `0.05` | Slider step per D-pad press as a fraction of range ([0.01–0.5]) |
+| `rightStickScrolling` | `true` | `true` = right stick scrolls while a GUI is open |
+| `scrollSensitivity` | `10.0` | Scroll speed in notches/second at full deflection ([1–100]) |
 
 Every button binding can also be remapped via the `[bindings]` section.
+
+Config edits can be applied without restarting the game with `/fuzzicontrols reload`, which re-reads
+the config file and re-initialises the controller driver.
 
 ---
 
@@ -89,9 +109,6 @@ Every button binding can also be remapped via the `[bindings]` section.
 ## 🗺️ Future Plans
 
 - **In-game key binding GUI** — a dedicated screen accessible from the Options or pause menu for remapping every controller action, with proper button icons (Xbox colours for XInput, PlayStation colours for DualSense), all navigable without a mouse
-- **D-pad discrete menu navigation** — arrow-key style slot and button navigation as an alternative to the virtual cursor, closer to how console editions of Minecraft navigate menus
-- **Analog movement speed** — scale player walk speed with left-stick deflection magnitude (gentle push = slow walk, full push = full run), configurable and off by default; requires Mixin infrastructure
-- **Mixin migration** — replace current reflection-based GUI dispatch with SpongePowered Mixin `@Invoker` interfaces for cleaner, more compatible code
 - **Broader controller support** — investigate support for non-XInput controllers (e.g. older DirectInput gamepads) and Linux/macOS environments
 
 ---

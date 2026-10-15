@@ -64,7 +64,7 @@ public class DualSenseDriver implements IControllerDriver {
     }
 
     private HidDevice device;
-    private ControllerState lastState = null;
+    private final LastReportCache reportCache = new LastReportCache();
 
     public DualSenseDriver() {
         try {
@@ -103,23 +103,32 @@ public class DualSenseDriver implements IControllerDriver {
 
         byte[] data = new byte[REPORT_SIZE];
         try {
-            ControllerState latest = lastState;
+            // Drain every report that is waiting; the last one is the freshest state.
+            ControllerState fresh = null;
             int read;
             while ((read = device.read(data, 0)) >= REPORT_MIN_BYTES) {
-                latest = parseReport(data, deadZone, triggerThreshold);
+                fresh = parseReport(data, deadZone, triggerThreshold);
             }
-            if (latest != null) {
-                lastState = latest;
-                return latest;
-            }
-            return ControllerState.empty();
+            return reportCache.record(fresh);
         } catch (Exception e) {
             FuzziControls.LOG.debug("[FuzziControls] DualSense read error: {}", e.getMessage());
-            return lastState != null ? lastState : ControllerState.empty();
+            return reportCache.current();
         }
     }
 
-    private static ControllerState parseReport(byte[] data, float deadZone, float triggerThreshold) {
+    /**
+     * Decodes one HID input report.
+     *
+     * <p>
+     * Package-private so the report decoding (axis scaling, D-pad hat masks, button bits) can be
+     * unit tested without hardware.
+     *
+     * @param data             report bytes; must contain at least {@value #REPORT_MIN_BYTES} bytes
+     * @param deadZone         stick dead-zone passed to {@link ControllerState#normaliseAxis}
+     * @param triggerThreshold trigger threshold passed to {@link ControllerState#normaliseTrigger}
+     * @return the decoded state
+     */
+    static ControllerState parseReport(byte[] data, float deadZone, float triggerThreshold) {
         float lx = byteToAxis(data[1]);
         float ly = byteToAxis(data[2]);
         float rx = byteToAxis(data[3]);
@@ -173,7 +182,7 @@ public class DualSenseDriver implements IControllerDriver {
             }
             device = null;
         }
-        lastState = null;
+        reportCache.clear();
     }
 
     @Override

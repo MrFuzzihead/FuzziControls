@@ -1,6 +1,7 @@
 package com.mrfuzzihead.fuzzicontrols.controller;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
@@ -9,99 +10,204 @@ import java.util.Collections;
 import org.junit.Test;
 
 /**
- * Unit tests for the DualSense driver's non-blocking read / last-state cache logic.
+ * Tests the DualSense driver's non-blocking read handling and HID report decoding.
  *
  * <p>
- * Because the real {@link DualSenseDriver} requires physical hardware and HID4Java, these
- * tests exercise the {@link ControllerState} caching contract in isolation using a
- * minimal stub that mirrors the cache behaviour added to {@link DualSenseDriver}.
+ * These exercise the real production code — {@link LastReportCache} (used by
+ * {@link DualSenseDriver#poll}) and {@link DualSenseDriver#parseReport} — rather than a stub that
+ * duplicated the logic, so a regression in either is caught here.
  */
 public class DualSenseDriverCacheTest {
 
-    /**
-     * Simulates the DualSense poll() caching contract:
-     * <ul>
-     * <li>When a valid read is returned, it is stored as {@code lastState} and returned.</li>
-     * <li>When a subsequent read returns fewer than 10 bytes (no new report available from
-     * a non-blocking read), the cached {@code lastState} is returned instead of
-     * {@link ControllerState#empty()}.</li>
-     * </ul>
-     */
-    private static class StubDriver {
+    private static final float DEAD_ZONE = 0.15f;
 
-        private ControllerState lastState = null;
+    private static final float TRIGGER_THRESHOLD = 0.2f;
 
-        /**
-         * Mirrors the cache logic inside {@code DualSenseDriver.poll()}.
-         *
-         * @param simulatedBytesRead number of bytes returned by the simulated HID read
-         * @param stateToCache       the state that would be built if the read succeeded
-         */
-        ControllerState poll(int simulatedBytesRead, ControllerState stateToCache) {
-            if (simulatedBytesRead < 10) {
-                return lastState != null ? lastState : ControllerState.empty();
-            }
-            lastState = stateToCache;
-            return lastState;
+    /** Builds a report: axes at centre, triggers released, no buttons, D-pad neutral. */
+    private static byte[] neutralReport() {
+        byte[] data = new byte[64];
+        data[1] = (byte) 128; // LX
+        data[2] = (byte) 128; // LY
+        data[3] = (byte) 128; // RX
+        data[4] = (byte) 128; // RY
+        data[5] = 0; // LT
+        data[6] = 0; // RT
+        data[8] = 0x08; // buttons 1 (no face buttons) + D-pad hat = 8 (neutral)
+        data[9] = 0; // buttons 2
+        return data;
+    }
+
+    private static ControllerState parse(byte[] data) {
+        return DualSenseDriver.parseReport(data, DEAD_ZONE, TRIGGER_THRESHOLD);
+    }
+
+    // -------------------------------------------------------------------------
+    // LastReportCache contract
+    // -------------------------------------------------------------------------
+
+    @Test
+    public void firstPollWithoutReportReturnsEmpty() {
+        LastReportCache cache = new LastReportCache();
+        assertEquals(ControllerState.empty(), cache.record(null));
+    }
+
+    @Test
+    public void validReportIsCachedAndReturned() {
+        LastReportCache cache = new LastReportCache();
+        ControllerState expected = new ControllerState(0.5f, -0.3f, 0f, 0f, 0f, 0f, Collections.emptySet());
+        assertSame("A parsed report is returned as-is", expected, cache.record(expected));
+    }
+
+    @Test
+    public void pollWithoutReportReturnsTheCachedState() {
+        // A 250 Hz device polled at 60 Hz returns no report most of the time; returning empty()
+        // here would drop every button press and axis movement between reports.
+        LastReportCache cache = new LastReportCache();
+        ControllerState expected = new ControllerState(0.5f, -0.3f, 0f, 0f, 0f, 0f, Collections.emptySet());
+        cache.record(expected);
+
+        for (int poll = 0; poll < 10; poll++) {
+            assertSame("A poll with no report must return the cached state", expected, cache.record(null));
         }
     }
 
     @Test
-    public void firstPoll_noReport_returnsEmpty() {
-        StubDriver driver = new StubDriver();
-        ControllerState result = driver.poll(0, null);
-        assertEquals("No cached state — should return empty()", ControllerState.empty(), result);
-    }
-
-    @Test
-    public void firstPoll_validReport_returnsAndCachesState() {
-        StubDriver driver = new StubDriver();
-        ControllerState expected = new ControllerState(0.5f, -0.3f, 0f, 0f, 0f, 0f, Collections.emptySet());
-        ControllerState result = driver.poll(64, expected);
-        assertSame("Valid read should return and cache the new state", expected, result);
-    }
-
-    @Test
-    public void subsequentPoll_noReport_returnsLastValidState() {
-        StubDriver driver = new StubDriver();
-        ControllerState expected = new ControllerState(0.5f, -0.3f, 0f, 0f, 0f, 0f, Collections.emptySet());
-
-        // First poll succeeds and caches the state.
-        driver.poll(64, expected);
-
-        // Second poll — non-blocking read returns 0 bytes (no new report).
-        ControllerState result = driver.poll(0, null);
-        assertSame("Non-blocking miss should return the previously cached state", expected, result);
-    }
-
-    @Test
-    public void subsequentPoll_validReport_updatesCache() {
-        StubDriver driver = new StubDriver();
+    public void newerReportReplacesTheCachedState() {
+        LastReportCache cache = new LastReportCache();
         ControllerState first = new ControllerState(0.5f, 0f, 0f, 0f, 0f, 0f, Collections.emptySet());
         ControllerState second = new ControllerState(-0.5f, 0f, 0f, 0f, 0f, 0f, Collections.emptySet());
 
-        driver.poll(64, first);
-        ControllerState result = driver.poll(64, second);
-
-        assertSame("A new valid read should update and return the new cached state", second, result);
+        cache.record(first);
+        assertSame(second, cache.record(second));
+        assertSame(second, cache.current());
     }
 
     @Test
-    public void multipleMisses_returnsSameCachedState() {
-        StubDriver driver = new StubDriver();
-        ControllerState cached = new ControllerState(0f, 0f, 0.8f, 0f, 0f, 0f, Collections.emptySet());
-        driver.poll(64, cached);
+    public void clearDropsTheCachedState() {
+        LastReportCache cache = new LastReportCache();
+        cache.record(new ControllerState(0.5f, 0f, 0f, 0f, 0f, 0f, Collections.emptySet()));
 
-        // Simulate several non-blocking misses in a row (e.g. DualSense polled at 60 Hz but
-        // reports at 250 Hz — most polls between reports return 0 bytes).
-        for (int i = 0; i < 10; i++) {
-            ControllerState result = driver.poll(0, null);
-            assertSame("Every miss should return the same cached state", cached, result);
-        }
+        cache.clear();
+        assertEquals(ControllerState.empty(), cache.current());
+    }
+
+    // -------------------------------------------------------------------------
+    // HID report decoding
+    // -------------------------------------------------------------------------
+
+    @Test
+    public void centredSticksAndReleasedTriggersDecodeToZero() {
+        ControllerState state = parse(neutralReport());
+        assertEquals(0f, state.leftStickX(), 0f);
+        assertEquals(0f, state.leftStickY(), 0f);
+        assertEquals(0f, state.rightStickX(), 0f);
+        assertEquals(0f, state.rightStickY(), 0f);
+        assertEquals(0f, state.leftTrigger(), 0f);
+        assertEquals(0f, state.rightTrigger(), 0f);
+        assertTrue(
+            state.pressedButtons()
+                .isEmpty());
     }
 
     @Test
-    public void emptyState_hasZeroAxesAndNoButtons() {
+    public void stickDeflectionIsScaledAndClamped() {
+        byte[] data = neutralReport();
+        data[1] = (byte) 0; // LX fully left
+        data[2] = (byte) 255; // LY fully down
+        ControllerState state = parse(data);
+
+        assertEquals("Full deflection clamps to -1", -1f, state.leftStickX(), 0f);
+        // byteToAxis() maps 0..255 onto -1.004..0.996 (centre 128, divisor 127.5), so the positive
+        // extreme is a fraction short of +1. It must stay inside the documented [-1, 1] range.
+        assertTrue("Full deflection stays within +1", state.leftStickY() <= 1f);
+        assertTrue("Full deflection is effectively full", state.leftStickY() > 0.99f);
+    }
+
+    @Test
+    public void valuesInsideTheDeadZoneDecodeToZero() {
+        byte[] data = neutralReport();
+        data[1] = (byte) (128 + 10); // LX just outside centre, inside the dead zone
+        ControllerState state = parse(data);
+        assertEquals(0f, state.leftStickX(), 0f);
+    }
+
+    @Test
+    public void triggerBelowThresholdIsReleased() {
+        byte[] data = neutralReport();
+        data[5] = (byte) 40; // ~0.157, below the 0.2 threshold
+        data[6] = (byte) 255;
+        ControllerState state = parse(data);
+        assertEquals(0f, state.leftTrigger(), 0f);
+        assertEquals(1f, state.rightTrigger(), 0f);
+        assertFalse("A released trigger is not a pressed button", state.isPressed(ControllerButton.LEFT_TRIGGER));
+        assertTrue(state.isPressed(ControllerButton.RIGHT_TRIGGER));
+    }
+
+    @Test
+    public void faceButtonsDecodeFromTheHighNibble() {
+        byte[] data = neutralReport();
+        data[8] = (byte) (0x08 | 0x20 | 0x80); // neutral hat + A + Y
+        ControllerState state = parse(data);
+
+        assertTrue(state.isPressed(ControllerButton.A));
+        assertTrue(state.isPressed(ControllerButton.Y));
+        assertFalse(state.isPressed(ControllerButton.B));
+        assertFalse(state.isPressed(ControllerButton.X));
+    }
+
+    @Test
+    public void secondButtonByteDecodesShouldersSticksAndMenuButtons() {
+        byte[] data = neutralReport();
+        data[9] = (byte) (0x01 | 0x02 | 0x10 | 0x20 | 0x40 | 0x80);
+        ControllerState state = parse(data);
+
+        assertTrue(state.isPressed(ControllerButton.LEFT_BUMPER));
+        assertTrue(state.isPressed(ControllerButton.RIGHT_BUMPER));
+        assertTrue(state.isPressed(ControllerButton.BACK));
+        assertTrue(state.isPressed(ControllerButton.START));
+        assertTrue(state.isPressed(ControllerButton.LEFT_STICK_CLICK));
+        assertTrue(state.isPressed(ControllerButton.RIGHT_STICK_CLICK));
+    }
+
+    @Test
+    public void dpadHatMasksDecodeToTheExpectedDirections() {
+        // DualSense encodes the D-pad as a hat: 0=N, 1=NE, 2=E, 3=SE, 4=S, 5=SW, 6=W, 7=NW.
+        assertDpad(0, true, false, false, false);
+        assertDpad(1, true, true, false, false);
+        assertDpad(2, false, true, false, false);
+        assertDpad(3, false, true, true, false);
+        assertDpad(4, false, false, true, false);
+        assertDpad(5, false, false, true, true);
+        assertDpad(6, false, false, false, true);
+        assertDpad(7, true, false, false, true);
+    }
+
+    @Test
+    public void neutralDpadHatPressesNothing() {
+        byte[] data = neutralReport();
+        data[8] = 0x08; // hat value 8 = released
+        ControllerState state = parse(data);
+
+        assertFalse(state.isPressed(ControllerButton.DPAD_UP));
+        assertFalse(state.isPressed(ControllerButton.DPAD_DOWN));
+        assertFalse(state.isPressed(ControllerButton.DPAD_LEFT));
+        assertFalse(state.isPressed(ControllerButton.DPAD_RIGHT));
+    }
+
+    private static void assertDpad(int hat, boolean up, boolean right, boolean down, boolean left) {
+        byte[] data = neutralReport();
+        // The hat value occupies the low nibble: 0..7 are directions, 8 is neutral.
+        data[8] = (byte) hat;
+        ControllerState state = parse(data);
+
+        assertEquals("hat " + hat + " up", up, state.isPressed(ControllerButton.DPAD_UP));
+        assertEquals("hat " + hat + " right", right, state.isPressed(ControllerButton.DPAD_RIGHT));
+        assertEquals("hat " + hat + " down", down, state.isPressed(ControllerButton.DPAD_DOWN));
+        assertEquals("hat " + hat + " left", left, state.isPressed(ControllerButton.DPAD_LEFT));
+    }
+
+    @Test
+    public void emptyStateHasZeroAxesAndNoButtons() {
         ControllerState empty = ControllerState.empty();
         assertEquals(0f, empty.leftStickX(), 0f);
         assertEquals(0f, empty.leftStickY(), 0f);
