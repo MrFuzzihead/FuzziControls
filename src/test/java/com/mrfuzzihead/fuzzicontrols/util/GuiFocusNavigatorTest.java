@@ -11,6 +11,7 @@ import java.util.Arrays;
 import java.util.List;
 
 import net.minecraft.client.gui.GuiButton;
+import net.minecraft.inventory.Slot;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -481,5 +482,64 @@ public class GuiFocusNavigatorTest {
         navigator.update(null);
         navigator.update(null);
         assertEquals(afterFirstBuild, navigator.getRebuildCountForTest());
+    }
+
+    // -------------------------------------------------------------------------
+    // Slot focusability (click-outside-the-panel hazard)
+    // -------------------------------------------------------------------------
+    //
+    // GuiContainer.mouseClicked treats a click outside the panel as "outside the container"
+    // (slot id -999, click type 4), which drops the carried item stack into the world. Modded
+    // containers can place slots outside the drawn panel, so they must never be focusable.
+
+    private static final int PANEL_W = 176;
+
+    private static final int PANEL_H = 166;
+
+    private static Slot slotAt(int x, int y) {
+        return new Slot(null, 0, x, y);
+    }
+
+    @Test
+    public void slotInsidePanelIsFocusable() {
+        assertTrue(GuiFocusNavigator.isSlotFocusable(slotAt(8, 8), PANEL_W, PANEL_H));
+        assertTrue(GuiFocusNavigator.isSlotFocusable(slotAt(80, 60), PANEL_W, PANEL_H));
+        assertTrue(
+            "The last clickable pixel column is xSize - 1",
+            GuiFocusNavigator.isSlotFocusable(slotAt(175, 165), PANEL_W, PANEL_H));
+    }
+
+    @Test
+    public void slotOutsidePanelIsNotFocusable() {
+        assertFalse("Left of the panel", GuiFocusNavigator.isSlotFocusable(slotAt(-1, 8), PANEL_W, PANEL_H));
+        assertFalse("Above the panel", GuiFocusNavigator.isSlotFocusable(slotAt(8, -1), PANEL_W, PANEL_H));
+        assertFalse("Right edge is outside", GuiFocusNavigator.isSlotFocusable(slotAt(PANEL_W, 8), PANEL_W, PANEL_H));
+        assertFalse("Bottom edge is outside", GuiFocusNavigator.isSlotFocusable(slotAt(8, PANEL_H), PANEL_W, PANEL_H));
+    }
+
+    @Test
+    public void hiddenModdedSlotsAreNotFocusable() {
+        // Containers commonly park unused slots far off-panel (negative or huge coordinates).
+        assertFalse(GuiFocusNavigator.isSlotFocusable(slotAt(-1000, -1000), PANEL_W, PANEL_H));
+        assertFalse(GuiFocusNavigator.isSlotFocusable(slotAt(9999, 9999), PANEL_W, PANEL_H));
+    }
+
+    @Test
+    public void nullSlotIsNotFocusable() {
+        assertFalse(GuiFocusNavigator.isSlotFocusable(null, PANEL_W, PANEL_H));
+    }
+
+    @Test
+    public void nonHoverableSlotIsNotFocusable() {
+        // Slot.func_111238_b() gates whether the screen will let the player interact with a slot
+        // (e.g. ContainerHorseInventory hides armour slots until the horse is saddled).
+        Slot hidden = new Slot(null, 0, 8, 8) {
+
+            @Override
+            public boolean func_111238_b() {
+                return false;
+            }
+        };
+        assertFalse(GuiFocusNavigator.isSlotFocusable(hidden, PANEL_W, PANEL_H));
     }
 }

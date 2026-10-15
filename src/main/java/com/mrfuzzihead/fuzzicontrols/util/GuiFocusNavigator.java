@@ -693,10 +693,13 @@ public final class GuiFocusNavigator {
             GuiContainerAccessors acc = (GuiContainerAccessors) container;
             int guiLeft = acc.getGuiLeft();
             int guiTop = acc.getGuiTop();
+            int xSize = acc.getXSize();
+            int ySize = acc.getYSize();
             Container cont = acc.getInventorySlots();
             if (cont != null) {
                 lastContainerSlotCount = cont.inventorySlots.size();
                 for (Slot slot : cont.inventorySlots) {
+                    if (!isSlotFocusable(slot, xSize, ySize)) continue;
                     items.add(new FocusableItem(slot, guiLeft, guiTop));
                 }
             }
@@ -715,6 +718,35 @@ public final class GuiFocusNavigator {
         lastButtonStateHash = buttonStateHash(screen, buttons);
         lastLayoutGeneration = ScreenLayoutTracker.getGeneration();
         rebuildCount++;
+    }
+
+    /**
+     * Returns true when a container slot can safely be focused and clicked by the D-pad.
+     *
+     * <p>
+     * {@code GuiContainer.mouseClicked} treats any click outside the container's panel as a click
+     * "outside the container": it substitutes slot id -999 and click type 4, which makes the
+     * container drop the carried item stack into the world. Modded containers (and vanilla ones
+     * with conditional slots) can position slots outside the drawn panel, so those must never be
+     * focusable. Slots the screen itself refuses to hover ({@code Slot.func_111238_b()}, e.g. horse
+     * armour slots before the horse is saddled) are excluded for the same reason.
+     *
+     * <p>
+     * The click point used by {@link #getItemCenter} is {@code (guiLeft + xDisplayPosition,
+     * guiTop + yDisplayPosition)}, so the panel-relative test is exact: vanilla's
+     * {@code func_146978_c} is passed that point and rejects anything outside
+     * {@code [guiLeft, guiLeft + xSize) x [guiTop, guiTop + ySize)}.
+     *
+     * @param slot  candidate container slot
+     * @param xSize panel width in pixels
+     * @param ySize panel height in pixels
+     * @return true when the slot is hoverable and its click point lies inside the panel
+     */
+    static boolean isSlotFocusable(Slot slot, int xSize, int ySize) {
+        if (slot == null || !slot.func_111238_b()) return false;
+        int x = slot.xDisplayPosition;
+        int y = slot.yDisplayPosition;
+        return x >= 0 && y >= 0 && x < xSize && y < ySize;
     }
 
     @SuppressWarnings("unchecked")

@@ -20,6 +20,7 @@ import com.mrfuzzihead.fuzzicontrols.util.GuiFocusRenderer;
 import com.mrfuzzihead.fuzzicontrols.util.GuiKeyHelper;
 import com.mrfuzzihead.fuzzicontrols.util.GuiMouseHelper;
 import com.mrfuzzihead.fuzzicontrols.util.KeyboardHelper;
+import com.mrfuzzihead.fuzzicontrols.util.MouseMotionTracker;
 import com.mrfuzzihead.fuzzicontrols.util.ScrollStepper;
 
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -246,11 +247,11 @@ public class ControllerTickHandler {
      */
     private boolean mouseMovedSinceLastTick = false;
 
-    /** Last mouse X from the render tick, used to detect mouse movement across frames. */
-    private int lastMouseX = Integer.MIN_VALUE;
-
-    /** Last mouse Y from the render tick, used to detect mouse movement across frames. */
-    private int lastMouseY = Integer.MIN_VALUE;
+    /**
+     * Distinguishes real mouse movement from the cursor warps this mod performs itself, so a
+     * D-pad slot confirm or a sub-threshold stick nudge cannot deactivate D-pad navigation.
+     */
+    private final MouseMotionTracker mouseMotionTracker = new MouseMotionTracker();
 
     // -------------------------------------------------------------------------
     // Game tick — 20 Hz — movement, buttons, edge triggers
@@ -299,7 +300,7 @@ public class ControllerTickHandler {
                 guiCursorX = mc.displayWidth / 2f;
                 guiCursorY = mc.displayHeight / 2f;
                 guiCursorInitialized = true;
-                Mouse.setCursorPosition((int) guiCursorX, mc.displayHeight - 1 - (int) guiCursorY);
+                warpCursor(mc, guiCursorX, guiCursorY);
             }
             // ---- D-pad discrete navigation state machine ----
             // Activation: any D-pad ↑/↓/←/→ physically pressed (not rising edge — we preserve
@@ -372,26 +373,22 @@ public class ControllerTickHandler {
                         if (focused.type == ItemType.SLOT_ENTRY) {
                             guiFocusNavigator.confirmSlotEntry();
                         } else if (focused.type == ItemType.INVENTORY_SLOT) {
-                            // Move the OS cursor to the slot position so the LWJGL event state
-                            // is consistent, then dispatch mouseClicked directly with the correct
-                            // GUI coordinates. This bypasses the LWJGL event queue (which would
-                            // use stale cursor coordinates) and makes GuiContainer.getSlotAtPosition()
-                            // see the right slot via the method parameters.
+                            // Dispatch the click directly with the slot's coordinates, which is what
+                            // GuiContainer.getSlotAtPosition() uses. The OS cursor is deliberately
+                            // NOT moved here: warping it makes the platform emit a real mouse-motion
+                            // event, which the deactivation check would read as "the player grabbed
+                            // the mouse" and would switch D-pad navigation off, swallowing the next
+                            // D-pad press. The focus border already marks the focused slot.
                             java.awt.Point center = guiFocusNavigator.getFocusedCenter();
                             if (center != null) {
-                                // Move OS cursor to the slot's display coordinates.
-                                Mouse.setCursorPosition(center.x, center.y);
-                                guiCursorX = center.x;
-                                guiCursorY = center.y;
-
                                 ScaledResolution sr = new ScaledResolution(mc, mc.displayWidth, mc.displayHeight);
                                 int guiX = (int) (center.x * sr.getScaledWidth() / mc.displayWidth);
                                 int guiY = sr.getScaledHeight()
                                     - (int) (center.y * sr.getScaledHeight() / mc.displayHeight)
                                     - 1;
-                                // Direct dispatch: mouseClicked receives the correct coordinates
-                                // as method parameters, so GuiContainer.getSlotAtPosition() finds
-                                // the right slot regardless of cursor position.
+                                // mouseClicked receives the coordinates as method parameters, so
+                                // GuiContainer.getSlotAtPosition() finds the right slot regardless
+                                // of where the OS cursor happens to be.
                                 try {
                                     GuiScreenAccessors accessors = (GuiScreenAccessors) mc.currentScreen;
                                     accessors.callMouseClicked(guiX, guiY, 0);
@@ -483,8 +480,7 @@ public class ControllerTickHandler {
         dpadNavState = DpadNavState.INACTIVE;
         GuiFocusRenderer.setNavActive(false);
         mouseMovedSinceLastTick = false;
-        lastMouseX = -1;
-        lastMouseY = -1;
+        mouseMotionTracker.reset();
         consumeGuiClick(ControllerAction.GUI_LEFT_CLICK, state, mapping);
         consumeGuiClick(ControllerAction.GUI_RIGHT_CLICK, state, mapping);
         consumeGuiClick(ControllerAction.GUI_SHIFT_CLICK, state, mapping);
@@ -628,15 +624,11 @@ public class ControllerTickHandler {
         lastFrameNanos = nowNanos;
 
         if (mc.currentScreen != null) {
-            // Track OS mouse movement for D-pad nav deactivation.
-            // Use Mouse.getX/Y (LWJGL bottom-left origin) rather than event-based DX/DY
-            // to get reliable cross-frame position comparison.
-            int mx = Mouse.getX();
-            int my = Mouse.getY();
-            if (mx != lastMouseX || my != lastMouseY) {
+            // Track OS mouse movement for D-pad nav deactivation. MouseMotionTracker ignores the
+            // motion events our own cursor warps generate, so the virtual cursor and D-pad slot
+            // confirms no longer look like the player grabbing the mouse.
+            if (mouseMotionTracker.userMoved(Mouse.getX(), Mouse.getY())) {
                 mouseMovedSinceLastTick = true;
-                lastMouseX = mx;
-                lastMouseY = my;
             }
 
             // GUI cursor — works on main menu (thePlayer may be null).
@@ -797,8 +789,7 @@ public class ControllerTickHandler {
         dpadNavState = DpadNavState.INACTIVE;
         GuiFocusRenderer.setNavActive(false);
         mouseMovedSinceLastTick = false;
-        lastMouseX = -1;
-        lastMouseY = -1;
+        mouseMotionTracker.reset();
         buttonsHeldOnGuiClose.clear();
         stickHysteresis.clear();
     }
@@ -937,7 +928,20 @@ public class ControllerTickHandler {
         guiCursorX = Math.max(0f, Math.min(mc.displayWidth - 1, guiCursorX));
         guiCursorY = Math.max(0f, Math.min(mc.displayHeight - 1, guiCursorY));
 
-        Mouse.setCursorPosition((int) guiCursorX, mc.displayHeight - 1 - (int) guiCursorY);
+        warpCursor(mc, guiCursorX, guiCursorY);
+    }
+
+    /**
+     * Moves the OS cursor to the given position (top-left-origin display pixels) and records it as
+     * a position this mod commanded, so the motion event it generates is not mistaken for the
+     * player moving the mouse.
+     */
+    private void warpCursor(Minecraft mc, float displayX, float displayY) {
+        int x = (int) displayX;
+        int y = (int) displayY;
+        Mouse.setCursorPosition(x, mc.displayHeight - 1 - y);
+        // Record in the same space Mouse.getX()/getY() report (bottom-left origin).
+        mouseMotionTracker.command(x, mc.displayHeight - 1 - y);
     }
 
     /**

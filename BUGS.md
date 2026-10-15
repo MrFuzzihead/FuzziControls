@@ -8,11 +8,14 @@ Analysis of `feature-InventoryNavigation` vs `main` (read-only review, no code c
 |---|---|---|
 | 1 | Slider stepping no-op on coarse-step options | **FIXED** — `SliderStepper` + 17 unit tests |
 | 2 | Right-stick scroll rate wrong / FPS-dependent | **FIXED** — `ScrollStepper` + 12 unit tests |
-| 3 | `guiCursorY` origin inversion | open |
+| 3 | `guiCursorY` origin inversion | **FIXED** (side effect of #6) |
 | 4 | Slot "center" off by (8,8) | open |
 | 5 | Stale geometry after resize | **FIXED** — `ScreenLayoutTracker` + 9 tests (awaiting in-game check) |
-| 6 | Nav self-deactivates after slot confirm | open |
-| 7–13 | High / medium issues | open |
+| 6 | Nav self-deactivates after slot confirm | **FIXED** — `MouseMotionTracker` + 12 tests (awaiting in-game check) |
+| 7 | Off-panel slots → held-stack drop hazard | **FIXED** — `isSlotFocusable` + 5 tests (awaiting in-game check) |
+| 8, 9, 10, 12 | High / medium issues | open |
+| 11 | Deactivation thresholds disagree | **FIXED** (side effect of #6) |
+| 13 | Activation race | **FIXED** (side effect of #6) |
 
 ### Fix log
 
@@ -68,6 +71,43 @@ Analysis of `feature-InventoryNavigation` vs `main` (read-only review, no code c
 * Coverage proven: ignoring the generation in `layoutChanged(GuiScreen)` (the old behaviour) fails
   `update_rebuildsWhenScreenIsReinitialised`. Note the pure `layoutChanged(...)` test alone would
   *not* catch that — the wiring test is what pins the behaviour.
+
+**#6 — D-pad navigation deactivating itself (fixed, awaiting in-game check)**
+
+* Root cause: the platform emits a real mouse-motion event when this mod warps the cursor
+  (`Mouse.setCursorPosition`), and the deactivation check was a plain absolute-position comparison,
+  so the mod's own warp looked like the player grabbing the mouse. lwjgl3ify has
+  `ignoreNextMove`/`ignoreNextDelta` for exactly this, but `setCursorPosition` never sets them
+  (verified dead code), so the mod has to track its own warps.
+* New `util/MouseMotionTracker.java`: is told which positions the mod commanded, ignores the frames
+  in which that warp is still in flight, tolerates the framebuffer↔screen rounding (±2 px), and
+  does not report the first observation as movement. Warps to the position the cursor already
+  occupies do not re-arm the settle window, so a held-still virtual cursor cannot permanently
+  suppress real mouse input.
+* `ControllerTickHandler` now routes the check through the tracker, and `applyGuiCursor` reports
+  every warp via `warpCursor(...)`.
+* The D-pad slot confirm no longer warps the OS cursor at all: the synthetic click already passes
+  explicit coordinates to `GuiContainer.getSlotAtPosition()`, and the focus border marks the slot.
+  That also removes the `guiCursorX`/`guiCursorY` desync (#3) and the off-centre cursor placement
+  (#4's cursor aspect).
+* Side effects: #11 (sub-threshold stick drift used to warp the cursor and deactivate nav despite
+  the 0.15 threshold) and #13 (the first render frame always counted as mouse movement) are fixed
+  by the same mechanism.
+* Tests: 12 new in `MouseMotionTrackerTest`. Coverage proven: restoring the raw position comparison
+  fails 9 of them.
+
+**#7 — Off-panel slots could drop the held stack (fixed, awaiting in-game check)**
+
+* `GuiContainer.mouseClicked` treats any click outside the panel as "outside the container"
+  (slot id -999, click type 4) which makes the container drop the carried stack into the world.
+  The navigator enumerated *every* `Container.inventorySlots` entry, including slots that modded
+  containers park outside the drawn panel or mark non-hoverable.
+* New `GuiFocusNavigator.isSlotFocusable(slot, xSize, ySize)`: requires `Slot.func_111238_b()`
+  (the screen's own "can this slot be interacted with" flag, e.g. horse armour before saddling)
+  and requires the slot's click point `(guiLeft + x, guiTop + y)` to lie inside the panel, which is
+  the exact condition vanilla uses. Uses the previously dead `getXSize()`/`getYSize()` accessors.
+* Tests: 5 new in `GuiFocusNavigatorTest` (inside/outside edges, hidden modded coordinates,
+  non-hoverable slot, null slot). Coverage proven: disabling the filter fails all but one.
 
 ---
 
@@ -432,3 +472,28 @@ resize:
 
 Note: only the *same screen object* re-initialised matters here; closing and reopening the screen
 always rebuilt the list and already worked.
+
+### #6 — navigation must survive a slot confirm (awaiting validation)
+
+1. `dpadNavigation=true`, in a world, open the inventory or a chest.
+2. Press D-pad ↑/↓ so the focus border appears, then press **A** on a slot (pick an item up).
+3. Expected: the focus border **stays visible**, and the very next D-pad press moves focus.
+   Before the fix the border vanished after the confirm and that next press did nothing.
+4. Press A a few more times to move the item between slots — each press must act on the highlighted
+   slot and the border must persist throughout.
+5. Confirm the intended change: the OS cursor no longer jumps to the slot on A (the focus border is
+   the indicator). The cursor stays wherever the left stick left it.
+6. Confirm the mouse still works: move the physical mouse and the focus border must disappear
+   (navigation hands control back), and the left-stick virtual cursor must still be usable.
+
+### #7 — no accidental drops (awaiting validation)
+
+1. In a chest: press A on a focused slot to pick a stack up onto the cursor, D-pad to another slot,
+   press A to place it. The item must land in the panel — never be thrown into the world.
+2. Right-click a **horse that is not saddled** (GuiScreenHorseInventory). The armour slots are
+   marked non-hoverable by vanilla, so the D-pad must skip them; they must not be focusable and A
+   must never act on them.
+3. If you have a modded container that parks slots off-panel (NEI/JEI-era mods do this), confirm the
+   focus never lands on those slots.
+4. Regression: normal slot navigation and item movement in chest/inventory/crafting must be
+   unchanged.
