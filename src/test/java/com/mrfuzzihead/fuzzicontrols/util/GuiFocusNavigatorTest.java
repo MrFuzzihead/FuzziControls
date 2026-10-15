@@ -542,4 +542,78 @@ public class GuiFocusNavigatorTest {
         };
         assertFalse(GuiFocusNavigator.isSlotFocusable(hidden, PANEL_W, PANEL_H));
     }
+
+    // -------------------------------------------------------------------------
+    // List viewport visibility and scroll-into-view
+    // -------------------------------------------------------------------------
+    //
+    // GuiSlot.drawScreen clips entries to the list viewport, but the focus list contained every
+    // entry: the border was drawn over unrelated UI for scrolled-away entries, and A activated an
+    // entry the player could not see (in the world-select list, loading an unseen world).
+
+    private static final int ENTRY_H = 25;
+
+    private static final int VIEWPORT_H = 100;
+
+    @Test
+    public void entryInsideViewportIsVisible() {
+        assertTrue(GuiFocusNavigator.isEntryVisible(0, ENTRY_H, VIEWPORT_H, 0f));
+        assertTrue(GuiFocusNavigator.isEntryVisible(50, ENTRY_H, VIEWPORT_H, 0f));
+        assertTrue(GuiFocusNavigator.isEntryVisible(75, ENTRY_H, VIEWPORT_H, 0f));
+    }
+
+    @Test
+    public void entryOutsideViewportIsNotVisible() {
+        assertFalse("Scrolled off the top", GuiFocusNavigator.isEntryVisible(0, ENTRY_H, VIEWPORT_H, 50f));
+        assertFalse("Below the viewport", GuiFocusNavigator.isEntryVisible(200, ENTRY_H, VIEWPORT_H, 0f));
+        assertFalse("Exactly at the bottom edge", GuiFocusNavigator.isEntryVisible(100, ENTRY_H, VIEWPORT_H, 0f));
+    }
+
+    @Test
+    public void partiallyOverlappingEntryCountsAsVisible() {
+        assertTrue("Top edge overlapping", GuiFocusNavigator.isEntryVisible(0, ENTRY_H, VIEWPORT_H, 20f));
+        assertTrue("Bottom edge overlapping", GuiFocusNavigator.isEntryVisible(90, ENTRY_H, VIEWPORT_H, 0f));
+    }
+
+    @Test
+    public void visibleEntryKeepsTheCurrentScroll() {
+        assertEquals(0f, GuiFocusNavigator.scrollToShow(50, ENTRY_H, VIEWPORT_H, 0f), 0f);
+        assertEquals(40f, GuiFocusNavigator.scrollToShow(60, ENTRY_H, VIEWPORT_H, 40f), 0f);
+    }
+
+    @Test
+    public void entryAboveViewportScrollsUp() {
+        // Entry starts at content y=100 with a 50 px scroll: scroll back so it is visible.
+        float target = GuiFocusNavigator.scrollToShow(100, ENTRY_H, VIEWPORT_H, 150f);
+        assertTrue("Must scroll up", target < 150f);
+        assertTrue(GuiFocusNavigator.isEntryVisible(100, ENTRY_H, VIEWPORT_H, target));
+    }
+
+    @Test
+    public void entryBelowViewportScrollsDown() {
+        float target = GuiFocusNavigator.scrollToShow(300, ENTRY_H, VIEWPORT_H, 0f);
+        assertTrue("Must scroll down", target > 0f);
+        assertTrue(GuiFocusNavigator.isEntryVisible(300, ENTRY_H, VIEWPORT_H, target));
+    }
+
+    @Test
+    public void scrollNeverGoesNegative() {
+        assertEquals(0f, GuiFocusNavigator.scrollToShow(0, ENTRY_H, VIEWPORT_H, 0f), 0f);
+        assertTrue(GuiFocusNavigator.scrollToShow(0, ENTRY_H, VIEWPORT_H, 5f) >= 0f);
+    }
+
+    @Test
+    public void scrollToShowMakesEveryEntryVisible() {
+        // Round-trip property: whatever the scroll offset, scrolling to show an entry must leave
+        // that entry visible (the value is clamped to the maximum scroll by GuiSlot when drawn).
+        for (int index = 0; index < 40; index++) {
+            int entryTop = 4 + index * ENTRY_H;
+            for (float scroll : new float[] { 0f, 13f, 250f, 1000f }) {
+                float target = GuiFocusNavigator.scrollToShow(entryTop, ENTRY_H, VIEWPORT_H, scroll);
+                assertTrue(
+                    "Entry " + index + " at scroll " + scroll + " -> " + target + " must be visible",
+                    GuiFocusNavigator.isEntryVisible(entryTop, ENTRY_H, VIEWPORT_H, target));
+            }
+        }
+    }
 }

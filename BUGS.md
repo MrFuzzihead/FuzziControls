@@ -13,7 +13,10 @@ Analysis of `feature-InventoryNavigation` vs `main` (read-only review, no code c
 | 5 | Stale geometry after resize | **FIXED** — `ScreenLayoutTracker` + 9 tests (awaiting in-game check) |
 | 6 | Nav self-deactivates after slot confirm | **FIXED** — `MouseMotionTracker` + 12 tests (awaiting in-game check) |
 | 7 | Off-panel slots → held-stack drop hazard | **FIXED** — `isSlotFocusable` + 5 tests (awaiting in-game check) |
-| 8, 9, 10, 12 | High / medium issues | open |
+| 8 | List entries activated/drawn outside the viewport | **FIXED** — visibility + scroll-into-view + 8 tests (awaiting in-game check) |
+| 9 | Right-click/shift-click ignored in nav mode | **FIXED** — `activateFocused` (awaiting in-game check) |
+| 10 | lwjgl3ify `Error` vs `Exception` fallbacks | **FIXED** — `Exception \| LinkageError` + 1 test |
+| 12 | `/fuzzicontrols reload` does not re-read the config | open |
 | 11 | Deactivation thresholds disagree | **FIXED** (side effect of #6) |
 | 13 | Activation race | **FIXED** (side effect of #6) |
 
@@ -108,6 +111,55 @@ Analysis of `feature-InventoryNavigation` vs `main` (read-only review, no code c
   the exact condition vanilla uses. Uses the previously dead `getXSize()`/`getYSize()` accessors.
 * Tests: 5 new in `GuiFocusNavigatorTest` (inside/outside edges, hidden modded coordinates,
   non-hoverable slot, null slot). Coverage proven: disabling the filter fails all but one.
+
+**#8 — list entries outside the viewport (fixed, awaiting in-game check)**
+
+* `GuiSlot.drawScreen` clips entries with a scissor rectangle, but the focus list contained every
+  entry. So the border was painted outside the list (over unrelated UI) and A activated an entry the
+  player could not see — in the world-select list that means loading an unseen world.
+* New pure geometry in `GuiFocusNavigator`: `isEntryVisible(entryTop, entryHeight, viewportHeight,
+  scroll)` and `scrollToShow(...)`, plus adapters that read the `GuiSlot` layout.
+* Focus movement now goes through `setFocus(...)`, which scrolls the newly focused entry into view,
+  so D-pad navigation through a long list follows the highlight instead of walking off the bottom.
+  The scroll value is clamped by `GuiSlot.bindAmountScrolled()` during the next draw, so an
+  out-of-range target is safe.
+* `confirmSlotEntry()` refuses to activate an entry that is outside the viewport (e.g. after the
+  player scrolled it away with the right stick); it scrolls it back into view instead.
+* `GuiFocusRenderer` skips drawing the border for entries outside the viewport.
+* Tests: 8 new, including a round-trip property test over 40 entries × 4 scroll offsets asserting
+  that `scrollToShow` always leaves the entry visible.
+
+**#9 — right-click and shift-click in nav mode (fixed, awaiting in-game check)**
+
+* Right-click (X) was not handled by the navigation path at all, so while D-pad navigation was active
+  it injected a right click wherever the virtual cursor happened to be — a different slot, or
+  outside the panel. Shift-click (LT toggle) was also ignored by the confirm path, so whole-stack
+  moves were unavailable.
+* The confirm path is now a button-agnostic `activateFocused(int mouseButton)` used by both A (left)
+  and X (right): it dispatches a coherent press + release on the focused element, honours the
+  shift toggle (holding the key for the whole pair, with the release dispatched directly rather than
+  through the event queue, which would use the OS cursor position), and refuses to right-click a
+  focused button or slider (vanilla's `GuiScreen.mouseClicked` ignores the button index when
+  scanning `buttonList`, so a right click would press the button).
+* While an element is focused, both mouse buttons are suppressed for **both** edges, so no stray
+  mouse-up is injected at the virtual cursor position while a stack may be on the cursor.
+* No unit test: this is tick-handler wiring over Minecraft's mouse dispatch. The pure part is
+  unchanged; the dispatch itself needs in-game validation.
+
+**#10 — lwjgl3ify linkage failures escaped into the game loop (fixed)**
+
+* The mod declares only a soft ordering dependency on lwjgl3ify (`after:lwjgl3ify`), but
+  `org.lwjglx.input.Mouse` and its `sdlMouseButtonFlags` / `addButtonEvent` / `addWheelEvent`
+  members are lwjgl3ify extensions. On an install without a usable lwjgl3ify they throw
+  `LinkageError` (`NoClassDefFoundError`, `NoSuchMethodError`, …), which is an `Error` and was
+  therefore **not** caught by the previous `catch (Exception)` — so the documented fallback could
+  never engage and the error escaped into the client tick / render loop.
+* `GuiMouseHelper` now catches `Exception | LinkageError`, remembers the failure so the failing path
+  is not retried on every click, and logs one actionable warning. Wheel scrolling has no fallback
+  (there is no other way to synthesise a scroll event) and is reported as disabled.
+* Test: `GuiMouseHelperLinkageTest` runs in a JVM with no usable lwjgl3ify, which is exactly the
+  failing environment. Coverage proven: with the old `catch (Exception)` the test fails with
+  `NoClassDefFoundError`.
 
 ---
 
@@ -497,3 +549,29 @@ always rebuilt the list and already worked.
    focus never lands on those slots.
 4. Regression: normal slot navigation and item movement in chest/inventory/crafting must be
    unchanged.
+
+### #8 — list navigation (awaiting validation)
+
+1. `dpadNavigation=true`. Singleplayer → the world list (create several worlds first if needed).
+2. Press D-pad ↓ repeatedly. The focus border must stay **inside the list** and the list must
+   **scroll to follow** it, instead of the border walking off the bottom of the list.
+3. D-pad ↑ back to the top: the list must scroll back so the first entry is visible.
+4. Press A on a highlighted entry — it must activate exactly the entry that is highlighted.
+5. Scroll the list with the right stick so the focused entry leaves the view; the border should
+   disappear, and pressing A should scroll the entry back into view rather than activating
+   something unseen.
+6. Same check on a long list in Options → Video Settings (the options list scrolls too).
+
+### #9 — right-click and shift-click in nav mode (awaiting validation)
+
+1. In a chest, D-pad to a slot holding a stack, press **X** (right-click) → half the stack should be
+   picked up onto the cursor (or one item placed if the cursor already holds a stack). Before the
+   fix, X acted at the virtual cursor position instead.
+2. Press **A** on a slot with a stack, then D-pad to another slot and press **A** → the stack moves
+   there. Nothing should ever be dropped into the world.
+3. Press **LT** (shift toggle), D-pad to a slot with a stack, press **A** → the **whole stack** must
+   move (shift-click), not one item.
+4. In a button menu (main menu / pause menu), press X while a button is focused → nothing should
+   happen (a right click must not press the focused button).
+5. Regression: A on a focused button/slot and D-pad left/right on sliders must behave exactly as
+   before.

@@ -254,7 +254,7 @@ public final class GuiFocusNavigator {
         if (focusableItems.isEmpty()) return;
         int target = findNearestInDirection(focusedIndex, Direction.UP);
         if (target < 0) target = findNearestInDirection(focusedIndex, Direction.WRAP_UP);
-        if (target >= 0) focusedIndex = target;
+        if (target >= 0) setFocus(target);
     }
 
     /**
@@ -265,7 +265,7 @@ public final class GuiFocusNavigator {
         if (focusableItems.isEmpty()) return;
         int target = findNearestInDirection(focusedIndex, Direction.DOWN);
         if (target < 0) target = findNearestInDirection(focusedIndex, Direction.WRAP_DOWN);
-        if (target >= 0) focusedIndex = target;
+        if (target >= 0) setFocus(target);
     }
 
     /**
@@ -276,7 +276,7 @@ public final class GuiFocusNavigator {
         if (focusableItems.isEmpty()) return;
         int target = findNearestInDirection(focusedIndex, Direction.LEFT);
         if (target < 0) target = findNearestInDirection(focusedIndex, Direction.WRAP_LEFT);
-        if (target >= 0) focusedIndex = target;
+        if (target >= 0) setFocus(target);
     }
 
     /**
@@ -287,7 +287,7 @@ public final class GuiFocusNavigator {
         if (focusableItems.isEmpty()) return;
         int target = findNearestInDirection(focusedIndex, Direction.RIGHT);
         if (target < 0) target = findNearestInDirection(focusedIndex, Direction.WRAP_RIGHT);
-        if (target >= 0) focusedIndex = target;
+        if (target >= 0) setFocus(target);
     }
 
     // ---- Legacy focusNext/focusPrev delegates ----
@@ -360,6 +360,13 @@ public final class GuiFocusNavigator {
     public void confirmSlotEntry() {
         FocusableItem item = getFocusedItem();
         if (item == null || item.type != ItemType.SLOT_ENTRY) return;
+
+        // If the player scrolled the focused entry out of view, bring it back instead of
+        // activating something they cannot see (e.g. loading an unseen world).
+        if (!isEntryVisible(item)) {
+            scrollFocusedIntoView();
+            return;
+        }
 
         GuiSlotAccessors slotAcc = (GuiSlotAccessors) item.slot;
         Minecraft mc = Minecraft.getMinecraft();
@@ -747,6 +754,94 @@ public final class GuiFocusNavigator {
         int x = slot.xDisplayPosition;
         int y = slot.yDisplayPosition;
         return x >= 0 && y >= 0 && x < xSize && y < ySize;
+    }
+
+    // -------------------------------------------------------------------------
+    // List viewport (GuiSlot) visibility and scrolling
+    // -------------------------------------------------------------------------
+
+    /** Inset applied when scrolling an entry into view, in pixels. */
+    private static final int SCROLL_MARGIN = 2;
+
+    /**
+     * Returns true when a list entry lies inside its list's viewport.
+     *
+     * <p>
+     * {@code GuiSlot.drawScreen} clips entries with a scissor rectangle, so an entry scrolled out
+     * of view is invisible. Without this check the focus border is drawn outside the list (over
+     * unrelated UI) and A activates an entry the player cannot see — in the world-select list that
+     * means loading an unseen world.
+     *
+     * @param entryTop       entry top in content space (as used for drawing)
+     * @param entryHeight    entry height, normally {@code slotHeight}
+     * @param viewportHeight visible list height, {@code slot.bottom - slot.top}
+     * @param scroll         current scroll offset, {@code amountScrolled}
+     * @return true when any part of the entry is inside the viewport
+     */
+    static boolean isEntryVisible(int entryTop, int entryHeight, int viewportHeight, float scroll) {
+        return entryTop + entryHeight > scroll && entryTop < scroll + viewportHeight;
+    }
+
+    /**
+     * Returns the scroll offset that brings an entry inside the viewport.
+     *
+     * <p>
+     * A small margin is applied so the entry stays inside despite the 1 px difference between
+     * vanilla's {@code (int)} truncation and this class's {@code ceil()} when converting
+     * {@code amountScrolled} into a drawing position. The result may exceed the maximum scroll
+     * offset; {@code GuiSlot.bindAmountScrolled()} clamps it during the next draw.
+     *
+     * @param entryTop       entry top in content space
+     * @param entryHeight    entry height
+     * @param viewportHeight visible list height
+     * @param scroll         current scroll offset
+     * @return the offset to scroll to, or {@code scroll} when the entry is already visible
+     */
+    static float scrollToShow(int entryTop, int entryHeight, int viewportHeight, float scroll) {
+        if (entryTop - SCROLL_MARGIN < scroll) return Math.max(0f, entryTop - SCROLL_MARGIN);
+        float lowest = entryTop + entryHeight + SCROLL_MARGIN - viewportHeight;
+        return lowest > scroll ? lowest : scroll;
+    }
+
+    /**
+     * Returns true when the given item is a list entry that is currently inside its viewport.
+     * Items of other types are always considered visible.
+     */
+    static boolean isEntryVisible(@Nullable FocusableItem item) {
+        if (item == null || item.type != ItemType.SLOT_ENTRY) return true;
+        GuiSlot slot = item.slot;
+        return isEntryVisible(
+            entryContentTop(item),
+            slot.slotHeight,
+            slot.bottom - slot.top,
+            ((GuiSlotAccessors) slot).getAmountScrolled());
+    }
+
+    /** Content-space top of a list entry, matching the position it is drawn at. */
+    private static int entryContentTop(FocusableItem item) {
+        return item.slot.headerPadding + 4 + item.slotIndex * item.slot.slotHeight;
+    }
+
+    /**
+     * Scrolls the focused list entry into view. Called when the focus moves, so D-pad navigation
+     * through a long list follows the highlight instead of walking off the bottom of the list.
+     */
+    private void scrollFocusedIntoView() {
+        FocusableItem item = getFocusedItem();
+        if (item == null || item.type != ItemType.SLOT_ENTRY) return;
+
+        GuiSlot slot = item.slot;
+        GuiSlotAccessors acc = (GuiSlotAccessors) slot;
+        float scroll = acc.getAmountScrolled();
+        float target = scrollToShow(entryContentTop(item), slot.slotHeight, slot.bottom - slot.top, scroll);
+        if (target != scroll) acc.setAmountScrolled(target);
+    }
+
+    /** Moves focus to {@code index} and keeps the newly focused entry inside its viewport. */
+    private void setFocus(int index) {
+        if (index == focusedIndex) return;
+        focusedIndex = index;
+        scrollFocusedIntoView();
     }
 
     @SuppressWarnings("unchecked")

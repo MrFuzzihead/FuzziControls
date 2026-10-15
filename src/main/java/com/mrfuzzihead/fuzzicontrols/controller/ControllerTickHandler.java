@@ -208,6 +208,13 @@ public class ControllerTickHandler {
      */
     private boolean suppressGuiLeftClick = false;
 
+    /**
+     * As {@link #suppressGuiLeftClick}, for the right-click action: while D-pad navigation owns the
+     * focused element, the right click belongs to that element and must not also be injected at the
+     * virtual cursor position.
+     */
+    private boolean suppressGuiRightClick = false;
+
     /** Edge-tracking for the five GUI_NAV_* actions. Offsets into {@link #wasActive}. */
     private static final int NAV_UP_IDX = ControllerAction.GUI_NAV_UP.ordinal();
     private static final int NAV_DOWN_IDX = ControllerAction.GUI_NAV_DOWN.ordinal();
@@ -366,69 +373,45 @@ public class ControllerTickHandler {
                     }
                 }
 
-                // Confirm: activate the focused item.
+                // Confirm (A / left click) and right-click (X) both act on the focused element
+                // while D-pad navigation is active, instead of on wherever the virtual cursor is.
                 if (isNavRisingEdge(NAV_CONFIRM_IDX, state, mapping)) {
-                    FocusableItem focused = guiFocusNavigator.getFocusedItem();
-                    if (focused != null) {
-                        if (focused.type == ItemType.SLOT_ENTRY) {
-                            guiFocusNavigator.confirmSlotEntry();
-                        } else if (focused.type == ItemType.INVENTORY_SLOT) {
-                            // Dispatch the click directly with the slot's coordinates, which is what
-                            // GuiContainer.getSlotAtPosition() uses. The OS cursor is deliberately
-                            // NOT moved here: warping it makes the platform emit a real mouse-motion
-                            // event, which the deactivation check would read as "the player grabbed
-                            // the mouse" and would switch D-pad navigation off, swallowing the next
-                            // D-pad press. The focus border already marks the focused slot.
-                            java.awt.Point center = guiFocusNavigator.getFocusedCenter();
-                            if (center != null) {
-                                ScaledResolution sr = new ScaledResolution(mc, mc.displayWidth, mc.displayHeight);
-                                int guiX = (int) (center.x * sr.getScaledWidth() / mc.displayWidth);
-                                int guiY = sr.getScaledHeight()
-                                    - (int) (center.y * sr.getScaledHeight() / mc.displayHeight)
-                                    - 1;
-                                // mouseClicked receives the coordinates as method parameters, so
-                                // GuiContainer.getSlotAtPosition() finds the right slot regardless
-                                // of where the OS cursor happens to be.
-                                try {
-                                    GuiScreenAccessors accessors = (GuiScreenAccessors) mc.currentScreen;
-                                    accessors.callMouseClicked(guiX, guiY, 0);
-                                    accessors.callMouseMovedOrUp(guiX, guiY, 0);
-                                } catch (Exception ignored) {}
-                            }
-                        } else if (!GuiFocusNavigator.isSliderButton(focused.button)) {
-                            java.awt.Point center = guiFocusNavigator.getFocusedCenter();
-                            if (center != null) {
-                                ScaledResolution sr = new ScaledResolution(mc, mc.displayWidth, mc.displayHeight);
-                                int guiX = (int) (center.x * sr.getScaledWidth() / mc.displayWidth);
-                                int guiY = sr.getScaledHeight()
-                                    - (int) (center.y * sr.getScaledHeight() / mc.displayHeight)
-                                    - 1;
-                                try {
-                                    GuiScreenAccessors accessors = (GuiScreenAccessors) mc.currentScreen;
-                                    accessors.callMouseClicked(guiX, guiY, 0);
-                                    accessors.callMouseMovedOrUp(guiX, guiY, 0);
-                                } catch (Exception ignored) {}
-                            }
-                        }
-                        suppressGuiLeftClick = true;
-                    }
+                    activateFocused(0);
                 }
+                if (mapping.isActive(ControllerAction.GUI_RIGHT_CLICK, state, Config.triggerThreshold)
+                    && !wasGuiRightClick) {
+                    activateFocused(1);
+                }
+
+                // While an element is focused the mouse buttons belong to it, so suppress the
+                // cursor-based paths for both edges. Without this, releasing the button injects a
+                // stray mouse-up at the virtual cursor position, which vanilla's
+                // GuiContainer.mouseMovedOrUp() turns into a click when a stack is on the cursor.
+                boolean navOwnsMouseButtons = guiFocusNavigator.getFocusedItem() != null;
+                suppressGuiLeftClick = navOwnsMouseButtons;
+                suppressGuiRightClick = navOwnsMouseButtons;
             } else {
                 // Keep nav edges clean when dpadNavigation is off or nav is INACTIVE
                 consumeNavEdges(state, mapping);
             }
 
-            // Virtual-cursor click or D-pad confirm
+            // Virtual-cursor clicks — unless D-pad navigation already handled the focused element.
             if (!suppressGuiLeftClick) {
                 handleGuiClick(ControllerAction.GUI_LEFT_CLICK, 0, state, mapping, mc);
             } else {
-                // When the D-pad confirm action suppressed a GUI left-click, we still need to
-                // advance the edge-tracking state so it doesn't fire on the next tick.
+                // Advance the edge state so the press neither repeats nor falls through to the
+                // cursor on the release tick.
                 wasGuiLeftClick = mapping.isActive(ControllerAction.GUI_LEFT_CLICK, state, Config.triggerThreshold);
             }
             suppressGuiLeftClick = false;
 
-            handleGuiClick(ControllerAction.GUI_RIGHT_CLICK, 1, state, mapping, mc);
+            if (!suppressGuiRightClick) {
+                handleGuiClick(ControllerAction.GUI_RIGHT_CLICK, 1, state, mapping, mc);
+            } else {
+                wasGuiRightClick = mapping.isActive(ControllerAction.GUI_RIGHT_CLICK, state, Config.triggerThreshold);
+            }
+            suppressGuiRightClick = false;
+
             handleGuiShiftClick(state, mapping, mc);
 
             // If the keyboard Shift key is pressed, clear any controller shift toggle so they
@@ -477,6 +460,7 @@ public class ControllerTickHandler {
         guiCursorInitialized = false;
         guiShiftToggled = false;
         suppressGuiLeftClick = false;
+        suppressGuiRightClick = false;
         dpadNavState = DpadNavState.INACTIVE;
         GuiFocusRenderer.setNavActive(false);
         mouseMovedSinceLastTick = false;
@@ -786,6 +770,7 @@ public class ControllerTickHandler {
         dropBlockedByGui = false;
         guiShiftToggled = false;
         suppressGuiLeftClick = false;
+        suppressGuiRightClick = false;
         dpadNavState = DpadNavState.INACTIVE;
         GuiFocusRenderer.setNavActive(false);
         mouseMovedSinceLastTick = false;
@@ -999,6 +984,70 @@ public class ControllerTickHandler {
         } else {
             wasGuiRightClick = active;
         }
+    }
+
+    /**
+     * Activates the currently focused element with the given mouse button.
+     *
+     * <p>
+     * Used by the D-pad confirm (A) and by the right-click action while D-pad navigation is active,
+     * so both act on the focused element instead of on wherever the virtual cursor happens to be.
+     * The click is dispatched directly with the element's coordinates: {@code mouseClicked} receives
+     * them as method parameters, so {@code GuiContainer.getSlotAtPosition()} finds the right slot
+     * without the OS cursor having to be moved (moving it would make the platform emit a mouse
+     * motion event, which the navigation state machine would read as the player grabbing the mouse).
+     *
+     * @param mouseButton 0 = left, 1 = right
+     * @return true when a focused element existed and consumed the press
+     */
+    private boolean activateFocused(int mouseButton) {
+        FocusableItem focused = guiFocusNavigator.getFocusedItem();
+        if (focused == null) return false;
+
+        if (focused.type == ItemType.SLOT_ENTRY) {
+            // List entries only respond to a left click; consuming a right click is better than
+            // letting it land at the virtual cursor position.
+            if (mouseButton == 0) {
+                guiFocusNavigator.confirmSlotEntry();
+            }
+            return true;
+        }
+
+        // Right-clicking only has meaning for container slots: vanilla's GuiScreen.mouseClicked()
+        // ignores the button index when scanning buttonList, so dispatching a right click at a
+        // focused button would press it, and a slider would jump to the click position.
+        if (mouseButton != 0 && focused.type != ItemType.INVENTORY_SLOT) return true;
+        if (mouseButton == 0 && focused.button != null && GuiFocusNavigator.isSliderButton(focused.button)) {
+            return true;
+        }
+
+        java.awt.Point center = guiFocusNavigator.getFocusedCenter();
+        if (center == null) return true;
+
+        Minecraft mc = Minecraft.getMinecraft();
+        ScaledResolution sr = new ScaledResolution(mc, mc.displayWidth, mc.displayHeight);
+        int guiX = (int) (center.x * sr.getScaledWidth() / mc.displayWidth);
+        int guiY = sr.getScaledHeight() - (int) (center.y * sr.getScaledHeight() / mc.displayHeight) - 1;
+
+        try {
+            GuiScreenAccessors accessors = (GuiScreenAccessors) mc.currentScreen;
+            if (mouseButton == 0 && guiShiftToggled) {
+                // Shift-click: hold the key for the whole press/release pair, and dispatch the
+                // release directly rather than through the event queue (a queued release would be
+                // processed at the OS cursor position, not on the focused slot).
+                final int gx = guiX;
+                final int gy = guiY;
+                KeyboardHelper.withKeyHeld(Keyboard.KEY_LSHIFT, () -> {
+                    GuiMouseHelper.directMouseClicked(mc.currentScreen, 0, gx, gy);
+                    accessors.callMouseMovedOrUp(gx, gy, 0);
+                });
+                guiShiftToggled = false;
+            } else {
+                accessors.callMouseClicked(guiX, guiY, mouseButton);
+                accessors.callMouseMovedOrUp(guiX, guiY, mouseButton);
+            }
+        } catch (Exception ignored) {}
+        return true;
     }
 
     /**

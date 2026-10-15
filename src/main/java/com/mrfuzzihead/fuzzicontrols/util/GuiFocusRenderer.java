@@ -94,6 +94,10 @@ public final class GuiFocusRenderer {
             h = 18;
         } else {
             // GuiSlot entry — use the slot's layout to calculate the entry bounds.
+            // GuiSlot.drawScreen clips entries to the list viewport with a scissor rectangle, so
+            // drawing the border for an entry scrolled out of view would paint it over unrelated
+            // UI (and A would activate an entry the player cannot see).
+            if (!GuiFocusNavigator.isEntryVisible(focused)) return;
             GuiSlotAccessors slotAcc = (GuiSlotAccessors) focused.slot;
             int slotLeft = focused.slot.width / 2 - slotAcc.callGetListWidth() / 2;
             int scrollOffset = (int) Math.ceil(slotAcc.getAmountScrolled());
