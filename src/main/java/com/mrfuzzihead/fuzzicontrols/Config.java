@@ -75,11 +75,12 @@ public class Config {
     public static boolean analogMovement = true;
 
     /**
-     * When true, the D-pad navigates GUI buttons discretely (console-style) instead of
-     * relying solely on the virtual cursor. When false (default), D-pad directions are
-     * unbound and the left-stick cursor remains the only GUI navigation method.
+     * When true (default), the D-pad navigates GUI elements discretely (console-style) instead of
+     * relying solely on the virtual cursor: D-pad directions move focus between buttons, list entries
+     * and inventory slots, and holding a direction repeats after a short delay. When false, the D-pad
+     * directions are unused and the left-stick virtual cursor is the only GUI navigation method.
      */
-    public static boolean dpadNavigation = false;
+    public static boolean dpadNavigation = true;
 
     /**
      * Step size for D-pad slider adjustment, as a fraction of the slider's full range.
@@ -188,8 +189,8 @@ public class Config {
             "dpadNavigation",
             CAT_CONTROLLER,
             dpadNavigation,
-            "When true, D-pad navigates GUI buttons discretely (console-style). "
-                + "When false (default), D-pad remains unbound and the left-stick virtual cursor is the only navigation method.");
+            "When true (default), D-pad navigates GUI elements discretely (console-style). "
+                + "When false, the D-pad is unused and the left-stick virtual cursor is the only navigation method.");
 
         dpadSliderStep = configuration.getFloat(
             "dpadSliderStep",

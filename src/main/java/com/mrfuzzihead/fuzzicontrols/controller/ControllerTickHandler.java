@@ -195,6 +195,9 @@ public class ControllerTickHandler {
     /** Whether D-pad discrete navigation currently owns the GUI (see {@link DpadNavState}). */
     private final DpadNavState dpadNav = new DpadNavState();
 
+    /** Auto-repeat for held D-pad directions, so long lists can be crossed without mashing. */
+    private final NavRepeat navRepeat = new NavRepeat();
+
     /**
      * Set this flag to true in {@link #onRenderTick} when the mouse has moved since the
      * last game tick. Checked and cleared in {@link #onClientTick} to detect OS mouse
@@ -281,16 +284,17 @@ public class ControllerTickHandler {
                 guiFocusNavigator.update(mc.currentScreen);
 
                 // 2D spatial navigation: up/down/left/right find the nearest item
-                // in that direction based on screen-position centroids.
-                if (isNavRisingEdge(NAV_UP_IDX, state, mapping)) {
+                // in that direction based on screen-position centroids. Holding a direction repeats
+                // after NavRepeat.INITIAL_DELAY_TICKS so long lists can be crossed without mashing.
+                if (navRepeat.update(ControllerAction.GUI_NAV_UP, isNavHeld(NAV_UP_IDX, state, mapping))) {
                     guiFocusNavigator.focusUp();
                 }
-                if (isNavRisingEdge(NAV_DOWN_IDX, state, mapping)) {
+                if (navRepeat.update(ControllerAction.GUI_NAV_DOWN, isNavHeld(NAV_DOWN_IDX, state, mapping))) {
                     guiFocusNavigator.focusDown();
                 }
 
                 // Left/Right: if focused on a slider, adjust value; otherwise navigate.
-                if (isNavRisingEdge(NAV_LEFT_IDX, state, mapping)) {
+                if (navRepeat.update(ControllerAction.GUI_NAV_LEFT, isNavHeld(NAV_LEFT_IDX, state, mapping))) {
                     if (guiFocusNavigator.getFocusedButton() != null
                         && GuiFocusNavigator.isSliderButton(guiFocusNavigator.getFocusedButton())) {
                         guiFocusNavigator.sliderLeft(Config.dpadSliderStep);
@@ -298,7 +302,7 @@ public class ControllerTickHandler {
                         guiFocusNavigator.focusLeft();
                     }
                 }
-                if (isNavRisingEdge(NAV_RIGHT_IDX, state, mapping)) {
+                if (navRepeat.update(ControllerAction.GUI_NAV_RIGHT, isNavHeld(NAV_RIGHT_IDX, state, mapping))) {
                     if (guiFocusNavigator.getFocusedButton() != null
                         && GuiFocusNavigator.isSliderButton(guiFocusNavigator.getFocusedButton())) {
                         guiFocusNavigator.sliderRight(Config.dpadSliderStep);
@@ -396,6 +400,7 @@ public class ControllerTickHandler {
         suppressGuiLeftClick = false;
         suppressGuiRightClick = false;
         dpadNav.reset();
+        navRepeat.clear();
         GuiFocusRenderer.setNavActive(false);
         mouseMovedSinceLastTick = false;
         mouseMotionTracker.reset();
@@ -702,6 +707,7 @@ public class ControllerTickHandler {
         suppressGuiLeftClick = false;
         suppressGuiRightClick = false;
         dpadNav.reset();
+        navRepeat.clear();
         GuiFocusRenderer.setNavActive(false);
         mouseMovedSinceLastTick = false;
         mouseMotionTracker.reset();
@@ -720,14 +726,11 @@ public class ControllerTickHandler {
      * </ul>
      *
      * <p>
-     * The {@link #dropBlockedByGui} flag ensures that if B was pressed while a GUI was open
+     * The {@link DropTapHold} state machine ensures that if B was pressed while a GUI was open
      * (causing it to close), no item is dropped on that same press even after the GUI closes.
      */
     private void handleBButton(ControllerAction dropAction, ControllerAction closeAction, ControllerState state,
         ControllerMapping mapping, Minecraft mc) {
-
-        int dropIdx = dropAction.ordinal();
-        int closeIdx = closeAction.ordinal();
 
         boolean active = (mapping.isActive(dropAction, state, Config.triggerThreshold)
             && !isActionBlocked(dropAction, mapping))
@@ -740,9 +743,6 @@ public class ControllerTickHandler {
             case DROP_STACK -> mc.thePlayer.dropOneItem(true);
             case NONE -> {}
         }
-
-        wasActive[dropIdx] = active;
-        wasActive[closeIdx] = active;
     }
 
     private void handleHotbarNext(ControllerAction action, ControllerState state, ControllerMapping mapping,
@@ -957,6 +957,18 @@ public class ControllerTickHandler {
     }
 
     /**
+     * Returns true while a D-pad navigation action is held. Unlike {@link #isNavRisingEdge}, this does
+     * not consume edge state: the caller feeds it to {@link NavRepeat}, which decides when a move
+     * actually happens (immediately on press, then on a delay/interval).
+     *
+     * @param actionIdx ordinal of a GUI_NAV_* action
+     * @return true when the action's button is currently held
+     */
+    private boolean isNavHeld(int actionIdx, ControllerState state, ControllerMapping mapping) {
+        return mapping.isActive(ControllerAction.values()[actionIdx], state, Config.triggerThreshold);
+    }
+
+    /**
      * Returns true once on the rising edge of a D-pad navigation action.
      * The edge state is consumed by {@link #wasActive} tracking.
      *
@@ -981,6 +993,8 @@ public class ControllerTickHandler {
         wasActive[NAV_LEFT_IDX] = mapping.isActive(ControllerAction.GUI_NAV_LEFT, state, Config.triggerThreshold);
         wasActive[NAV_RIGHT_IDX] = mapping.isActive(ControllerAction.GUI_NAV_RIGHT, state, Config.triggerThreshold);
         wasActive[NAV_CONFIRM_IDX] = mapping.isActive(ControllerAction.GUI_NAV_CONFIRM, state, Config.triggerThreshold);
+        // Drop any pending auto-repeat so re-entering navigation starts from a fresh press.
+        navRepeat.clear();
     }
 
     /**

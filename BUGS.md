@@ -837,3 +837,32 @@ Unchanged from the previous batch: visual polish, input *feel*, screens the harn
 the main menu (world/server lists, modded GUIs, creative, chat), and in-world behaviour (movement,
 camera, drop). Those would need a scripted in-world session (a saved world plus synthetic input), which
 is the next obvious step if it is worth the runtime.
+
+---
+
+## Final polish
+
+**D-pad auto-repeat** (`NavRepeat`)
+
+Holding a direction used to move focus exactly once, so crossing a twenty-entry list meant twenty
+presses. `NavRepeat` fires on the press, waits `INITIAL_DELAY_TICKS` (8 ticks = 400 ms, long enough not
+to fight a deliberate tap), then repeats every `REPEAT_INTERVAL_TICKS` (2 ticks = 100 ms ≈ 10 moves/s).
+The same repeat drives slider adjustment, so holding D-pad ←/→ sweeps a slider. State is per direction
+and cleared whenever navigation is deactivated or a screen closes, so a fresh press always starts from a
+clean state. 10 tests; wired in place of the old edge-only checks for the four directions (confirm still
+uses a plain rising edge, so holding A does not click repeatedly).
+
+**`dpadNavigation` now defaults to `true`**
+
+It is this branch's headline feature and it is now covered end to end (unit tests + the client
+harness), so it ships enabled. `false` remains available to fall back to the left-stick virtual cursor
+only; docs updated in `README.md`, `BUTTON_BINDINGS.md` and the config description.
+
+**Dead code removed**
+
+`handleBButton` still wrote `wasActive[DROP_ITEM]`/`wasActive[CLOSE_GUI]`, which nothing has read since
+edge detection moved into `DropTapHold`.
+
+**Final state:** 330 unit tests + a 25-check client harness, all green
+(`spotlessCheck`, `checkstyleMain`, `checkstyleTest`, `test`, and a local
+`FUZZICONTROLS_SELFTEST=1 ./gradlew runClient25` run: 7/7 mixins, 25/25 checks, exit 0).

@@ -56,12 +56,12 @@ When any screen is open — inventory, crafting table, chest, the pause menu, or
 
 Because the real OS cursor is driven, this works with **every vanilla and mod GUI automatically**.
 
-### D-pad discrete navigation (optional)
+### D-pad discrete navigation
 
-With `dpadNavigation = true` the D-pad navigates GUI elements discretely instead of relying on the
-virtual cursor:
+By default (`dpadNavigation = true`) the D-pad navigates GUI elements discretely; set it to `false` to rely
+only on the virtual cursor:
 
-- **D-pad ↑/↓/←/→** → move focus to the nearest element (inventory slot, button or list entry), scrolling lists so the focused entry stays visible
+- **D-pad ↑/↓/←/→** → move focus to the nearest element (inventory slot, button or list entry), scrolling lists so the focused entry stays visible; hold a direction to repeat after 400 ms
 - **D-pad ←/→ on a slider** → adjust the value by `dpadSliderStep` (or one step of the option's own value grid)
 - **A / Cross** → activate the focused element; with shift-click armed, moves the whole stack
 - **X / Square** → right-click the focused slot (split stacks, place one item)
@@ -84,7 +84,7 @@ All options live in `config/fuzzicontrols.cfg`:
 | `sneakToggle` | `true` | `true` = press RS to toggle sneak; `false` = hold RS to sneak |
 | `dropEntireStack` | `true` | Hold B/○ to drop entire stack instead of one item |
 | `analogMovement` | `true` | Scale movement speed with left-stick deflection instead of on/off |
-| `dpadNavigation` | `false` | `true` = D-pad navigates GUI elements discretely (see above) |
+| `dpadNavigation` | `true` | `false` = use only the left-stick virtual cursor |
 | `dpadSliderStep` | `0.05` | Slider step per D-pad press as a fraction of range ([0.01–0.5]) |
 | `rightStickScrolling` | `true` | `true` = right stick scrolls while a GUI is open |
 | `scrollSensitivity` | `10.0` | Scroll speed in notches/second at full deflection ([1–100]) |
