@@ -126,6 +126,18 @@ jobs:
       - name: Build (isolates build/dependency failures from client failures)
         run: ./gradlew --console=plain classes
 
+      # Defence in depth: lwjgl3ify aborts first-time Linux init when it cannot write its .desktop
+      # entry. XDG_DATA_HOME is set above; this also disables the entry entirely. The config has no
+      # category headers (lwjgl3ify uses its own parser), just top-level keys.
+      - name: Pre-seed lwjgl3ify config
+        run: |
+          mkdir -p run/client/config
+          if [ -f run/client/config/lwjgl3ify.cfg ]; then
+            sed -i 's/^\( *\)B:linuxCreateAppDesktopEntry=.*/B:linuxCreateAppDesktopEntry=false/' run/client/config/lwjgl3ify.cfg
+          else
+            echo 'B:linuxCreateAppDesktopEntry=false' > run/client/config/lwjgl3ify.cfg
+          fi
+
       - name: Run client self-test headless
         env:
           FUZZICONTROLS_SELFTEST: '1'
