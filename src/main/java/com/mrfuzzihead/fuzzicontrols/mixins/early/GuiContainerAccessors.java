@@ -13,8 +13,9 @@ import org.spongepowered.asm.mixin.gen.Accessor;
  *
  * <p>
  * Exposes the protected layout fields ({@code guiLeft}/{@code guiTop}/{@code xSize}/{@code ySize})
- * and the protected {@code theSlot} field. These are needed by the D-pad navigation system to
- * map {@link net.minecraft.inventory.Slot} grid positions to on-screen coordinates.
+ * and the {@code inventorySlots} container. These are needed by the D-pad navigation system to map
+ * {@link net.minecraft.inventory.Slot} grid positions to on-screen coordinates. The setters exist so
+ * layout can be positioned without running {@code initGui()} (used by the client self-test harness).
  *
  * <p>
  * {@code Container.inventorySlots} and {@code Slot.xDisplayPosition}/{@code yDisplayPosition}
@@ -26,8 +27,14 @@ public interface GuiContainerAccessors {
     @Accessor("guiLeft")
     int getGuiLeft();
 
+    @Accessor("guiLeft")
+    void setGuiLeft(int guiLeft);
+
     @Accessor("guiTop")
     int getGuiTop();
+
+    @Accessor("guiTop")
+    void setGuiTop(int guiTop);
 
     @Accessor("xSize")
     int getXSize();

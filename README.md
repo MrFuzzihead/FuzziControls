@@ -92,7 +92,8 @@ All options live in `config/fuzzicontrols.cfg`:
 Every button binding can also be remapped via the `[bindings]` section.
 
 Config edits can be applied without restarting the game with `/fuzzicontrols reload`, which re-reads
-the config file and re-initialises the controller driver.
+the config file and re-initialises the controller driver. One exception: `analogMovement` is applied
+by a mixin at class load, so **enabling** it needs a restart (disabling it is immediate).
 
 ---
 
@@ -110,6 +111,30 @@ the config file and re-initialises the controller driver.
 
 - **In-game key binding GUI** — a dedicated screen accessible from the Options or pause menu for remapping every controller action, with proper button icons (Xbox colours for XInput, PlayStation colours for DualSense), all navigable without a mouse
 - **Broader controller support** — investigate support for non-XInput controllers (e.g. older DirectInput gamepads) and Linux/macOS environments
+
+---
+
+## 🧪 Testing
+
+```bash
+./gradlew test                                        # unit tests
+./gradlew spotlessCheck checkstyleMain checkstyleTest  # style + static analysis
+```
+
+The parts that cannot run in a plain JVM — mixin application, the `GuiSlot`/`GuiContainer`
+navigation paths and slider stepping through real `GameSettings` options — are covered by an opt-in
+client harness. It runs at the main menu (no world needed), logs one `PASS`/`FAIL` line per check,
+prints a summary and exits with the failure count as its exit code:
+
+```bash
+# Linux/macOS
+FUZZICONTROLS_SELFTEST=1 ./gradlew runClient25
+# Windows (PowerShell)
+$env:FUZZICONTROLS_SELFTEST=1; ./gradlew runClient25
+```
+
+CI runs the same harness headless (xvfb + llvmpipe) in the `client-smoke-test-java25` job, so a broken
+mixin refmap or a failed injection fails the build instead of only showing up in game.
 
 ---
 

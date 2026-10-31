@@ -36,8 +36,6 @@ public class ControllerManager {
 
     private static final int RECONNECT_INTERVAL_SECONDS = RECONNECT_INTERVAL_TICKS / 20;
 
-    private static final ControllerManager INSTANCE = new ControllerManager();
-
     private IControllerDriver activeDriver;
     private ControllerState lastState = ControllerState.empty();
 
@@ -47,12 +45,53 @@ public class ControllerManager {
     /** Counts down to the next reconnection attempt. */
     private int reconnectCooldown = 0;
 
+    /** Creates the concrete drivers; injectable so the selection/reconnect logic can be unit tested. */
+    interface DriverFactory {
+
+        IControllerDriver createDualSense();
+
+        IControllerDriver createXInput(int slot);
+    }
+
+    /**
+     * Creates the real drivers. Declared <em>before</em> {@link #INSTANCE}: static initialisers run in
+     * declaration order, and constructing the singleton reads this factory.
+     */
+    private static final DriverFactory DEFAULT_FACTORY = new DriverFactory() {
+
+        @Override
+        public IControllerDriver createDualSense() {
+            return new DualSenseDriver();
+        }
+
+        @Override
+        public IControllerDriver createXInput(int slot) {
+            return new XInputDriver(slot);
+        }
+    };
+
+    private static final ControllerManager INSTANCE = new ControllerManager();
+
+    private final DriverFactory driverFactory;
+
+    /** Test-only: the factory the singleton was built with (guards static initialisation order). */
+    DriverFactory getDriverFactoryForTest() {
+        return driverFactory;
+    }
+
     /** Returns the global singleton. */
     public static ControllerManager getInstance() {
         return INSTANCE;
     }
 
-    private ControllerManager() {}
+    private ControllerManager() {
+        this(DEFAULT_FACTORY);
+    }
+
+    /** Test seam: lets a test supply fake drivers. */
+    ControllerManager(DriverFactory driverFactory) {
+        this.driverFactory = driverFactory;
+    }
 
     /**
      * Initializes the driver according to the current {@link Config} settings.
@@ -68,33 +107,44 @@ public class ControllerManager {
         String driverPref = Config.controllerDriver.toLowerCase();
         FuzziControls.LOG.info("[FuzziControls] Requested controller driver: {}", driverPref);
 
+        if (selectDriver(driverPref, false)) return;
+
+        lastConnected = false;
+        FuzziControls.LOG.warn("[FuzziControls] No controller detected.");
+    }
+
+    /**
+     * Tries the configured drivers in order and adopts the first connected one.
+     *
+     * @param driverPref configured preference ({@code auto}, {@code dualsense} or {@code xinput})
+     * @param quiet      true when retrying in the background (suppresses the "no controller" warning)
+     * @return true when a driver was selected
+     */
+    private boolean selectDriver(String driverPref, boolean quiet) {
         if ("auto".equals(driverPref) || "dualsense".equals(driverPref)) {
-            DualSenseDriver ds = new DualSenseDriver();
-            if (ds.isConnected()) {
+            IControllerDriver ds = driverFactory.createDualSense();
+            if (ds != null && ds.isConnected()) {
                 activeDriver = ds;
                 lastConnected = true;
                 FuzziControls.LOG.info("[FuzziControls] Using DualSense driver.");
-                return;
-            } else {
-                safeClose(ds);
+                return true;
             }
+            safeClose(ds);
         }
 
         if ("auto".equals(driverPref) || "xinput".equals(driverPref)) {
             int slot = Config.xInputControllerSlot;
-            XInputDriver xi = new XInputDriver(slot);
-            if (xi.isConnected()) {
+            IControllerDriver xi = driverFactory.createXInput(slot);
+            if (xi != null && xi.isConnected()) {
                 activeDriver = xi;
                 lastConnected = true;
                 FuzziControls.LOG.info("[FuzziControls] Using XInput driver (slot {}).", slot);
-                return;
-            } else {
-                safeClose(xi);
+                return true;
             }
+            safeClose(xi);
         }
 
-        lastConnected = false;
-        FuzziControls.LOG.warn("[FuzziControls] No controller detected.");
+        return false;
     }
 
     /**
@@ -149,31 +199,7 @@ public class ControllerManager {
      * On success, {@link #activeDriver} is set; on failure it remains {@code null}.
      */
     private void tryReconnect() {
-        String driverPref = Config.controllerDriver.toLowerCase();
-
-        if ("auto".equals(driverPref) || "dualsense".equals(driverPref)) {
-            DualSenseDriver ds = new DualSenseDriver();
-            if (ds.isConnected()) {
-                activeDriver = ds;
-                lastConnected = true;
-                FuzziControls.LOG.info("[FuzziControls] Controller connected — using DualSense driver.");
-                return;
-            }
-            safeClose(ds);
-        }
-
-        if ("auto".equals(driverPref) || "xinput".equals(driverPref)) {
-            XInputDriver xi = new XInputDriver(Config.xInputControllerSlot);
-            if (xi.isConnected()) {
-                activeDriver = xi;
-                lastConnected = true;
-                FuzziControls.LOG.info(
-                    "[FuzziControls] Controller connected — using XInput driver (slot {}).",
-                    Config.xInputControllerSlot);
-                return;
-            }
-            safeClose(xi);
-        }
+        selectDriver(Config.controllerDriver.toLowerCase(), true);
     }
 
     /** Returns the most recently polled {@link ControllerState}. Never {@code null}. */

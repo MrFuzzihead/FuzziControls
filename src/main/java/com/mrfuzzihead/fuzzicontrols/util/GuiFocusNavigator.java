@@ -325,6 +325,14 @@ public final class GuiFocusNavigator {
     }
 
     /**
+     * Returns true when the focused element is currently visible. Elements that are not list entries
+     * (buttons, container slots) are always visible; a list entry can be scrolled out of its viewport.
+     */
+    public boolean isFocusedItemVisible() {
+        return isEntryVisible(getFocusedItem());
+    }
+
+    /**
      * Returns the centre of the currently focused item in scaled GUI coordinates (top-left origin),
      * or {@code null} if no item is focused. This is the point used as the click target and as the
      * {@code mouseX}/{@code mouseY} passed to slot-list callbacks, and it matches the box returned
@@ -388,8 +396,21 @@ public final class GuiFocusNavigator {
         return focusedIndex;
     }
 
-    int getFocusableCount() {
+    /** Number of focusable elements on the current screen (0 when nothing can be focused). */
+    public int getFocusableCount() {
         return focusableItems.size();
+    }
+
+    /**
+     * Moves focus directly to the given index (clamped into range). D-pad navigation normally moves
+     * focus spatially; this is for callers that already know which element they want, such as the
+     * client self-test harness.
+     *
+     * @param index desired index into the focusable list
+     */
+    public void focusIndex(int index) {
+        if (focusableItems.isEmpty()) return;
+        setFocus(clampIndex(index, focusableItems.size()));
     }
 
     /** Number of times the focus list has been built. Test-only diagnostic. */

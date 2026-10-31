@@ -1,10 +1,5 @@
 package com.mrfuzzihead.fuzzicontrols.controller;
 
-import java.util.EnumSet;
-import java.util.Set;
-
-import com.github.strikerx3.jxinput.XInputAxes;
-import com.github.strikerx3.jxinput.XInputButtons;
 import com.github.strikerx3.jxinput.XInputComponents;
 import com.github.strikerx3.jxinput.XInputDevice;
 import com.github.strikerx3.jxinput.exceptions.XInputNotLoadedException;
@@ -61,43 +56,8 @@ public class XInputDriver implements IControllerDriver {
         }
 
         XInputComponents components = device.getComponents();
-        XInputAxes axes = components.getAxes();
-        XInputButtons buttons = components.getButtons();
 
-        // Axes: JXInput normalises sticks to [-1, 1] (Y positive = stick pushed up).
-        // We negate Y so that positive Y means "stick pushed down", matching Minecraft's
-        // movement convention (forward = negative Y) and pitch convention (look down = positive).
-        float lx = ControllerState.normaliseAxis(axes.lx, deadZone);
-        float ly = ControllerState.normaliseAxis(-axes.ly, deadZone);
-        float rx = ControllerState.normaliseAxis(axes.rx, deadZone);
-        float ry = ControllerState.normaliseAxis(-axes.ry, deadZone);
-        float lt = ControllerState.normaliseTrigger(axes.lt, triggerThreshold);
-        float rt = ControllerState.normaliseTrigger(axes.rt, triggerThreshold);
-
-        // Collect pressed digital buttons
-        Set<ControllerButton> pressed = EnumSet.noneOf(ControllerButton.class);
-        if (buttons.a) pressed.add(ControllerButton.A);
-        if (buttons.b) pressed.add(ControllerButton.B);
-        if (buttons.x) pressed.add(ControllerButton.X);
-        if (buttons.y) pressed.add(ControllerButton.Y);
-        if (buttons.lShoulder) pressed.add(ControllerButton.LEFT_BUMPER);
-        if (buttons.rShoulder) pressed.add(ControllerButton.RIGHT_BUMPER);
-        if (buttons.lThumb) pressed.add(ControllerButton.LEFT_STICK_CLICK);
-        if (buttons.rThumb) pressed.add(ControllerButton.RIGHT_STICK_CLICK);
-        if (buttons.start) pressed.add(ControllerButton.START);
-        if (buttons.back) pressed.add(ControllerButton.BACK);
-        if (buttons.guide) pressed.add(ControllerButton.GUIDE);
-        if (buttons.up) pressed.add(ControllerButton.DPAD_UP);
-        if (buttons.down) pressed.add(ControllerButton.DPAD_DOWN);
-        if (buttons.left) pressed.add(ControllerButton.DPAD_LEFT);
-        if (buttons.right) pressed.add(ControllerButton.DPAD_RIGHT);
-
-        // Triggers as digital — compare against the raw trigger value, not the
-        // already-thresholded (normalised) value, so the configured threshold is applied once.
-        if (axes.lt >= triggerThreshold) pressed.add(ControllerButton.LEFT_TRIGGER);
-        if (axes.rt >= triggerThreshold) pressed.add(ControllerButton.RIGHT_TRIGGER);
-
-        return new ControllerState(lx, ly, rx, ry, lt, rt, pressed);
+        return XInputReportMapper.map(components.getAxes(), components.getButtons(), deadZone, triggerThreshold);
     }
 
     @Override

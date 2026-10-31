@@ -22,6 +22,20 @@ public abstract class MixinEntityPlayerSP {
     @Shadow
     public MovementInput movementInput;
 
+    /**
+     * Marker merged into {@link EntityPlayerSP}, with no mixin annotation so it survives as a real
+     * method on the target.
+     *
+     * <p>
+     * {@code @Inject} handlers are inlined and never exist on the transformed class, so without this
+     * marker there is no way to tell whether this mixin was applied (its {@code setApplyIf} depends on
+     * {@code Config.analogMovement}). The client self-test asserts its presence.
+     */
+    @SuppressWarnings("unused")
+    private static boolean fuzzicontrols$analogMovementApplied() {
+        return true;
+    }
+
     @Inject(
         method = "onLivingUpdate",
         at = @At(

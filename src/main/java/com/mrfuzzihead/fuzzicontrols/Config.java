@@ -66,6 +66,11 @@ public class Config {
     /**
      * When true (default), the left stick drives analogue movement (gentle push = walk, full push = run).
      * When false, movement is digital (on/off past the dead-zone).
+     *
+     * <p>
+     * The scaling is applied by a mixin that is only applied at class load when this was already
+     * true at startup, so <b>enabling it requires a game restart</b>. Disabling it takes effect
+     * immediately, because the injected code re-checks this flag on every movement tick.
      */
     public static boolean analogMovement = true;
 

@@ -63,3 +63,77 @@ jobs:
             exit 1
           fi
 
+
+  # The server smoke test above cannot exercise anything the mod actually does: all of its mixins are
+  # client mixins. This job boots a real client under a virtual display and runs the opt-in self-test
+  # harness (ClientSelfTest), which verifies that every accessor/invoker mixin was applied and drives
+  # the live GUI navigation stack: the GuiSlot list path (video settings), slider stepping through real
+  # GameSettings options, and the GuiContainer slot path (slot filtering + click-target geometry).
+  # The harness exits the JVM with the failure count as the exit code.
+  client-smoke-test-java25:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout mod repo
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'zulu'
+          java-version: 25
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v5
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Install headless display and software OpenGL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgl1 libglx-mesa0 libgl1-mesa-dri libglu1-mesa libopenal1
+          # lwjgl3ify needs an OpenGL 3.2+ context; llvmpipe provides one without a GPU.
+          echo "LIBGL_ALWAYS_SOFTWARE=1" >> "$GITHUB_ENV"
+
+      - name: Run client self-test headless
+        env:
+          FUZZICONTROLS_SELFTEST: '1'
+        run: |
+          set +e
+          timeout 900 xvfb-run -a -s "-screen 0 1280x720x24" \
+            ./gradlew --stacktrace runClient25 2>&1 | tee client.log
+          echo "client process exit: $?"
+
+      - name: Assert self-test results
+        if: always()
+        run: |
+          status=0
+          if ! grep -qF "Mixin self-test: 7 checks, 0 failures" client.log; then
+            echo "::error::Not all mixins were applied - see client.log"; status=1
+          fi
+          if ! grep -qE "Client selftest: [0-9]+ checks, 0 failures" client.log; then
+            echo "::error::Client self-test did not pass - see client.log"; status=1
+          fi
+          if grep -qF "selftest FAIL" client.log; then
+            echo "::error::Client self-test reported failures"; status=1
+          fi
+          if grep -qE "Mixin apply failed|MixinApplyError|InvalidInjectionException|A fatal error has been detected" client.log; then
+            echo "::error::Error markers found in the client log"; status=1
+          fi
+          echo "--- self-test lines ---"
+          grep -E "self-test|selftest" client.log || true
+          exit $status
+
+      - name: Upload client log and crash reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-selftest-log
+          path: |
+            client.log
+            run/client/crash-reports/
+          if-no-files-found: ignore

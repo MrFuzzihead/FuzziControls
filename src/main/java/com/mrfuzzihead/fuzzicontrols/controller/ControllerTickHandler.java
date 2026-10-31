@@ -20,6 +20,7 @@ import com.mrfuzzihead.fuzzicontrols.util.GuiFocusRenderer;
 import com.mrfuzzihead.fuzzicontrols.util.GuiKeyHelper;
 import com.mrfuzzihead.fuzzicontrols.util.GuiMouseHelper;
 import com.mrfuzzihead.fuzzicontrols.util.KeyboardHelper;
+import com.mrfuzzihead.fuzzicontrols.util.LookStepper;
 import com.mrfuzzihead.fuzzicontrols.util.MouseMotionTracker;
 import com.mrfuzzihead.fuzzicontrols.util.ScrollStepper;
 
@@ -60,10 +61,11 @@ import cpw.mods.fml.common.gameevent.TickEvent;
 public class ControllerTickHandler {
 
     /**
-     * Degrees per second of camera rotation at maximum stick deflection, at sensitivity 1.0.
-     * Scaled by {@link Config#lookSensitivity}.
+     * /**
+     * {@link LookStepper#BASE_DEGREES_PER_SECOND} of camera rotation per second at maximum stick
+     * deflection (before {@link Config#lookSensitivity} scaling).
      */
-    private static final float BASE_DEGREES_PER_SECOND = 180f;
+    private static final float BASE_DEGREES_PER_SECOND = LookStepper.BASE_DEGREES_PER_SECOND;
 
     /**
      * Number of game ticks the drop button must be held before it is considered a "hold"
@@ -1123,26 +1125,19 @@ public class ControllerTickHandler {
      *
      * <p>
      * Called every rendered frame. The delta is scaled by actual elapsed time ({@code deltaSeconds})
-     * so the rotation speed is consistent regardless of frame rate.
-     *
-     * <p>
-     * With {@code rightStickY} already negated in the driver (push up → negative Y), a negative Y
-     * value here means "look up", which maps to a negative pitch change — matching Minecraft's
-     * convention that negative pitch = looking up.
+     * so the rotation speed is consistent regardless of frame rate. Vertical look honours the
+     * player's inverted-mouse preference, which vanilla only applies to the mouse path.
      *
      * @param deltaSeconds seconds elapsed since the previous rendered frame
      */
     private static void applyLook(Minecraft mc, ControllerState state, float deltaSeconds) {
         if (state.rightStickX() == 0f && state.rightStickY() == 0f) return;
 
-        float degreesPerSecond = BASE_DEGREES_PER_SECOND * Config.lookSensitivity;
-        float yawDelta = state.rightStickX() * degreesPerSecond * deltaSeconds;
-        float pitchDelta = state.rightStickY() * degreesPerSecond * deltaSeconds;
+        float yawDelta = LookStepper.yawDelta(state.rightStickX(), Config.lookSensitivity, deltaSeconds);
+        float pitchDelta = LookStepper
+            .pitchDelta(state.rightStickY(), Config.lookSensitivity, deltaSeconds, mc.gameSettings.invertMouse);
 
         mc.thePlayer.rotationYaw += yawDelta;
-        mc.thePlayer.rotationPitch += pitchDelta;
-
-        // Clamp pitch to [-90, 90]
-        mc.thePlayer.rotationPitch = Math.max(-90f, Math.min(90f, mc.thePlayer.rotationPitch));
+        mc.thePlayer.rotationPitch = LookStepper.clampPitch(mc.thePlayer.rotationPitch + pitchDelta);
     }
 }

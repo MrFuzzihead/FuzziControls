@@ -17,6 +17,7 @@ Analysis of `feature-InventoryNavigation` vs `main` (read-only review, no code c
 | 9 | Right-click/shift-click ignored in nav mode | **FIXED** — `activateFocused` (awaiting in-game check) |
 | 10 | lwjgl3ify `Error` vs `Exception` fallbacks | **FIXED** — `Exception \| LinkageError` + 1 test |
 | 12 | `/fuzzicontrols reload` does not re-read the config | **FIXED** — `Config.reload()` + 4 tests |
+| 14 | Controller camera ignored `invertMouse` | **FIXED** — `LookStepper` + 11 tests |
 | 11 | Deactivation thresholds disagree | **FIXED** (side effect of #6) |
 | 13 | Activation race | **FIXED** (side effect of #6) |
 
@@ -688,3 +689,86 @@ Most of this batch is internal (dead code, docs, tests), but three changes are v
 3. **#12 config reload** — with the game running, change something in `config/fuzzicontrols.cfg`
    (e.g. `lookSensitivity`) and run `/fuzzicontrols reload`; the new value must take effect without a
    restart. Also confirm the driver still re-initialises as before.
+
+---
+
+## Automation batch
+
+Goal: shrink everything that still needed a human in-game. Two of the four items are new tests for code
+that had none; one is a real fix; one is a CI job that boots a real client.
+
+**#14 — controller camera ignored the inverted-mouse preference (fixed)**
+
+`applyLook` did not consult `GameSettings.invertMouse`, so players who play inverted had the stick
+working against their setting. The rotation maths moved into `util/LookStepper` (`yawDelta`,
+`pitchDelta(..., invertVertical)`, `clampPitch`) and `applyLook` now passes the setting through.
+11 tests pin: stick-up looks up (negative pitch, vanilla convention), inversion mirrors it exactly,
+yaw is never inverted, the rate is frame-rate independent (20–240 fps), sensitivity and deflection
+are linear, and the ±90 pitch clamp holds even at full deflection for a second.
+
+**`analogMovement` reload limitation documented**
+
+The scaling is applied by a mixin that is only applied when the flag was already true at startup, so
+enabling it needs a restart while disabling is immediate. Documented on the config field and in the
+README next to the `/fuzzicontrols reload` note.
+
+**ControllerManager — extracted and covered (19 tests, was 0)**
+
+Driver creation moved behind a package-private `DriverFactory`, so the selection/hot-plug state
+machine runs against fake drivers with no native code. Covered: DualSense-before-XInput order,
+fallback and probe cleanup, forced `xinput`/`dualsense` preferences, the configured XInput slot,
+re-init closing the previous driver, null factories, poll error → driver released + state cleared,
+disconnect detection, immediate reconnect attempt, reconnect back-off (no hammering the factory),
+late device pickup, `pollFresh` not reconnecting, and shutdown.
+
+The extraction immediately paid off: the smoke test caught a **startup crash** introduced by it —
+`INSTANCE` was constructed before `DEFAULT_FACTORY` was assigned, so the singleton had a null factory
+and every client crashed in `init()`. The injected-factory tests could not see it, so there is now a
+guard test (`singletonHasADriverFactory`) that reads the singleton's factory; verified to fail when the
+declaration order is reversed.
+
+**XInputDriver — extracted and covered (14 tests, was 0)**
+
+The JXInput → `ControllerState` mapping moved into `XInputReportMapper`, testable without the native
+library (JXInput's structs have protected constructors, so the tests subclass them). Covered: Y
+negation (a sign error would invert look and movement for XInput users only), X not negated, dead-zone
+and rescaling, trigger threshold and rescaling, every digital button including GUIDE, and a full
+snapshot.
+
+**Mixin + client smoke test (new automation)**
+
+* `selftest/MixinSelfTest` — always runs at client init and logs one explicit line plus an error per
+  missing mixin: `Mixin self-test: 7 checks, N failures`. Unit tests cannot apply mixins, so this is
+  what turns a broken refmap or a moved target into a log line instead of a silently dead GUI.
+* `selftest/ClientSelfTest` — opt-in (`FUZZICONTROLS_SELFTEST` env var or
+  `-Dfuzzicontrols.selftest=true`) harness that runs at the main menu, drives the real navigation
+  stack, logs `PASS`/`FAIL` per check plus `Client selftest: N checks, M failures`, and exits with
+  the failure count. 18 checks: mixin application; the `GuiSlot` list path via real
+  `GuiVideoSettings` (focus list built from `GuiOptionsRowList` rows, viewport visibility, D-pad
+  movement, focus staying on screen); slider stepping through a real `GuiOptionSlider` +
+  `GameSettings` (right raises, left lowers — the #1 fix, live); and the `GuiContainer` path
+  (off-panel slot filtered, click target at the slot centre, horizontal movement, wrap).
+* New CI job `client-smoke-test-java25`: `xvfb` + llvmpipe, `runClient25` with the harness enabled,
+  then asserts the two summary lines and greps for mixin/crash markers; uploads the log and any crash
+  reports. This is the only CI coverage of the client-only mixins — the server smoke test exercises
+  none of them.
+* The harness also caught a flaw in its own first version: class mixins cannot be referenced at
+  runtime (`NoClassDefFoundError`), and `@Inject` handlers are inlined so they never appear on the
+  target. `MixinEntityPlayerSP` now carries an explicit mergeable marker method that the check looks
+  for.
+
+**Verification**
+
+`spotlessCheck`, `checkstyleMain`, `checkstyleTest`, `test` all green — **267 tests** (was 223).
+`FUZZICONTROLS_SELFTEST=1 ./gradlew runClient25` locally: **Mixin self-test: 7 checks, 0 failures**,
+**Client selftest: 18 checks, 0 failures**, exit code 0.
+
+**Still human-only**
+
+* Visual: the focus border's appearance and position on real screens (the harness asserts geometry,
+  not pixels).
+* Feel: camera response, scroll speed, D-pad repeat behaviour.
+* Screen coverage the harness cannot construct at the main menu: world/server lists (need saves),
+  modded GUIs, creative inventory, chat.
+* `/fuzzicontrols reload` end-to-end (driver re-init while playing) — the config re-read itself is
+  unit tested.
