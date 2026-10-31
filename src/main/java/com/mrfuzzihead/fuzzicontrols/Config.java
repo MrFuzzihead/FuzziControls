@@ -66,8 +66,42 @@ public class Config {
     /**
      * When true (default), the left stick drives analogue movement (gentle push = walk, full push = run).
      * When false, movement is digital (on/off past the dead-zone).
+     *
+     * <p>
+     * The scaling is applied by a mixin that is only applied at class load when this was already
+     * true at startup, so <b>enabling it requires a game restart</b>. Disabling it takes effect
+     * immediately, because the injected code re-checks this flag on every movement tick.
      */
     public static boolean analogMovement = true;
+
+    /**
+     * When true (default), the D-pad navigates GUI elements discretely (console-style) instead of
+     * relying solely on the virtual cursor: D-pad directions move focus between buttons, list entries
+     * and inventory slots, and holding a direction repeats after a short delay. When false, the D-pad
+     * directions are unused and the left-stick virtual cursor is the only GUI navigation method.
+     */
+    public static boolean dpadNavigation = true;
+
+    /**
+     * Step size for D-pad slider adjustment, as a fraction of the slider's full range.
+     * A value of 0.05 means each D-pad left/right press moves the slider by 5% of its range, or by
+     * one step of the option's own value grid when that grid is coarser (see
+     * {@link com.mrfuzzihead.fuzzicontrols.util.SliderStepper}). Valid range is [0.01, 0.5].
+     */
+    public static float dpadSliderStep = 0.05f;
+
+    /**
+     * When true (default), the right stick can be used to scroll in GUI screens
+     * (inventories, lists, modded scrolling GUIs, etc.) by pushing up/down.
+     * This is independent of D-pad navigation and the virtual cursor.
+     */
+    public static boolean rightStickScrolling = true;
+
+    /**
+     * Scroll speed in "notches per second" at full right-stick deflection.
+     * Higher values scroll faster. Range [1.0, 100.0], default 10.0.
+     */
+    public static float scrollSensitivity = 10.0f;
 
     // ---- Action → Button mapping (populated by synchroniseConfiguration) ----
     public static ControllerMapping controllerMapping = new ControllerMapping();
@@ -75,7 +109,11 @@ public class Config {
     // ---- Internal config reference ----
     private static Configuration configuration;
 
+    /** The file the current {@link #configuration} was read from, for {@link #reload()}. */
+    private static File configurationFile;
+
     public static void synchronizeConfiguration(File configFile) {
+        configurationFile = configFile;
         configuration = new Configuration(configFile);
 
         // Controller
@@ -147,6 +185,36 @@ public class Config {
             "When true (default), the left stick drives analogue movement speed (gentle push = slow walk, "
                 + "full push = full run). When false, movement is digital (on/off past the dead-zone).");
 
+        dpadNavigation = configuration.getBoolean(
+            "dpadNavigation",
+            CAT_CONTROLLER,
+            dpadNavigation,
+            "When true (default), D-pad navigates GUI elements discretely (console-style). "
+                + "When false, the D-pad is unused and the left-stick virtual cursor is the only navigation method.");
+
+        dpadSliderStep = configuration.getFloat(
+            "dpadSliderStep",
+            CAT_CONTROLLER,
+            dpadSliderStep,
+            0.01f,
+            0.5f,
+            "Step size for D-pad slider adjustment as a fraction of the full range [0.0, 1.0]. "
+                + "Each D-pad left/right press moves the slider by this fraction.");
+
+        rightStickScrolling = configuration.getBoolean(
+            "rightStickScrolling",
+            CAT_CONTROLLER,
+            rightStickScrolling,
+            "When true (default), the right stick scrolls in GUI screens (inventories, lists, etc.).");
+
+        scrollSensitivity = configuration.getFloat(
+            "scrollSensitivity",
+            CAT_CONTROLLER,
+            scrollSensitivity,
+            1.0f,
+            100.0f,
+            "Scroll speed in notches per second at full right-stick deflection [1.0 – 100.0].");
+
         // Bindings: persist each action → button pair
         ControllerMapping defaults = new ControllerMapping();
         // Reset to a fresh default mapping so repeated loads are idempotent.
@@ -173,6 +241,24 @@ public class Config {
         if (configuration.hasChanged()) {
             configuration.save();
         }
+    }
+
+    /**
+     * Re-reads the configuration file, so config changes apply without restarting the game.
+     * Called by {@code /fuzzicontrols reload}.
+     *
+     * <p>
+     * Keys present in the file override the current values. A key <em>absent</em> from the file
+     * keeps its current value rather than reverting to the documented default, because Forge's
+     * {@code Configuration} getters use the in-memory value as the default for a missing key (and
+     * that value is then written back to the file).
+     *
+     * @return true when a config file has been loaded at least once and was re-read
+     */
+    public static boolean reload() {
+        if (configurationFile == null) return false;
+        synchronizeConfiguration(configurationFile);
+        return true;
     }
 
     /** Saves the current mapping back to disk (e.g. after GUI remapping). */

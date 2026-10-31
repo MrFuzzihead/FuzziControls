@@ -33,6 +33,32 @@ public final class GuiMouseHelper {
     private GuiMouseHelper() {}
 
     /**
+     * Set once lwjgl3ify's injection API has failed, so the failing path is not retried on every
+     * click and the warning is logged only once.
+     *
+     * <p>
+     * The mod declares only a soft ordering dependency on lwjgl3ify ({@code after:lwjgl3ify}), but
+     * {@code org.lwjglx.input.Mouse} and its {@code sdlMouseButtonFlags} / {@code addButtonEvent} /
+     * {@code addWheelEvent} members are lwjgl3ify extensions. On an install without it, referencing
+     * them throws {@link LinkageError} ({@code NoClassDefFoundError}, {@code NoSuchMethodError}, …),
+     * which is an {@code Error} and therefore was <em>not</em> caught by the previous
+     * {@code catch (Exception)} — so the documented fallback could never engage and the error
+     * escaped into the client tick / render loop.
+     */
+    private static boolean lwjgl3ifyInjectionFailed = false;
+
+    /** Logs the one-time warning when the lwjgl3ify injection path is found to be unusable. */
+    private static void onLwjgl3ifyFailure(String what, Throwable cause) {
+        if (lwjgl3ifyInjectionFailed) return;
+        lwjgl3ifyInjectionFailed = true;
+        FuzziControls.LOG.warn(
+            "[FuzziControls] lwjgl3ify input injection is unavailable ({}: {}). "
+                + "GUI clicks fall back to direct dispatch; GUI wheel scrolling is disabled.",
+            what,
+            cause.toString());
+    }
+
+    /**
      * Synthesizes a mouse button press or release so both Minecraft's event-driven path
      * and the per-frame {@code isButtonDown} poll see it.
      *
@@ -43,12 +69,13 @@ public final class GuiMouseHelper {
      * @param guiY        scaled GUI Y for the fallback path
      */
     public static void injectMouseButton(GuiScreen screen, int mouseButton, boolean pressed, int guiX, int guiY) {
-        try {
-            injectLwjgl3ify(mouseButton, pressed);
-            return;
-        } catch (Exception e) {
-            FuzziControls.LOG
-                .debug("[FuzziControls] lwjgl3ify mouse injection failed; using direct dispatch fallback.", e);
+        if (!lwjgl3ifyInjectionFailed) {
+            try {
+                injectLwjgl3ify(mouseButton, pressed);
+                return;
+            } catch (Exception | LinkageError e) {
+                onLwjgl3ifyFailure("addButtonEvent", e);
+            }
         }
         if (pressed) {
             mouseClicked(screen, guiX, guiY, mouseButton);
@@ -69,6 +96,25 @@ public final class GuiMouseHelper {
     }
 
     /**
+     * Injects a scroll wheel event into the LWJGL event queue via lwjgl3ify.
+     * The delta is in "notches" (typically 1.0 per notch). Fractional values are
+     * accumulated internally by lwjgl3ify and fired as discrete events when they
+     * cross an integer boundary.
+     *
+     * @param delta scroll wheel delta in notches (positive = scroll up, negative = scroll down)
+     */
+    public static void injectWheelEvent(double delta) {
+        if (lwjgl3ifyInjectionFailed) return;
+        try {
+            org.lwjglx.input.Mouse.addWheelEvent(delta);
+        } catch (Exception | LinkageError e) {
+            // Wheel scrolling has no fallback: without lwjgl3ify there is no way to synthesise a
+            // scroll event, so scrolling is simply unavailable.
+            onLwjgl3ifyFailure("addWheelEvent", e);
+        }
+    }
+
+    /**
      * Dispatches a mouse press synchronously (used for shift-clicks, where the keyboard
      * state must be patched for exactly the duration of the dispatch).
      *
@@ -78,15 +124,17 @@ public final class GuiMouseHelper {
      * @param guiY        scaled GUI Y coordinate (top-left origin)
      */
     public static void directMouseClicked(GuiScreen screen, int mouseButton, int guiX, int guiY) {
-        try {
-            final int flag = 1 << mouseButton;
-            final int flags = org.lwjglx.input.Mouse.sdlMouseButtonFlags;
-            org.lwjglx.input.Mouse.sdlMouseButtonFlags = flags | flag;
-            mouseClicked(screen, guiX, guiY, mouseButton);
-            org.lwjglx.input.Mouse.sdlMouseButtonFlags = flags & ~flag;
-            return;
-        } catch (Exception e) {
-            FuzziControls.LOG.warn("[FuzziControls] directMouseClicked (lwjgl3ify) failed; trying invoker.", e);
+        if (!lwjgl3ifyInjectionFailed) {
+            try {
+                final int flag = 1 << mouseButton;
+                final int flags = org.lwjglx.input.Mouse.sdlMouseButtonFlags;
+                org.lwjglx.input.Mouse.sdlMouseButtonFlags = flags | flag;
+                mouseClicked(screen, guiX, guiY, mouseButton);
+                org.lwjglx.input.Mouse.sdlMouseButtonFlags = flags & ~flag;
+                return;
+            } catch (Exception | LinkageError e) {
+                onLwjgl3ifyFailure("sdlMouseButtonFlags", e);
+            }
         }
         mouseClicked(screen, guiX, guiY, mouseButton);
     }

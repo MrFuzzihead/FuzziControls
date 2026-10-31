@@ -51,9 +51,21 @@ When any screen is open — inventory, crafting table, chest, the pause menu, or
 - **A / Cross** → left-click (select slots, press buttons, pick items)
 - **X / Square** → right-click (split stacks, etc.)
 - **LT / L2** → arm shift-click mode — the next left-click moves an entire stack, just like Shift+clicking with a mouse
+- **Right stick ↑/↓** → scroll lists, inventories and other scrolling GUIs (quadratic response, speed set by `scrollSensitivity`)
 - **B / Circle** → close the screen
 
 Because the real OS cursor is driven, this works with **every vanilla and mod GUI automatically**.
+
+### D-pad discrete navigation
+
+By default (`dpadNavigation = true`) the D-pad navigates GUI elements discretely; set it to `false` to rely
+only on the virtual cursor:
+
+- **D-pad ↑/↓/←/→** → move focus to the nearest element (inventory slot, button or list entry), scrolling lists so the focused entry stays visible; hold a direction to repeat after 400 ms
+- **D-pad ←/→ on a slider** → adjust the value by `dpadSliderStep` (or one step of the option's own value grid)
+- **A / Cross** → activate the focused element; with shift-click armed, moves the whole stack
+- **X / Square** → right-click the focused slot (split stacks, place one item)
+- The focus is highlighted with a pulsing border and is dropped as soon as you use the left stick or the mouse
 
 ---
 
@@ -70,9 +82,18 @@ All options live in `config/fuzzicontrols.cfg`:
 | `lookSensitivity` | `2.0` | Right-stick camera speed multiplier |
 | `inventoryCursorSensitivity` | `300` | GUI cursor speed (display px/s at reference resolution, [1–2000]) |
 | `sneakToggle` | `true` | `true` = press RS to toggle sneak; `false` = hold RS to sneak |
-| `dropEntireStack` | `false` | Hold B/○ to drop entire stack instead of one item |
+| `dropEntireStack` | `true` | Hold B/○ to drop entire stack instead of one item |
+| `analogMovement` | `true` | Scale movement speed with left-stick deflection instead of on/off |
+| `dpadNavigation` | `true` | `false` = use only the left-stick virtual cursor |
+| `dpadSliderStep` | `0.05` | Slider step per D-pad press as a fraction of range ([0.01–0.5]) |
+| `rightStickScrolling` | `true` | `true` = right stick scrolls while a GUI is open |
+| `scrollSensitivity` | `10.0` | Scroll speed in notches/second at full deflection ([1–100]) |
 
 Every button binding can also be remapped via the `[bindings]` section.
+
+Config edits can be applied without restarting the game with `/fuzzicontrols reload`, which re-reads
+the config file and re-initialises the controller driver. One exception: `analogMovement` is applied
+by a mixin at class load, so **enabling** it needs a restart (disabling it is immediate).
 
 ---
 
@@ -89,10 +110,34 @@ Every button binding can also be remapped via the `[bindings]` section.
 ## 🗺️ Future Plans
 
 - **In-game key binding GUI** — a dedicated screen accessible from the Options or pause menu for remapping every controller action, with proper button icons (Xbox colours for XInput, PlayStation colours for DualSense), all navigable without a mouse
-- **D-pad discrete menu navigation** — arrow-key style slot and button navigation as an alternative to the virtual cursor, closer to how console editions of Minecraft navigate menus
-- **Analog movement speed** — scale player walk speed with left-stick deflection magnitude (gentle push = slow walk, full push = full run), configurable and off by default; requires Mixin infrastructure
-- **Mixin migration** — replace current reflection-based GUI dispatch with SpongePowered Mixin `@Invoker` interfaces for cleaner, more compatible code
 - **Broader controller support** — investigate support for non-XInput controllers (e.g. older DirectInput gamepads) and Linux/macOS environments
+
+---
+
+## 🧪 Testing
+
+```bash
+./gradlew test                                        # unit tests
+./gradlew spotlessCheck checkstyleMain checkstyleTest  # style + static analysis
+```
+
+The parts that cannot run in a plain JVM are covered by an opt-in client harness. It boots at the
+main menu (no world needed), verifies that every mixin was applied, then drives the real navigation
+stack the same way the D-pad confirm does: focus the **Options…** button and activate it, focus **Video
+Settings…** and activate it, step a real slider, navigate the options list, check the `GuiContainer`
+slot path (off-panel slots filtered, click target at the slot centre), and render the focus border for
+a couple of frames. It logs one `PASS`/`FAIL` line per check, prints a summary and exits with the
+failure count as its exit code:
+
+```bash
+# Linux/macOS
+FUZZICONTROLS_SELFTEST=1 ./gradlew runClient25
+# Windows (PowerShell)
+$env:FUZZICONTROLS_SELFTEST=1; ./gradlew runClient25
+```
+
+CI runs the same harness headless (xvfb + llvmpipe) in the `client-smoke-test-java25` job, so a broken
+mixin refmap or a failed injection fails the build instead of only showing up in game.
 
 ---
 
@@ -106,6 +151,12 @@ Building requires a Java 25 toolchain (see `.java-version`). The built jar itsel
 jar that runs on **Java 17+** (native Java 21/25 classes are shipped in `META-INF/versions/`, with a
 Java 17 fallback), since [lwjgl3ify](https://github.com/GTNewHorizons/lwjgl3ify) requires launching
 Minecraft 1.7.10 on Java 17 or newer. Spotless and Checkstyle are applied automatically on build.
+
+---
+
+## 📄 Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for user-facing changes per release.
 
 ---
 

@@ -62,6 +62,10 @@ public class ControllerMapping {
         // COMMAND intentionally left unbound by default — bind DPAD_DOWN (or any button)
         // via config if desired.
 
+        // GUI D-Pad navigation has defaults even though DPAD_* raw actions are unbound:
+        // GUI_NAV_UP/DOWN/LEFT/RIGHT default to their respective D-pad directions;
+        // GUI_NAV_CONFIRM defaults to A (same as GUI_LEFT_CLICK).
+
         // GUI interaction — only active when a GuiScreen is open
         // A / Cross = left-click; X / Square = right-click; LT = shift-click
         actionToButton.put(ControllerAction.GUI_LEFT_CLICK, ControllerButton.A);
@@ -70,6 +74,13 @@ public class ControllerMapping {
 
         // D-Pad — all directions unbound by default
         // DPAD_UP, DPAD_DOWN, DPAD_LEFT, DPAD_RIGHT intentionally left unbound
+
+        // GUI D-Pad navigation (only active when dpadNavigation config is true)
+        actionToButton.put(ControllerAction.GUI_NAV_UP, ControllerButton.DPAD_UP);
+        actionToButton.put(ControllerAction.GUI_NAV_DOWN, ControllerButton.DPAD_DOWN);
+        actionToButton.put(ControllerAction.GUI_NAV_LEFT, ControllerButton.DPAD_LEFT);
+        actionToButton.put(ControllerAction.GUI_NAV_RIGHT, ControllerButton.DPAD_RIGHT);
+        actionToButton.put(ControllerAction.GUI_NAV_CONFIRM, ControllerButton.A);
     }
 
     /** Returns the button bound to the given action, or {@code null} if unbound. */

@@ -85,5 +85,17 @@ public enum ControllerAction {
     DPAD_UP,
     DPAD_DOWN,
     DPAD_LEFT,
-    DPAD_RIGHT
+    DPAD_RIGHT,
+
+    // ---- GUI D-Pad navigation (only active when dpadNavigation config is true and a GuiScreen is open) ----
+    /** Navigate focus to the previous button (D-pad up). */
+    GUI_NAV_UP,
+    /** Navigate focus to the next button (D-pad down). */
+    GUI_NAV_DOWN,
+    /** Adjust slider left or navigate horizontally (D-pad left). */
+    GUI_NAV_LEFT,
+    /** Adjust slider right or navigate horizontally (D-pad right). */
+    GUI_NAV_RIGHT,
+    /** Confirm/activate the currently focused button (A / Cross). */
+    GUI_NAV_CONFIRM
 }

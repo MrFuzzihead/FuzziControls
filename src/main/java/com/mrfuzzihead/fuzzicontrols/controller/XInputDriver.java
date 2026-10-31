@@ -1,10 +1,5 @@
 package com.mrfuzzihead.fuzzicontrols.controller;
 
-import java.util.EnumSet;
-import java.util.Set;
-
-import com.github.strikerx3.jxinput.XInputAxes;
-import com.github.strikerx3.jxinput.XInputButtons;
 import com.github.strikerx3.jxinput.XInputComponents;
 import com.github.strikerx3.jxinput.XInputDevice;
 import com.github.strikerx3.jxinput.exceptions.XInputNotLoadedException;
@@ -20,20 +15,51 @@ public class XInputDriver implements IControllerDriver {
     private XInputDevice device;
     private boolean available = false;
 
+    /** Cached result of the native-library probe; {@code null} until first use. */
+    private static Boolean xInputSupported;
+
+    /**
+     * Returns true when JXInput's native library is usable on this platform.
+     *
+     * <p>
+     * JXInput ships <b>Windows-only</b> natives. Elsewhere (and whenever the natives cannot be
+     * extracted) the call throws {@link UnsatisfiedLinkError} — an {@code Error}, not an exception —
+     * which would otherwise escape the constructor and crash the game during mod initialisation. On
+     * Linux and macOS this mod must simply report no XInput and let the raw-HID drivers (DualSense)
+     * handle input.
+     *
+     * @return true when an XInput device can be opened
+     */
+    static synchronized boolean isXInputSupported() {
+        if (xInputSupported == null) {
+            try {
+                xInputSupported = XInputDevice.isAvailable();
+            } catch (Throwable t) {
+                xInputSupported = false;
+                FuzziControls.LOG.info(
+                    "[FuzziControls] XInput is unavailable on this platform ({}). "
+                        + "Only raw-HID controllers such as DualSense will be detected.",
+                    t.toString());
+            }
+        }
+        return xInputSupported;
+    }
+
     public XInputDriver(int controllerIndex) {
         this.controllerIndex = controllerIndex;
+
+        if (!isXInputSupported()) return;
+
         try {
-            if (XInputDevice.isAvailable()) {
-                device = XInputDevice.getDeviceFor(controllerIndex);
-                available = true;
-                FuzziControls.LOG.info("[FuzziControls] XInputDriver initialised for slot {}.", controllerIndex);
-            } else {
-                FuzziControls.LOG.warn("[FuzziControls] XInput native library not available on this system.");
-            }
+            device = XInputDevice.getDeviceFor(controllerIndex);
+            available = true;
+            FuzziControls.LOG.info("[FuzziControls] XInputDriver initialised for slot {}.", controllerIndex);
         } catch (XInputNotLoadedException e) {
             FuzziControls.LOG.warn("[FuzziControls] XInput not loaded: {}", e.getMessage());
-        } catch (Exception e) {
-            FuzziControls.LOG.warn("[FuzziControls] XInput init error: {}", e.getMessage());
+        } catch (Exception | LinkageError e) {
+            FuzziControls.LOG.warn("[FuzziControls] XInput init error: {}", e.toString());
+            device = null;
+            available = false;
         }
     }
 
@@ -43,7 +69,7 @@ public class XInputDriver implements IControllerDriver {
         try {
             device.poll();
             return device.isConnected();
-        } catch (Exception e) {
+        } catch (Exception | LinkageError e) {
             return false;
         }
     }
@@ -56,48 +82,14 @@ public class XInputDriver implements IControllerDriver {
             if (!device.poll() || !device.isConnected()) {
                 return ControllerState.empty();
             }
-        } catch (Exception e) {
+        } catch (Exception | LinkageError e) {
+            // LinkageError covers a native library that disappears mid-session (unplugged dongle etc.).
             return ControllerState.empty();
         }
 
         XInputComponents components = device.getComponents();
-        XInputAxes axes = components.getAxes();
-        XInputButtons buttons = components.getButtons();
 
-        // Axes: JXInput normalises sticks to [-1, 1] (Y positive = stick pushed up).
-        // We negate Y so that positive Y means "stick pushed down", matching Minecraft's
-        // movement convention (forward = negative Y) and pitch convention (look down = positive).
-        float lx = ControllerState.normaliseAxis(axes.lx, deadZone);
-        float ly = ControllerState.normaliseAxis(-axes.ly, deadZone);
-        float rx = ControllerState.normaliseAxis(axes.rx, deadZone);
-        float ry = ControllerState.normaliseAxis(-axes.ry, deadZone);
-        float lt = ControllerState.normaliseTrigger(axes.lt, triggerThreshold);
-        float rt = ControllerState.normaliseTrigger(axes.rt, triggerThreshold);
-
-        // Collect pressed digital buttons
-        Set<ControllerButton> pressed = EnumSet.noneOf(ControllerButton.class);
-        if (buttons.a) pressed.add(ControllerButton.A);
-        if (buttons.b) pressed.add(ControllerButton.B);
-        if (buttons.x) pressed.add(ControllerButton.X);
-        if (buttons.y) pressed.add(ControllerButton.Y);
-        if (buttons.lShoulder) pressed.add(ControllerButton.LEFT_BUMPER);
-        if (buttons.rShoulder) pressed.add(ControllerButton.RIGHT_BUMPER);
-        if (buttons.lThumb) pressed.add(ControllerButton.LEFT_STICK_CLICK);
-        if (buttons.rThumb) pressed.add(ControllerButton.RIGHT_STICK_CLICK);
-        if (buttons.start) pressed.add(ControllerButton.START);
-        if (buttons.back) pressed.add(ControllerButton.BACK);
-        if (buttons.guide) pressed.add(ControllerButton.GUIDE);
-        if (buttons.up) pressed.add(ControllerButton.DPAD_UP);
-        if (buttons.down) pressed.add(ControllerButton.DPAD_DOWN);
-        if (buttons.left) pressed.add(ControllerButton.DPAD_LEFT);
-        if (buttons.right) pressed.add(ControllerButton.DPAD_RIGHT);
-
-        // Triggers as digital — compare against the raw trigger value, not the
-        // already-thresholded (normalised) value, so the configured threshold is applied once.
-        if (axes.lt >= triggerThreshold) pressed.add(ControllerButton.LEFT_TRIGGER);
-        if (axes.rt >= triggerThreshold) pressed.add(ControllerButton.RIGHT_TRIGGER);
-
-        return new ControllerState(lx, ly, rx, ry, lt, rt, pressed);
+        return XInputReportMapper.map(components.getAxes(), components.getButtons(), deadZone, triggerThreshold);
     }
 
     @Override
