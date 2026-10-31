@@ -154,6 +154,12 @@ Minecraft 1.7.10 on Java 17 or newer. Spotless and Checkstyle are applied automa
 
 ---
 
+## 📄 Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for user-facing changes per release.
+
+---
+
 ## 📄 License
 
 [MIT](LICENSE)
