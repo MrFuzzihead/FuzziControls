@@ -73,12 +73,10 @@ jobs:
   client-smoke-test-java25:
     runs-on: ubuntu-24.04
     timeout-minutes: 40
-    # Informational, not a merge gate: booting a 1.7.10 client depends on a working software-GL stack
-    # (llvmpipe + GLX under Xvfb), which is environment-dependent. The harness is proven locally and
-    # every check it performs is also covered by unit tests; this job adds the client-only mixin
-    # verification when the runner can provide a GL context. Failures still surface here with the
-    # report, log tail and crash reports attached.
-    continue-on-error: true
+    # A merge gate: this is the only check that client-side mixins actually *apply* at runtime, and it
+    # already caught a real crash (Windows-only JXInput natives aborting the client on Linux). The
+    # report, log tail and crash reports are attached on failure so a broken runner environment is
+    # diagnosable without re-running.
     steps:
       - name: Checkout mod repo
         uses: actions/checkout@v5
