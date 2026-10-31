@@ -133,7 +133,7 @@ jobs:
         run: |
           mkdir -p run/client/config
           if [ -f run/client/config/lwjgl3ify.cfg ]; then
-            sed -i 's/^\( *\)B:linuxCreateAppDesktopEntry=.*/B:linuxCreateAppDesktopEntry=false/' run/client/config/lwjgl3ify.cfg
+            sed -i 's/B:linuxCreateAppDesktopEntry=.*/B:linuxCreateAppDesktopEntry=false/' run/client/config/lwjgl3ify.cfg
           else
             echo 'B:linuxCreateAppDesktopEntry=false' > run/client/config/lwjgl3ify.cfg
           fi
