@@ -113,6 +113,10 @@ jobs:
             echo "SDL_VIDEODRIVER=x11"
             echo "ALSOFT_DRIVERS=null"
           } >> "$GITHUB_ENV"
+          # lwjgl3ify creates a .desktop entry on first Linux init (Wayland appId) and aborts startup
+          # if neither $XDG_DATA_HOME nor ~/.local/share exists - GitHub runners have neither.
+          mkdir -p "$RUNNER_TEMP/xdg-data"
+          echo "XDG_DATA_HOME=$RUNNER_TEMP/xdg-data" >> "$GITHUB_ENV"
           # Report what GL we actually get, so a context problem is visible in the log.
           xvfb-run -a -s "-screen 0 1280x720x24 +extension GLX +render -noreset" glxinfo -B || true
 
@@ -126,7 +130,8 @@ jobs:
           FUZZICONTROLS_SELFTEST: '1'
         run: |
           set +e
-          timeout 900 xvfb-run -a -s "-screen 0 1280x720x24 +extension GLX +render -noreset"             ./gradlew --console=plain --stacktrace runClient25 2>&1 | tee client.log
+          timeout 900 xvfb-run -a -s "-screen 0 1280x720x24 +extension GLX +render -noreset" \
+            ./gradlew --console=plain --stacktrace runClient25 2>&1 | tee client.log
           echo "client step exit: $?"
 
       # Always show the useful part of the log, so a failure explains itself without downloading
