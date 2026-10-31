@@ -1,6 +1,11 @@
 package com.mrfuzzihead.fuzzicontrols.selftest;
 
 import java.awt.Point;
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.List;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiButton;
@@ -61,6 +66,12 @@ public final class ClientSelfTest {
     /** Rendered frames to survive with the focus border drawn before the renderer check passes. */
     private static final int RENDERER_FRAMES = 2;
 
+    /**
+     * Report file, written in the client's working directory ({@code run/client}). CI asserts on this
+     * file rather than scraping Gradle's console output, which console formatting can interleave.
+     */
+    public static final String REPORT_FILE = "selftest-report.txt";
+
     /** What the harness is waiting for. */
     private enum Phase {
         WAIT_FOR_MENU,
@@ -81,6 +92,9 @@ public final class ClientSelfTest {
     private int checks;
 
     private int failures;
+
+    /** One line per check, written to {@link #REPORT_FILE} so CI can assert on a file instead of console output. */
+    private final List<String> report = new ArrayList<>();
 
     private boolean originalDpadNavigation;
 
@@ -289,12 +303,42 @@ public final class ClientSelfTest {
         Config.dpadNavigation = originalDpadNavigation;
         GuiFocusRenderer.setNavActive(false);
         FuzziControls.LOG.info("[FuzziControls] Client selftest: {} checks, {} failures", checks, failures);
+        writeReport();
         phase = Phase.DONE;
         exitPending = true;
     }
 
+    /**
+     * Writes {@link #REPORT_FILE}: one {@code PASS}/{@code FAIL} line per check plus a
+     * {@code SUMMARY <checks> <failures>} line. Never throws — a broken report must not hide results.
+     */
+    private void writeReport() {
+        StringBuilder text = new StringBuilder();
+        for (String line : report) {
+            text.append(line)
+                .append('\n');
+        }
+        text.append("SUMMARY ")
+            .append(checks)
+            .append(' ')
+            .append(failures)
+            .append('\n');
+
+        try {
+            File file = new File(System.getProperty("user.dir", "."), REPORT_FILE);
+            Files.write(
+                file.toPath(),
+                text.toString()
+                    .getBytes(StandardCharsets.UTF_8));
+            FuzziControls.LOG.info("[FuzziControls] Client selftest report written to {}", file.getAbsolutePath());
+        } catch (Exception e) {
+            FuzziControls.LOG.warn("[FuzziControls] Could not write the selftest report: {}", e.toString());
+        }
+    }
+
     private void record(String name, boolean passed) {
         checks++;
+        report.add((passed ? "PASS " : "FAIL ") + name);
         if (passed) {
             FuzziControls.LOG.info("[FuzziControls] selftest PASS {}", name);
         } else {

@@ -95,45 +95,81 @@ jobs:
       - name: Install headless display and software OpenGL
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb libgl1 libglx-mesa0 libgl1-mesa-dri libglu1-mesa libopenal1
-          # lwjgl3ify needs an OpenGL 3.2+ context; llvmpipe provides one without a GPU.
-          echo "LIBGL_ALWAYS_SOFTWARE=1" >> "$GITHUB_ENV"
+          sudo apt-get install -y xvfb libgl1 libglx-mesa0 libgl1-mesa-dri libglu1-mesa libopenal1 mesa-utils
+          # lwjgl3ify needs an OpenGL 3.2+ *compatibility* context (vanilla 1.7.10 uses fixed-function
+          # GL); llvmpipe provides one without a GPU. The overrides only affect what Mesa reports.
+          {
+            echo "LIBGL_ALWAYS_SOFTWARE=1"
+            echo "MESA_GL_VERSION_OVERRIDE=4.5COMPAT"
+            echo "MESA_GLSL_VERSION_OVERRIDE=450"
+            echo "SDL_VIDEODRIVER=x11"
+          } >> "$GITHUB_ENV"
+          # Report what GL we actually get, so a context problem is visible in the log.
+          xvfb-run -a -s "-screen 0 1280x720x24 +extension GLX +render -noreset" glxinfo -B || true
+
+      # Splitting the build out makes a failure here unmistakably a build/dependency problem rather
+      # than a client problem, and it is much faster to iterate on.
+      - name: Build (isolates build/dependency failures from client failures)
+        run: ./gradlew --console=plain classes
 
       - name: Run client self-test headless
         env:
           FUZZICONTROLS_SELFTEST: '1'
         run: |
           set +e
-          timeout 900 xvfb-run -a -s "-screen 0 1280x720x24" \
-            ./gradlew --stacktrace runClient25 2>&1 | tee client.log
-          echo "client process exit: $?"
+          timeout 900 xvfb-run -a -s "-screen 0 1280x720x24 +extension GLX +render -noreset"             ./gradlew --console=plain --stacktrace runClient25 2>&1 | tee client.log
+          echo "client step exit: $?"
+
+      # Always show the useful part of the log, so a failure explains itself without downloading
+      # artifacts or re-running with more verbosity.
+      - name: Show self-test output and log tail
+        if: always()
+        run: |
+          echo "===== harness report ====="
+          cat run/client/selftest-report.txt 2>/dev/null || echo "(no report file - the client never ran the harness)"
+          echo "===== self-test lines ====="
+          grep -E "selftest|self-test|Mixin self-test" client.log || echo "(none)"
+          echo "===== error-ish lines ====="
+          grep -iE "exception|error|fatal|crash|Caused by|FAILURE" client.log | head -40 || echo "(none)"
+          echo "===== last 150 lines ====="
+          tail -n 150 client.log 2>/dev/null || echo "(no client.log)"
 
       - name: Assert self-test results
         if: always()
         run: |
           status=0
+          report=run/client/selftest-report.txt
+
+          if [ -f "$report" ]; then
+            if ! grep -qE "^SUMMARY [0-9]+ 0$" "$report"; then
+              echo "::error::Self-test report shows failures (see the report above)"; status=1
+            fi
+            if grep -q "^FAIL " "$report"; then
+              echo "::error::Self-test reported failing checks (see the report above)"; status=1
+            fi
+          else
+            echo "::error::No self-test report at $report - the client never ran the harness (see the log tail above)"; status=1
+          fi
+
           if ! grep -qF "Mixin self-test: 7 checks, 0 failures" client.log; then
-            echo "::error::Not all mixins were applied - see client.log"; status=1
-          fi
-          if ! grep -qE "Client selftest: [0-9]+ checks, 0 failures" client.log; then
-            echo "::error::Client self-test did not pass - see client.log"; status=1
-          fi
-          if grep -qF "selftest FAIL" client.log; then
-            echo "::error::Client self-test reported failures"; status=1
+            echo "::error::Not all mixins were applied (see the log tail above)"; status=1
           fi
           if grep -qE "Mixin apply failed|MixinApplyError|InvalidInjectionException|A fatal error has been detected" client.log; then
             echo "::error::Error markers found in the client log"; status=1
           fi
-          echo "--- self-test lines ---"
-          grep -E "self-test|selftest" client.log || true
+
+          echo "assert exit status: $status"
           exit $status
 
-      - name: Upload client log and crash reports
+      - name: Upload client log, report and crash reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: client-selftest-log
           path: |
             client.log
+            run/client/selftest-report.txt
             run/client/crash-reports/
+            run/client/logs/
+            hs_err_pid*.log
           if-no-files-found: ignore
