@@ -121,10 +121,13 @@ by a mixin at class load, so **enabling** it needs a restart (disabling it is im
 ./gradlew spotlessCheck checkstyleMain checkstyleTest  # style + static analysis
 ```
 
-The parts that cannot run in a plain JVM — mixin application, the `GuiSlot`/`GuiContainer`
-navigation paths and slider stepping through real `GameSettings` options — are covered by an opt-in
-client harness. It runs at the main menu (no world needed), logs one `PASS`/`FAIL` line per check,
-prints a summary and exits with the failure count as its exit code:
+The parts that cannot run in a plain JVM are covered by an opt-in client harness. It boots at the
+main menu (no world needed), verifies that every mixin was applied, then drives the real navigation
+stack the same way the D-pad confirm does: focus the **Options…** button and activate it, focus **Video
+Settings…** and activate it, step a real slider, navigate the options list, check the `GuiContainer`
+slot path (off-panel slots filtered, click target at the slot centre), and render the focus border for
+a couple of frames. It logs one `PASS`/`FAIL` line per check, prints a summary and exits with the
+failure count as its exit code:
 
 ```bash
 # Linux/macOS

@@ -2,6 +2,7 @@ package com.mrfuzzihead.fuzzicontrols.util;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -518,6 +519,73 @@ public class GuiFocusNavigatorTest {
         navigator.update(null);
         navigator.update(null);
         assertEquals(afterFirstBuild, navigator.getRebuildCountForTest());
+    }
+
+    // -------------------------------------------------------------------------
+    // Direct index access and spatial navigation invariants
+    // -------------------------------------------------------------------------
+
+    @Test
+    public void focusIndexMovesFocusDirectly() {
+        navigator.rebuildForTest(Arrays.asList(btn(0, 0, 0), btn(1, 0, 40), btn(2, 0, 80)));
+        navigator.focusIndex(2);
+        assertEquals(2, navigator.getFocusedIndex());
+        navigator.focusIndex(1);
+        assertEquals(1, navigator.getFocusedIndex());
+    }
+
+    @Test
+    public void focusIndexClampsOutOfRangeRequests() {
+        navigator.rebuildForTest(Arrays.asList(btn(0, 0, 0), btn(1, 0, 40)));
+        navigator.focusIndex(99);
+        assertEquals(1, navigator.getFocusedIndex());
+        navigator.focusIndex(-5);
+        assertEquals(0, navigator.getFocusedIndex());
+    }
+
+    @Test
+    public void focusIndexOnAnEmptyListIsIgnored() {
+        navigator.rebuildForTest(new ArrayList<>());
+        navigator.focusIndex(3);
+        assertNull(navigator.getFocusedItem());
+    }
+
+    @Test
+    public void gridNavigationRoundTrips() {
+        // 3x3 grid at 40 px spacing; right/down/left/up must return to the starting slot.
+        int[] xs = { 0, 40, 80, 0, 40, 80, 0, 40, 80 };
+        int[] ys = { 0, 0, 0, 40, 40, 40, 80, 80, 80 };
+        navigator.rebuildForTestInventory(xs, ys, 0, 0);
+
+        navigator.focusIndex(0);
+        navigator.focusRight();
+        navigator.focusDown();
+        navigator.focusLeft();
+        navigator.focusUp();
+        assertEquals(0, navigator.getFocusedIndex());
+    }
+
+    @Test
+    public void spatialNavigationNeverStaysOnTheSameItem() {
+        int[] xs = { 0, 40, 80, 0, 40, 80, 0, 40, 80 };
+        int[] ys = { 0, 0, 0, 40, 40, 40, 80, 80, 80 };
+        navigator.rebuildForTestInventory(xs, ys, 0, 0);
+
+        for (int index = 0; index < 9; index++) {
+            for (int direction = 0; direction < 4; direction++) {
+                navigator.focusIndex(index);
+                switch (direction) {
+                    case 0 -> navigator.focusUp();
+                    case 1 -> navigator.focusRight();
+                    case 2 -> navigator.focusDown();
+                    default -> navigator.focusLeft();
+                }
+                assertNotEquals(
+                    "Direction " + direction + " must move away from " + index,
+                    index,
+                    navigator.getFocusedIndex());
+            }
+        }
     }
 
     // -------------------------------------------------------------------------

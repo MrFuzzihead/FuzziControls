@@ -190,6 +190,47 @@ public class SliderStepperTest {
     }
 
     @Test
+    public void steppingIsNeverStuckExceptAtTheBounds() {
+        // The original bug: for options whose grid is coarser than the step, every press was a no-op.
+        // This property covers every float option and several step sizes, so a future change cannot
+        // quietly reintroduce a "dead" slider.
+        for (GameSettings.Options option : GameSettings.Options.values()) {
+            if (!option.getEnumFloat()) continue;
+            for (float fraction : new float[] { 0.01f, 0.05f, 0.2f, 0.5f }) {
+                float current = 0f;
+                for (int press = 0; press < 32; press++) {
+                    float next = SliderStepper.nextValue(option, current, fraction, true);
+                    if (current >= 1f - 1e-4f) {
+                        assertEquals(option + " must stop at maximum", current, next, 0f);
+                        break;
+                    }
+                    assertTrue(
+                        option + " with step " + fraction + " got stuck at " + current + " on press " + press,
+                        next > current);
+                    current = next;
+                }
+            }
+        }
+    }
+
+    @Test
+    public void steppingDownIsNeverStuckExceptAtTheBounds() {
+        for (GameSettings.Options option : GameSettings.Options.values()) {
+            if (!option.getEnumFloat()) continue;
+            float current = 1f;
+            for (int press = 0; press < 32; press++) {
+                float next = SliderStepper.nextValue(option, current, 0.05f, false);
+                if (current <= 1e-4f) {
+                    assertEquals(option + " must stop at minimum", current, next, 0f);
+                    break;
+                }
+                assertTrue(option + " got stuck at " + current + " on downward press " + press, next < current);
+                current = next;
+            }
+        }
+    }
+
+    @Test
     public void zeroFraction_isANoOp() {
         assertEquals(0.5f, SliderStepper.nextValue(GameSettings.Options.MIPMAP_LEVELS, 0.5f, 0f, true), 0f);
         assertEquals(0.5f, SliderStepper.nextValue(GameSettings.Options.MIPMAP_LEVELS, 0.5f, 0f, false), 0f);

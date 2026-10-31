@@ -2,6 +2,7 @@ package com.mrfuzzihead.fuzzicontrols;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.io.File;
@@ -121,6 +122,34 @@ public class ConfigReloadTest {
 
         assertEquals(first, Config.lookSensitivity, 0f);
         assertEquals(firstBinding, Config.controllerMapping.getButton(ControllerAction.JUMP));
+    }
+
+    @Test
+    public void savedBindingsSurviveAReload() throws Exception {
+        // Config.save() writes the in-memory mapping; it had no coverage at all.
+        writeConfig("bindings {", "    S:JUMP=A", "}");
+        Config.synchronizeConfiguration(configFile);
+
+        Config.controllerMapping.bind(ControllerAction.JUMP, ControllerButton.Y);
+        Config.save();
+
+        // Simulate a restart: reading the file again must produce the saved binding.
+        Config.synchronizeConfiguration(configFile);
+        assertEquals(ControllerButton.Y, Config.controllerMapping.getButton(ControllerAction.JUMP));
+    }
+
+    @Test
+    public void unboundActionsSurviveASaveAndReload() throws Exception {
+        writeConfig("bindings {", "    S:JUMP=A", "}");
+        Config.synchronizeConfiguration(configFile);
+
+        Config.controllerMapping.bind(ControllerAction.JUMP, null);
+        Config.save();
+
+        Config.synchronizeConfiguration(configFile);
+        assertNull(
+            "An explicitly unbound action must stay unbound",
+            Config.controllerMapping.getButton(ControllerAction.JUMP));
     }
 
     @Test

@@ -772,3 +772,68 @@ snapshot.
   modded GUIs, creative inventory, chat.
 * `/fuzzicontrols reload` end-to-end (driver re-init while playing) — the config re-read itself is
   unit tested.
+
+---
+
+## Automation batch 2
+
+Continues the "no human in the loop" work: the remaining tick-handler logic is extracted and tested,
+and the harness now drives real screens instead of only synthetic ones.
+
+**Tick-handler state machines extracted and covered (4 new classes, 46 tests)**
+
+`ControllerTickHandler` was 1148 lines with almost none of its logic testable. Four self-contained
+pieces moved out, each with the effects left in place:
+
+| Class | Behaviour pinned |
+|---|---|
+| `StickHysteresis` | Two-threshold Schmitt trigger on stick directions (a single threshold makes movement stutter near it): turns on past `ON_THRESHOLD`, stays on until below `OFF_THRESHOLD`, jitter inside the band never toggles, state is per action. Also the axis→direction mapping (a sign error silently inverts movement). |
+| `DropTapHold` | Tap-versus-hold drop: nothing on press, one item on release, the whole stack exactly once at `HOLD_TICKS`, and nothing at all when the press closed a GUI. Also covers input-resync resets (a held button must not drop on release after alt-tab/reconnect — the old flag-based code did). |
+| `DpadNavState` | Who owns the GUI: D-pad activates, releasing the D-pad does *not* hand back control, left-stick past the threshold or a real mouse move does, disabled config forces inactive, and a press arriving in the same tick as a deactivation signal is consumed (documented explicitly, since that is what bug #6 looked like). |
+| `KeyClaimTracker` | The keyboard non-interference contract: the mod may only clear a key it pressed itself, so a keyboard-held WASD/shift is never clobbered. |
+
+**`GuiElementActivator` extracted**
+
+The confirm dispatch moved out of the tick handler into `util/GuiElementActivator` (public API), so the
+live click path can be driven by the harness as well as by controller input. Behaviour is unchanged:
+coherent press+release on the focused element, shift-click support, and no right-click on buttons or
+sliders.
+
+**Harness v2 — real screens, real activation (25 checks, was 18)**
+
+The harness no longer constructs everything synthetically. It now:
+
+1. Verifies all 7 mixins.
+2. Focuses the **Options…** button on the main menu and activates it through
+   `GuiElementActivator`, asserting the screen changed to `GuiOptions`.
+3. Focuses **Video Settings…** there and activates it, asserting `GuiVideoSettings` opened. This
+   exercises real `GuiScreen.mouseClicked` → `actionPerformed` → `displayGuiScreen` dispatch.
+4. Runs the list checks on the live screen: focus list from `GuiOptionsRowList` rows, viewport
+   visibility, D-pad movement, and slider stepping on a real `GuiOptionSlider` + `GameSettings`
+   (the #1 bug, verified live).
+5. Runs the `GuiContainer` checks (off-panel slot filtered, clip target at the slot centre, wrap).
+6. Enables the focus border and renders two frames with it, proving the renderer survives a frame —
+   previously the only completely untested component.
+
+Local run: `Mixin self-test: 7 checks, 0 failures`, `Client selftest: 25 checks, 0 failures`, exit 0.
+
+**Property/invariant tests added**
+
+* `SliderStepper`: for **every** float option and four step sizes, stepping up (and down) can never be
+  a no-op except at a bound — a direct guard against the class of bug in #1.
+* `GuiFocusNavigator`: `focusIndex` direct access and clamping, a 3×3 grid round-trip
+  (right/down/left/up returns to the origin), and "spatial navigation never stays on the same item" for
+  every cell and direction.
+* `Config`: `save()` had no coverage at all — bindings (and explicit unbinds) now survive a
+  save + reload round-trip.
+
+**Verification**
+
+`spotlessCheck`, `checkstyleMain`, `checkstyleTest`, `test` green — **321 tests** (was 267).
+
+**Still human-only**
+
+Unchanged from the previous batch: visual polish, input *feel*, screens the harness cannot construct at
+the main menu (world/server lists, modded GUIs, creative, chat), and in-world behaviour (movement,
+camera, drop). Those would need a scripted in-world session (a saved world plus synthetic input), which
+is the next obvious step if it is worth the runtime.

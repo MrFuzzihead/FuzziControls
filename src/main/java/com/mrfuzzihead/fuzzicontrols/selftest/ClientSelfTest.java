@@ -6,19 +6,23 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiMainMenu;
 import net.minecraft.client.gui.GuiOptionSlider;
+import net.minecraft.client.gui.GuiOptions;
 import net.minecraft.client.gui.GuiVideoSettings;
-import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.gui.inventory.GuiContainer;
+import net.minecraft.client.resources.I18n;
 import net.minecraft.client.settings.GameSettings;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.inventory.Container;
 import net.minecraft.inventory.InventoryBasic;
 import net.minecraft.inventory.Slot;
 
+import com.mrfuzzihead.fuzzicontrols.Config;
 import com.mrfuzzihead.fuzzicontrols.FuzziControls;
 import com.mrfuzzihead.fuzzicontrols.mixins.early.GuiContainerAccessors;
 import com.mrfuzzihead.fuzzicontrols.mixins.early.GuiOptionSliderAccessors;
+import com.mrfuzzihead.fuzzicontrols.util.GuiElementActivator;
 import com.mrfuzzihead.fuzzicontrols.util.GuiFocusNavigator;
+import com.mrfuzzihead.fuzzicontrols.util.GuiFocusRenderer;
 
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -31,15 +35,18 @@ import cpw.mods.fml.relauncher.SideOnly;
  *
  * <p>
  * Unit tests cover the pure logic, but the parts that matter most can only be exercised with live
- * mixins and a real client: mixin application, the {@code GuiSlot} list path, the {@code GuiContainer}
- * slot path, and slider stepping through real {@link GameSettings.Options}. This harness drives those
- * with real screens at the main menu (no world needed), logs one {@code PASS}/{@code FAIL} line per
- * check plus a fixed-shape summary, and then exits the JVM with the failure count as the exit code.
+ * mixins and a real client: mixin application, {@code GuiScreen} button activation, the
+ * {@code GuiSlot} list path, the {@code GuiContainer} slot path, slider stepping through real
+ * {@link GameSettings.Options}, and the focus-border renderer. This harness drives all of them from
+ * the main menu (no world needed) by focusing real buttons and activating them exactly as the D-pad
+ * confirm does.
  *
  * <p>
- * Enabled by the {@code FUZZICONTROLS_SELFTEST} environment variable or the
- * {@code -Dfuzzicontrols.selftest=true} system property; it is never registered otherwise, so it costs
- * nothing in normal play. CI runs it under {@code xvfb} (see {@code .github/workflows/build-and-test.yml}).
+ * It logs one {@code PASS}/{@code FAIL} line per check plus a fixed-shape summary line, then exits the
+ * JVM with the failure count as the exit code. Enabled by the {@code FUZZICONTROLS_SELFTEST}
+ * environment variable or the {@code -Dfuzzicontrols.selftest=true} system property; never registered
+ * otherwise, so it costs nothing in normal play. CI runs it under {@code xvfb} (see
+ * {@code .github/workflows/build-and-test.yml}).
  */
 @SideOnly(Side.CLIENT)
 public final class ClientSelfTest {
@@ -51,17 +58,31 @@ public final class ClientSelfTest {
     /** Ticks to wait after the main menu appears so resource loading has settled. */
     private static final int WARMUP_TICKS = 20;
 
+    /** Rendered frames to survive with the focus border drawn before the renderer check passes. */
+    private static final int RENDERER_FRAMES = 2;
+
+    /** What the harness is waiting for. */
+    private enum Phase {
+        WAIT_FOR_MENU,
+        WAIT_FOR_RENDERER,
+        DONE
+    }
+
     private GuiFocusNavigator navigator;
+
+    private Phase phase = Phase.WAIT_FOR_MENU;
 
     private int menuTicks;
 
-    private boolean finished;
+    private int renderedFrames;
 
     private boolean exitPending;
 
     private int checks;
 
     private int failures;
+
+    private boolean originalDpadNavigation;
 
     /** Returns true when the harness was requested for this JVM. */
     public static boolean isEnabled() {
@@ -78,49 +99,116 @@ public final class ClientSelfTest {
                 .exitJava(failures == 0 ? 0 : 1, true);
             return;
         }
-        if (finished) return;
 
         Minecraft mc = Minecraft.getMinecraft();
-        if (!(mc.currentScreen instanceof GuiMainMenu)) return;
-        if (++menuTicks < WARMUP_TICKS) return;
 
-        finished = true;
-        runChecks(mc);
-        FuzziControls.LOG.info("[FuzziControls] Client selftest: {} checks, {} failures", checks, failures);
-        exitPending = true;
+        switch (phase) {
+            case WAIT_FOR_MENU -> {
+                if (!(mc.currentScreen instanceof GuiMainMenu)) return;
+                if (++menuTicks < WARMUP_TICKS) return;
+                runChecks(mc);
+                phase = Phase.WAIT_FOR_RENDERER;
+            }
+            case WAIT_FOR_RENDERER -> {
+                if (renderedFrames < RENDERER_FRAMES) return;
+                record("renderer: focus border drawn for " + renderedFrames + " frames without error", true);
+                finish();
+            }
+            case DONE -> {}
+        }
     }
 
+    /**
+     * Keeps the focus border enabled across the render phase; the tick handler normally clears it
+     * because no D-pad button is physically pressed.
+     */
+    @SubscribeEvent
+    public void onRenderTick(TickEvent.RenderTickEvent event) {
+        if (event.phase != TickEvent.Phase.START) return;
+        if (phase != Phase.WAIT_FOR_RENDERER) return;
+        if (Minecraft.getMinecraft().currentScreen == null) return;
+
+        GuiFocusRenderer.setNavActive(true);
+        renderedFrames++;
+    }
+
+    // -------------------------------------------------------------------------
+    // Checks
+    // -------------------------------------------------------------------------
+
     private void runChecks(Minecraft mc) {
+        originalDpadNavigation = Config.dpadNavigation;
+
         for (MixinSelfTest.Check check : MixinSelfTest.run()) {
             record(check.name(), check.applied());
         }
-        checkVideoSettings(mc);
-        checkContainerScreen();
-    }
-
-    // -------------------------------------------------------------------------
-    // GuiSlot list path (real GuiOptionsRowList: rows, sliders and enum buttons)
-    // -------------------------------------------------------------------------
-
-    private void checkVideoSettings(Minecraft mc) {
-        GuiVideoSettings screen = new GuiVideoSettings(null, mc.gameSettings);
-        ScaledResolution scaled = new ScaledResolution(mc, mc.displayWidth, mc.displayHeight);
-        screen.setWorldAndResolution(mc, scaled.getScaledWidth(), scaled.getScaledHeight());
 
         navigator = new GuiFocusNavigator();
-        navigator.update(screen);
+        GuiFocusRenderer.setNavigator(navigator);
 
-        Point first = navigator.getFocusedItemCenter();
-        record("video settings: focus list built from GuiOptionsRowList rows", first != null);
+        if (!checkScreenActivation(mc)) return;
+        checkVideoSettings(mc);
+        checkContainerScreen();
+
+        // The renderer check runs over the next rendered frames; the border is drawn for the live
+        // video-settings screen focused above.
+        Config.dpadNavigation = true;
+    }
+
+    /**
+     * Focuses and activates real buttons to walk main menu → Options → Video Settings, exercising the
+     * same dispatch path as the D-pad confirm (including screen changes caused by a button).
+     */
+    private boolean checkScreenActivation(Minecraft mc) {
+        navigator.update(mc.currentScreen);
+        record("main menu: focus list built", navigator.getFocusableCount() > 0);
+
+        int optionsIndex = findButtonIndex(I18n.format("menu.options"));
+        record("main menu: 'Options...' button reachable by D-pad focus", optionsIndex >= 0);
+        if (optionsIndex < 0) return false;
+
+        navigator.focusIndex(optionsIndex);
+        GuiElementActivator.activate(navigator, 0, mc, false);
+        boolean openedOptions = mc.currentScreen instanceof GuiOptions;
+        record("main menu: activating the focused button opens the Options screen", openedOptions);
+        if (!openedOptions) return false;
+
+        navigator.update(mc.currentScreen);
+        int videoIndex = findButtonIndex(I18n.format("options.video"));
+        record("options screen: 'Video Settings...' button reachable by D-pad focus", videoIndex >= 0);
+        if (videoIndex < 0) return false;
+
+        navigator.focusIndex(videoIndex);
+        GuiElementActivator.activate(navigator, 0, mc, false);
+        boolean openedVideo = mc.currentScreen instanceof GuiVideoSettings;
+        record("options screen: activating the focused button opens Video Settings", openedVideo);
+        return openedVideo;
+    }
+
+    /** GuiSlot list path plus slider stepping, on the live Video Settings screen. */
+    private void checkVideoSettings(Minecraft mc) {
+        navigator.update(mc.currentScreen);
+
+        record("video settings: focus list built from GuiOptionsRowList rows", navigator.getFocusableCount() > 0);
         record("video settings: focused entry is inside the list viewport", navigator.isFocusedItemVisible());
 
+        Point first = navigator.getFocusedItemCenter();
         navigator.focusDown();
         Point second = navigator.getFocusedItemCenter();
         record("video settings: D-pad moves focus", second != null && !second.equals(first));
         record("video settings: focus stays on screen after moving", navigator.isFocusedItemVisible());
 
-        GuiOptionSliderAccessors gamma = findSlider(GameSettings.Options.GAMMA);
-        record("video settings: gamma slider reachable by D-pad", gamma != null);
+        // Index-based search so both columns of the options list are visited.
+        GuiOptionSliderAccessors gamma = null;
+        for (int index = 0; index < navigator.getFocusableCount() && gamma == null; index++) {
+            navigator.focusIndex(index);
+            GuiButton button = navigator.getFocusedButton();
+            if (button instanceof GuiOptionSlider) {
+                GuiOptionSliderAccessors accessors = (GuiOptionSliderAccessors) button;
+                if (accessors.getOptions() == GameSettings.Options.GAMMA) gamma = accessors;
+            }
+        }
+        record("video settings: gamma slider reachable by D-pad focus", gamma != null);
         if (gamma == null) return;
 
         double original = mc.gameSettings.getOptionFloatValue(GameSettings.Options.GAMMA);
@@ -132,21 +220,11 @@ public final class ClientSelfTest {
 
         record("video settings: D-pad right raises the focused slider", raised > original);
         record("video settings: D-pad left lowers it back", Math.abs(restored - original) < 1e-3);
-    }
 
-    /** Walks the focus list until the slider for {@code option} is focused. */
-    private GuiOptionSliderAccessors findSlider(GameSettings.Options option) {
-        // Index-based so both columns of the options list are visited deterministically; spatial
-        // navigation only walks one column at a time.
-        for (int index = 0; index < navigator.getFocusableCount(); index++) {
-            navigator.focusIndex(index);
-            GuiButton button = navigator.getFocusedButton();
-            if (button instanceof GuiOptionSlider) {
-                GuiOptionSliderAccessors accessors = (GuiOptionSliderAccessors) button;
-                if (accessors.getOptions() == option) return accessors;
-            }
-        }
-        return null;
+        // Close the screen again so the renderer check draws a normal focused screen below.
+        navigator.update(mc.currentScreen);
+        navigator.focusIndex(0);
+        record("video settings: focus returns to the first element", navigator.getFocusedItemCenter() != null);
     }
 
     // -------------------------------------------------------------------------
@@ -166,32 +244,54 @@ public final class ClientSelfTest {
         accessors.setGuiLeft(100);
         accessors.setGuiTop(50);
 
-        navigator = new GuiFocusNavigator();
-        navigator.update(screen);
+        GuiFocusNavigator containerNavigator = new GuiFocusNavigator();
+        containerNavigator.update(screen);
 
         // The off-panel slot must be filtered out, leaving exactly the two in-panel slots.
-        record("container: only in-panel slots are focusable", navigator.getFocusableCount() == 2);
+        record("container: only in-panel slots are focusable", containerNavigator.getFocusableCount() == 2);
 
         // First in-panel slot at (8, 8) with guiLeft/guiTop (100, 50): the click target is the slot
         // centre, 8 px inside the drawn background.
         record(
             "container: focused slot uses the slot centre",
-            new Point(116, 66).equals(navigator.getFocusedItemCenter()));
+            new Point(116, 66).equals(containerNavigator.getFocusedItemCenter()));
 
-        // The two slots sit side by side, so the next one is reached with a horizontal move.
-        navigator.focusRight();
-        record("container: second in-panel slot focused", new Point(134, 66).equals(navigator.getFocusedItemCenter()));
+        containerNavigator.focusRight();
+        record(
+            "container: second in-panel slot focused",
+            new Point(134, 66).equals(containerNavigator.getFocusedItemCenter()));
 
         // Wrapping again must not reach the off-panel slot at (999, 999) -> centre (1107, 1057).
-        navigator.focusRight();
+        containerNavigator.focusRight();
         record(
             "container: focus wraps without reaching the off-panel slot",
-            !new Point(1107, 1057).equals(navigator.getFocusedItemCenter()));
+            !new Point(1107, 1057).equals(containerNavigator.getFocusedItemCenter()));
+
+        // Restore the live-screen navigator for the renderer check.
+        GuiFocusRenderer.setNavigator(navigator);
     }
 
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
+
+    /** Focuses each element in turn until one's label matches, returning its index or -1. */
+    private int findButtonIndex(String label) {
+        for (int index = 0; index < navigator.getFocusableCount(); index++) {
+            navigator.focusIndex(index);
+            GuiButton button = navigator.getFocusedButton();
+            if (button != null && label.equals(button.displayString)) return index;
+        }
+        return -1;
+    }
+
+    private void finish() {
+        Config.dpadNavigation = originalDpadNavigation;
+        GuiFocusRenderer.setNavActive(false);
+        FuzziControls.LOG.info("[FuzziControls] Client selftest: {} checks, {} failures", checks, failures);
+        phase = Phase.DONE;
+        exitPending = true;
+    }
 
     private void record(String name, boolean passed) {
         checks++;
@@ -219,8 +319,8 @@ public final class ClientSelfTest {
 
     /**
      * Minimal container screen; the layout is positioned directly instead of via {@code initGui()}
-     * (which requires a player). Not final: the accessor mixin interface is only present at runtime,
-     * so the cast in {@link #checkContainerScreen()} needs a non-final type.
+     * (which requires a player). Not final: the accessor mixin interface only exists at runtime, so the
+     * cast in {@link #checkContainerScreen()} needs a non-final type.
      */
     private static class TestContainerScreen extends GuiContainer {
 

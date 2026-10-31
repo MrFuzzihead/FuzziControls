@@ -12,10 +12,8 @@ import org.lwjgl.input.Mouse;
 import org.lwjgl.opengl.Display;
 
 import com.mrfuzzihead.fuzzicontrols.Config;
-import com.mrfuzzihead.fuzzicontrols.mixins.early.GuiScreenAccessors;
+import com.mrfuzzihead.fuzzicontrols.util.GuiElementActivator;
 import com.mrfuzzihead.fuzzicontrols.util.GuiFocusNavigator;
-import com.mrfuzzihead.fuzzicontrols.util.GuiFocusNavigator.FocusableItem;
-import com.mrfuzzihead.fuzzicontrols.util.GuiFocusNavigator.ItemType;
 import com.mrfuzzihead.fuzzicontrols.util.GuiFocusRenderer;
 import com.mrfuzzihead.fuzzicontrols.util.GuiKeyHelper;
 import com.mrfuzzihead.fuzzicontrols.util.GuiMouseHelper;
@@ -68,10 +66,9 @@ public class ControllerTickHandler {
     private static final float BASE_DEGREES_PER_SECOND = LookStepper.BASE_DEGREES_PER_SECOND;
 
     /**
-     * Number of game ticks the drop button must be held before it is considered a "hold"
-     * (i.e. drop the entire stack). At 20 Hz, 10 ticks = 0.5 seconds.
+     * Tap-versus-hold logic for the drop button, including the "this press closed a GUI" block.
      */
-    private static final int DROP_HOLD_TICKS = 10;
+    private final DropTapHold dropTapHold = new DropTapHold();
 
     /**
      * Nanosecond timestamp of the previous rendered frame, used for accurate per-frame delta
@@ -111,46 +108,17 @@ public class ControllerTickHandler {
      * previously set to {@code true} — this prevents the controller from overriding
      * keyboard input when the corresponding controller axis is in the dead-zone.
      */
-    private final java.util.HashSet<Integer> controllerHeldKeys = new java.util.HashSet<>();
+    private final KeyClaimTracker heldKeys = new KeyClaimTracker();
 
-    // ---- Stick-direction hysteresis (prevents rapid on/off oscillation near threshold) ----
-
-    /** Threshold (normalised axis magnitude) to turn a stick direction ON. Larger = firmer push needed. */
-    private static final float HYST_ON = 0.065f;
-
-    /** Threshold to stay ON once activated. Must be {@code < HYST_ON}. */
-    private static final float HYST_OFF = 0.015f;
-
-    /** Previous active state of each stick-direction action, tracked frame-to-frame for hysteresis. */
-    private final java.util.EnumMap<ControllerAction, Boolean> stickHysteresis = new java.util.EnumMap<>(
-        ControllerAction.class);
+    /** Two-threshold evaluation of stick directions, so a stick resting near a threshold cannot oscillate. */
+    private final StickHysteresis stickHysteresis = new StickHysteresis();
 
     /** Evaluates a stick-direction action with hysteresis to eliminate micro-jitter near center. */
     private boolean withHysteresis(ControllerAction action, ControllerState state, ControllerMapping mapping) {
-        // Get the raw axis value for this action. We bypass the stateless isActive() and read
-        // the value directly so we can compare against two different thresholds (on vs. off).
+        // Bypass the stateless isActive() so the two different thresholds (on vs. off) can be used.
         ControllerButton btn = mapping.getButton(action);
         if (btn == null || !btn.isAxis()) return false;
-        final float val = switch (btn) {
-            case LEFT_STICK_UP -> -state.leftStickY(); // positive = forward
-            case LEFT_STICK_DOWN -> state.leftStickY();
-            case LEFT_STICK_LEFT -> -state.leftStickX(); // positive = left
-            case LEFT_STICK_RIGHT -> state.leftStickX();
-            case RIGHT_STICK_UP -> -state.rightStickY();
-            case RIGHT_STICK_DOWN -> state.rightStickY();
-            case RIGHT_STICK_LEFT -> -state.rightStickX();
-            case RIGHT_STICK_RIGHT -> state.rightStickX();
-            default -> 0f;
-        };
-        boolean prev = stickHysteresis.getOrDefault(action, false);
-        boolean now;
-        if (prev) {
-            now = val > HYST_OFF; // stay on unless almost fully released
-        } else {
-            now = val > HYST_ON; // turn on only when pushed distinctly past dead-zone
-        }
-        stickHysteresis.put(action, now);
-        return now;
+        return stickHysteresis.update(action, StickHysteresis.axisValue(btn, state));
     }
 
     /**
@@ -224,30 +192,8 @@ public class ControllerTickHandler {
     private static final int NAV_RIGHT_IDX = ControllerAction.GUI_NAV_RIGHT.ordinal();
     private static final int NAV_CONFIRM_IDX = ControllerAction.GUI_NAV_CONFIRM.ordinal();
 
-    /**
-     * Tracks whether D-pad discrete navigation is active on the current screen.
-     *
-     * <ul>
-     * <li>{@link DpadNavState#INACTIVE} — focus highlight hidden; D-pad does nothing;
-     * A/Cross fires a normal cursor click at the cursor position.</li>
-     * <li>{@link DpadNavState#ACTIVE} — focus highlight visible; D-pad moves focus;
-     * A/Cross confirms the focused element.</li>
-     * </ul>
-     *
-     * <p>
-     * Transitions:
-     * <ul>
-     * <li>INACTIVE → ACTIVE: any D-pad ↑/↓/←/→ rising edge</li>
-     * <li>ACTIVE → INACTIVE: left stick moves past dead-zone, or mouse/trackpad moves</li>
-     * <li>Any → INACTIVE: new GUI screen opens (reset)</li>
-     * </ul>
-     */
-    private enum DpadNavState {
-        INACTIVE,
-        ACTIVE
-    }
-
-    private DpadNavState dpadNavState = DpadNavState.INACTIVE;
+    /** Whether D-pad discrete navigation currently owns the GUI (see {@link DpadNavState}). */
+    private final DpadNavState dpadNav = new DpadNavState();
 
     /**
      * Set this flag to true in {@link #onRenderTick} when the mouse has moved since the
@@ -312,40 +258,26 @@ public class ControllerTickHandler {
                 warpCursor(mc, guiCursorX, guiCursorY);
             }
             // ---- D-pad discrete navigation state machine ----
-            // Activation: any D-pad ↑/↓/←/→ physically pressed (not rising edge — we preserve
-            // the rising edge for actual focus movement below).
-            // Deactivation: left-stick movement (past dead-zone) or OS mouse movement.
-            if (Config.dpadNavigation) {
-                boolean anyDpadPressed = mapping.isActive(ControllerAction.GUI_NAV_UP, state, Config.triggerThreshold)
-                    || mapping.isActive(ControllerAction.GUI_NAV_DOWN, state, Config.triggerThreshold)
-                    || mapping.isActive(ControllerAction.GUI_NAV_LEFT, state, Config.triggerThreshold)
-                    || mapping.isActive(ControllerAction.GUI_NAV_RIGHT, state, Config.triggerThreshold);
+            // ---- D-pad discrete navigation state machine (see DpadNavState) ----
+            // Activation: any D-pad ↑/↓/←/→ physically pressed (not rising edge — the rising edge is
+            // preserved for the actual focus movement below).
+            // Deactivation: left-stick movement past the threshold, or OS mouse movement.
+            boolean anyDpadPressed = mapping.isActive(ControllerAction.GUI_NAV_UP, state, Config.triggerThreshold)
+                || mapping.isActive(ControllerAction.GUI_NAV_DOWN, state, Config.triggerThreshold)
+                || mapping.isActive(ControllerAction.GUI_NAV_LEFT, state, Config.triggerThreshold)
+                || mapping.isActive(ControllerAction.GUI_NAV_RIGHT, state, Config.triggerThreshold);
 
-                if (anyDpadPressed && dpadNavState == DpadNavState.INACTIVE) {
-                    dpadNavState = DpadNavState.ACTIVE;
-                    GuiFocusRenderer.setNavActive(true);
-                }
+            boolean navActive = dpadNav.update(
+                Config.dpadNavigation,
+                anyDpadPressed,
+                state.leftStickX(),
+                state.leftStickY(),
+                mouseMovedSinceLastTick);
+            GuiFocusRenderer.setNavActive(navActive);
+            mouseMovedSinceLastTick = false;
 
-                // Deactivate on left-stick movement (past ~15% deflection to avoid noise).
-                if (dpadNavState == DpadNavState.ACTIVE
-                    && (Math.abs(state.leftStickX()) > 0.15f || Math.abs(state.leftStickY()) > 0.15f)) {
-                    dpadNavState = DpadNavState.INACTIVE;
-                    GuiFocusRenderer.setNavActive(false);
-                }
-
-                // Deactivate on OS mouse movement (set by onRenderTick mouse tracking).
-                if (mouseMovedSinceLastTick && dpadNavState == DpadNavState.ACTIVE) {
-                    dpadNavState = DpadNavState.INACTIVE;
-                    GuiFocusRenderer.setNavActive(false);
-                }
-                mouseMovedSinceLastTick = false;
-            } else {
-                dpadNavState = DpadNavState.INACTIVE;
-                GuiFocusRenderer.setNavActive(false);
-            }
-
-            // ---- D-pad navigation actions (only when config is ON and state is ACTIVE) ----
-            if (Config.dpadNavigation && dpadNavState == DpadNavState.ACTIVE) {
+            // ---- D-pad navigation actions (only when config is ON and navigation is active) ----
+            if (navActive) {
                 guiFocusNavigator.update(mc.currentScreen);
 
                 // 2D spatial navigation: up/down/left/right find the nearest item
@@ -434,7 +366,7 @@ public class ControllerTickHandler {
                 // GuiScreen.keyTyped with keyCode 1 (Escape) calls mc.displayGuiScreen(null)
                 // or goes back to the parent screen — same as pressing Esc on the keyboard.
                 GuiKeyHelper.injectKey(mc.currentScreen, Keyboard.KEY_ESCAPE, '\0');
-                dropBlockedByGui = true;
+                dropTapHold.blockNextRelease();
             }
             wasActive[bIdx] = bActive;
             // Also consume DROP_ITEM edge so it doesn't fire after screen closes.
@@ -463,7 +395,7 @@ public class ControllerTickHandler {
         guiShiftToggled = false;
         suppressGuiLeftClick = false;
         suppressGuiRightClick = false;
-        dpadNavState = DpadNavState.INACTIVE;
+        dpadNav.reset();
         GuiFocusRenderer.setNavActive(false);
         mouseMovedSinceLastTick = false;
         mouseMotionTracker.reset();
@@ -645,11 +577,11 @@ public class ControllerTickHandler {
      * set. Called when the controller disconnects mid-game to prevent keys from getting stuck.
      */
     private void releaseAllControllerKeys() {
-        if (controllerHeldKeys.isEmpty()) return;
-        for (int code : controllerHeldKeys) {
+        if (heldKeys.isEmpty()) return;
+        for (int code : heldKeys.claimed()) {
             KeyBinding.setKeyBindState(code, false);
         }
-        controllerHeldKeys.clear();
+        heldKeys.clear();
         // Also cancel sneak toggle so the player doesn't remain stuck sneaking.
         sneakToggled = false;
     }
@@ -667,12 +599,10 @@ public class ControllerTickHandler {
      */
     private void driveKey(KeyBinding binding, boolean active) {
         int code = binding.getKeyCode();
-        if (active) {
-            KeyBinding.setKeyBindState(code, true);
-            controllerHeldKeys.add(code);
-        } else if (controllerHeldKeys.remove(code)) {
-            // Only release keys the controller itself held; never clear keyboard input.
-            KeyBinding.setKeyBindState(code, false);
+        switch (heldKeys.update(code, active)) {
+            case PRESS -> KeyBinding.setKeyBindState(code, true);
+            case RELEASE -> KeyBinding.setKeyBindState(code, false);
+            case NONE -> {}
         }
     }
 
@@ -710,7 +640,7 @@ public class ControllerTickHandler {
             int sneakKeyCode = mc.gameSettings.keyBindSneak.getKeyCode();
             if (sneakKeyCode > 0 && KeyboardHelper.isPhysicallyDown(sneakKeyCode) && sneakToggled) {
                 sneakToggled = false;
-                controllerHeldKeys.remove(sneakKeyCode);
+                heldKeys.release(sneakKeyCode);
                 KeyBinding.setKeyBindState(sneakKeyCode, false);
             }
 
@@ -767,13 +697,11 @@ public class ControllerTickHandler {
         wasGuiLeftClick = mapping.isActive(ControllerAction.GUI_LEFT_CLICK, state, Config.triggerThreshold);
         wasGuiRightClick = mapping.isActive(ControllerAction.GUI_RIGHT_CLICK, state, Config.triggerThreshold);
         wasGuiShiftClick = mapping.isActive(ControllerAction.GUI_SHIFT_CLICK, state, Config.triggerThreshold);
-        dropHeldTicks = 0;
-        dropHoldFired = false;
-        dropBlockedByGui = false;
+        dropTapHold.reset();
         guiShiftToggled = false;
         suppressGuiLeftClick = false;
         suppressGuiRightClick = false;
-        dpadNavState = DpadNavState.INACTIVE;
+        dpadNav.reset();
         GuiFocusRenderer.setNavActive(false);
         mouseMovedSinceLastTick = false;
         mouseMotionTracker.reset();
@@ -806,29 +734,11 @@ public class ControllerTickHandler {
             || (mapping.isActive(closeAction, state, Config.triggerThreshold)
                 && !isActionBlocked(closeAction, mapping));
 
-        boolean justPressed = active && !wasActive[dropIdx];
-        boolean justReleased = !active && wasActive[dropIdx];
-
-        if (justReleased) {
-            // Button released — clear the GUI-close block regardless of mode.
-            if (!dropBlockedByGui && !dropHoldFired) {
-                // It was a genuine tap with no GUI interaction — drop one item.
-                mc.thePlayer.dropOneItem(false);
-            }
-            dropBlockedByGui = false;
-            dropHeldTicks = 0;
-            dropHoldFired = false;
-        } else if (justPressed) {
-            // Fresh press with no GUI open — start counting.
-            dropHeldTicks = 1;
-            dropHoldFired = false;
-            dropBlockedByGui = false;
-        } else if (active && !dropBlockedByGui) {
-            dropHeldTicks++;
-            if (Config.dropEntireStack && !dropHoldFired && dropHeldTicks >= DROP_HOLD_TICKS) {
-                mc.thePlayer.dropOneItem(true);
-                dropHoldFired = true;
-            }
+        // Tap-versus-hold bookkeeping lives in DropTapHold so it can be unit tested.
+        switch (dropTapHold.update(active, Config.dropEntireStack)) {
+            case DROP_ONE -> mc.thePlayer.dropOneItem(false);
+            case DROP_STACK -> mc.thePlayer.dropOneItem(true);
+            case NONE -> {}
         }
 
         wasActive[dropIdx] = active;
@@ -989,69 +899,22 @@ public class ControllerTickHandler {
     }
 
     /**
-     * Activates the currently focused element with the given mouse button.
-     *
-     * <p>
-     * Used by the D-pad confirm (A) and by the right-click action while D-pad navigation is active,
-     * so both act on the focused element instead of on wherever the virtual cursor happens to be.
-     * The click is dispatched directly with the element's coordinates: {@code mouseClicked} receives
-     * them as method parameters, so {@code GuiContainer.getSlotAtPosition()} finds the right slot
-     * without the OS cursor having to be moved (moving it would make the platform emit a mouse
-     * motion event, which the navigation state machine would read as the player grabbing the mouse).
+     * Activates the currently focused element with the given mouse button, honouring the shift-click
+     * toggle. Delegates to {@link GuiElementActivator} so the dispatch is shared with the client
+     * self-test harness.
      *
      * @param mouseButton 0 = left, 1 = right
      * @return true when a focused element existed and consumed the press
      */
     private boolean activateFocused(int mouseButton) {
-        FocusableItem focused = guiFocusNavigator.getFocusedItem();
-        if (focused == null) return false;
-
-        if (focused.type == ItemType.SLOT_ENTRY) {
-            // List entries only respond to a left click; consuming a right click is better than
-            // letting it land at the virtual cursor position.
-            if (mouseButton == 0) {
-                guiFocusNavigator.confirmSlotEntry();
-            }
-            return true;
+        boolean shiftClick = mouseButton == 0 && guiShiftToggled;
+        boolean activated = GuiElementActivator
+            .activate(guiFocusNavigator, mouseButton, Minecraft.getMinecraft(), shiftClick);
+        if (activated && shiftClick) {
+            // One shift-click per toggle press.
+            guiShiftToggled = false;
         }
-
-        // Right-clicking only has meaning for container slots: vanilla's GuiScreen.mouseClicked()
-        // ignores the button index when scanning buttonList, so dispatching a right click at a
-        // focused button would press it, and a slider would jump to the click position.
-        if (mouseButton != 0 && focused.type != ItemType.INVENTORY_SLOT) return true;
-        if (mouseButton == 0 && focused.button != null && GuiFocusNavigator.isSliderButton(focused.button)) {
-            return true;
-        }
-
-        java.awt.Point center = guiFocusNavigator.getFocusedItemCenter();
-        if (center == null) return true;
-
-        // getFocusedItemCenter() is already in scaled GUI coordinates, which is the space
-        // GuiScreen.mouseClicked()/mouseMovedOrUp() and GuiContainer.getSlotAtPosition() expect.
-        int guiX = center.x;
-        int guiY = center.y;
-
-        Minecraft mc = Minecraft.getMinecraft();
-
-        try {
-            GuiScreenAccessors accessors = (GuiScreenAccessors) mc.currentScreen;
-            if (mouseButton == 0 && guiShiftToggled) {
-                // Shift-click: hold the key for the whole press/release pair, and dispatch the
-                // release directly rather than through the event queue (a queued release would be
-                // processed at the OS cursor position, not on the focused slot).
-                final int gx = guiX;
-                final int gy = guiY;
-                KeyboardHelper.withKeyHeld(Keyboard.KEY_LSHIFT, () -> {
-                    GuiMouseHelper.directMouseClicked(mc.currentScreen, 0, gx, gy);
-                    accessors.callMouseMovedOrUp(gx, gy, 0);
-                });
-                guiShiftToggled = false;
-            } else {
-                accessors.callMouseClicked(guiX, guiY, mouseButton);
-                accessors.callMouseMovedOrUp(guiX, guiY, mouseButton);
-            }
-        } catch (Exception ignored) {}
-        return true;
+        return activated;
     }
 
     /**
