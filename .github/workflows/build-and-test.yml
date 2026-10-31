@@ -101,7 +101,9 @@ jobs:
       - name: Install headless display and software OpenGL
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb libgl1 libglx-mesa0 libgl1-mesa-dri libglu1-mesa libopenal1 mesa-utils
+          # SDL3 (via lwjgl3ify) links against the X11/Xcursor/Xrandr stack; Xvfb alone does not pull
+          # these in, and a missing library kills the client during window creation.
+          sudo apt-get install -y             xvfb mesa-utils             libgl1 libglx-mesa0 libgl1-mesa-dri libglu1-mesa libopenal1             libx11-6 libxext6 libxrender1 libxi6 libxcursor1 libxrandr2 libxinerama1 libxtst6 libxxf86vm1
           # lwjgl3ify needs an OpenGL 3.2+ *compatibility* context (vanilla 1.7.10 uses fixed-function
           # GL); llvmpipe provides one without a GPU. The overrides only affect what Mesa reports.
           {
