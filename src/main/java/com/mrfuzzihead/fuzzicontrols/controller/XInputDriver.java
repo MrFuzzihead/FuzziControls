@@ -15,20 +15,51 @@ public class XInputDriver implements IControllerDriver {
     private XInputDevice device;
     private boolean available = false;
 
+    /** Cached result of the native-library probe; {@code null} until first use. */
+    private static Boolean xInputSupported;
+
+    /**
+     * Returns true when JXInput's native library is usable on this platform.
+     *
+     * <p>
+     * JXInput ships <b>Windows-only</b> natives. Elsewhere (and whenever the natives cannot be
+     * extracted) the call throws {@link UnsatisfiedLinkError} — an {@code Error}, not an exception —
+     * which would otherwise escape the constructor and crash the game during mod initialisation. On
+     * Linux and macOS this mod must simply report no XInput and let the raw-HID drivers (DualSense)
+     * handle input.
+     *
+     * @return true when an XInput device can be opened
+     */
+    static synchronized boolean isXInputSupported() {
+        if (xInputSupported == null) {
+            try {
+                xInputSupported = XInputDevice.isAvailable();
+            } catch (Throwable t) {
+                xInputSupported = false;
+                FuzziControls.LOG.info(
+                    "[FuzziControls] XInput is unavailable on this platform ({}). "
+                        + "Only raw-HID controllers such as DualSense will be detected.",
+                    t.toString());
+            }
+        }
+        return xInputSupported;
+    }
+
     public XInputDriver(int controllerIndex) {
         this.controllerIndex = controllerIndex;
+
+        if (!isXInputSupported()) return;
+
         try {
-            if (XInputDevice.isAvailable()) {
-                device = XInputDevice.getDeviceFor(controllerIndex);
-                available = true;
-                FuzziControls.LOG.info("[FuzziControls] XInputDriver initialised for slot {}.", controllerIndex);
-            } else {
-                FuzziControls.LOG.warn("[FuzziControls] XInput native library not available on this system.");
-            }
+            device = XInputDevice.getDeviceFor(controllerIndex);
+            available = true;
+            FuzziControls.LOG.info("[FuzziControls] XInputDriver initialised for slot {}.", controllerIndex);
         } catch (XInputNotLoadedException e) {
             FuzziControls.LOG.warn("[FuzziControls] XInput not loaded: {}", e.getMessage());
-        } catch (Exception e) {
-            FuzziControls.LOG.warn("[FuzziControls] XInput init error: {}", e.getMessage());
+        } catch (Exception | LinkageError e) {
+            FuzziControls.LOG.warn("[FuzziControls] XInput init error: {}", e.toString());
+            device = null;
+            available = false;
         }
     }
 
@@ -38,7 +69,7 @@ public class XInputDriver implements IControllerDriver {
         try {
             device.poll();
             return device.isConnected();
-        } catch (Exception e) {
+        } catch (Exception | LinkageError e) {
             return false;
         }
     }
@@ -51,7 +82,8 @@ public class XInputDriver implements IControllerDriver {
             if (!device.poll() || !device.isConnected()) {
                 return ControllerState.empty();
             }
-        } catch (Exception e) {
+        } catch (Exception | LinkageError e) {
+            // LinkageError covers a native library that disappears mid-session (unplugged dongle etc.).
             return ControllerState.empty();
         }
 

@@ -866,3 +866,31 @@ edge detection moved into `DropTapHold`.
 **Final state:** 330 unit tests + a 25-check client harness, all green
 (`spotlessCheck`, `checkstyleMain`, `checkstyleTest`, `test`, and a local
 `FUZZICONTROLS_SELFTEST=1 ./gradlew runClient25` run: 7/7 mixins, 25/25 checks, exit 0).
+
+---
+
+## Found by the CI client harness: Windows-only natives crashed the mod on Linux/macOS (#15)
+
+The client smoke test earned its keep. On Linux it failed to start, and the log showed:
+
+```
+[Client thread/ERROR] [FML]: Caught exception from fuzzicontrols
+java.lang.UnsatisfiedLinkError: 'int com.github.strikerx3.jxinput.natives.XInputNatives.getLoadedLibVersion()'
+```
+
+JXInput (the XInput backend) ships **Windows-only** native libraries. On Linux/macOS the load throws
+`UnsatisfiedLinkError` — an `Error`, so `XInputDriver`'s `catch (Exception)` did not catch it — which
+propagated out of the driver constructor and **crashed Minecraft during mod initialisation**. In other
+words: FuzziControls did not merely lack gamepad support on Linux, it prevented the game from starting.
+
+The same bug class as #10 (lwjgl3ify linkage errors), and it was missed in the original review because
+every local run was on Windows.
+
+**Fix:** the native availability probe is a one-shot cached check wrapped in `catch (Throwable)`, and the
+driver constructor/`poll`/`isConnected` also catch `LinkageError`. A missing backend now logs one
+informational line and the mod continues with the raw-HID drivers (DualSense works cross-platform).
+3 tests cover it (`XInputDriverTest`).
+
+The two earlier CI failures on the way here were environmental, not code:
+`lwjgl3ify` aborts first-time Linux init without `$XDG_DATA_HOME`/`~/.local/share` (fixed by creating
+one), and the runner needed the SDL3/X11 libraries plus a RANDR-enabled Xvfb.

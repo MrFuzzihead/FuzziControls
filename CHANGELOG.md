@@ -31,6 +31,10 @@ Versions are derived from git tags (`git describe`), so a release is published b
 
 ### Fixed
 
+- **Linux and macOS: the game crashed on startup** when no XInput backend was available. JXInput is
+  Windows-only, and its `UnsatisfiedLinkError` escaped the driver and aborted mod initialisation. The
+  mod now reports XInput as unavailable and continues with the raw-HID drivers (DualSense works
+  cross-platform).
 - D-pad slider stepping was a silent no-op on options whose value grid is coarser than the configured
   step, so the Mipmap Levels and Anisotropic Filtering sliders could not be adjusted.
 - Right-stick scrolling ran at `sensitivity² / fps` — roughly 1.7 notches/second at 60 fps instead of the
