@@ -10,14 +10,12 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import com.mrfuzzihead.fuzzicontrols.Config;
+import com.mrfuzzihead.fuzzicontrols.controller.AnalogMovement;
 import com.mrfuzzihead.fuzzicontrols.controller.ControllerManager;
 import com.mrfuzzihead.fuzzicontrols.controller.ControllerState;
 
 @Mixin(EntityPlayerSP.class)
 public abstract class MixinEntityPlayerSP {
-
-    /** Vanilla sneak multiplier applied to {@code AIMoveSpeed} when sneaking. */
-    private static final float SNEAK_FACTOR = 0.3f;
 
     @Shadow
     public MovementInput movementInput;
@@ -50,23 +48,12 @@ public abstract class MixinEntityPlayerSP {
 
         ControllerState state = mgr.getState();
 
-        float forwardMag = -state.leftStickY();
-        float strafeMag = -state.leftStickX();
-
-        // Quadratic curve so gentle tilt is precise.
-        if (movementInput.moveForward != 0f) {
-            movementInput.moveForward = Math.copySign(forwardMag * forwardMag, movementInput.moveForward);
-        }
-        if (movementInput.moveStrafe != 0f) {
-            movementInput.moveStrafe = Math.copySign(strafeMag * strafeMag, movementInput.moveStrafe);
-        }
-
-        // When sneaking, cap the analog range at vanilla sneak speed instead of letting it
-        // reach full walk/run. Vanilla multiplies AIMoveSpeed by 0.3F, so we pre-scale
-        // moveForward/moveStrafe so that full stick deflection = the sneak ceiling.
-        if (movementInput.sneak) {
-            movementInput.moveForward *= SNEAK_FACTOR;
-            movementInput.moveStrafe *= SNEAK_FACTOR;
-        }
+        // Only axes the stick is actually deflecting are replaced. A centred stick (dead zone ->
+        // exactly 0.0) must leave the keyboard's WASD value untouched, or plugging in a controller
+        // would silently disable keyboard movement.
+        movementInput.moveForward = AnalogMovement
+            .apply(movementInput.moveForward, -state.leftStickY(), movementInput.sneak);
+        movementInput.moveStrafe = AnalogMovement
+            .apply(movementInput.moveStrafe, -state.leftStickX(), movementInput.sneak);
     }
 }

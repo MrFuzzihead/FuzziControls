@@ -5,6 +5,17 @@ All notable changes to FuzziControls.
 Versions are derived from git tags (`git describe`), so a release is published by tagging a commit on
 `main` — see [Releasing](#releasing) below.
 
+## [Unreleased]
+
+### Fixed
+
+- **Keyboard WASD stopped working whenever a controller was connected.** The analogue-movement mixin
+  overwrote the movement axes with the left stick's deflection even when the stick was centred, which is
+  exactly `0.0` inside the dead zone — so holding W/A/S/D produced no movement at all. A centred stick
+  now leaves keyboard movement untouched.
+- With a controller connected, walking while sneaking with the keyboard ran at 0.09× speed (the vanilla
+  0.3 sneak factor was applied twice to keyboard-driven axes).
+
 ## [1.1.0]
 
 ### Added
