@@ -894,3 +894,48 @@ informational line and the mod continues with the raw-HID drivers (DualSense wor
 The two earlier CI failures on the way here were environmental, not code:
 `lwjgl3ify` aborts first-time Linux init without `$XDG_DATA_HOME`/`~/.local/share` (fixed by creating
 one), and the runner needed the SDL3/X11 libraries plus a RANDR-enabled Xvfb.
+
+---
+
+## Reported in-game: WASD dead whenever a controller is connected (#16, GitHub issue #5)
+
+> "If I join into a Minecraft world with a controller connected, I can't use WASD on my keyboard to move
+> my character."
+
+**Root cause — `MixinEntityPlayerSP.fuzzicontrols$scaleAnalogMovement`.** The mixin overwrote the
+movement axes with the analogue stick value *unconditionally*:
+
+```java
+if (movementInput.moveForward != 0f) {
+    movementInput.moveForward = Math.copySign(forwardMag * forwardMag, movementInput.moveForward);
+}
+```
+
+`forwardMag` is the dead-zoned stick deflection, which is exactly `0.0` when a controller is connected
+but its left stick is centred. `Math.copySign(0 * 0, 1f)` is `0.0`, so holding **W** produced a forward
+value of `0` — the keyboard's `1` was silently zeroed on every tick. Same for `moveStrafe` (A/D) and for
+`S`. This is why the symptom is "controller connected" rather than "controller in use": the mixin only
+needs `ControllerManager.isActive()` (driver connected), not any stick input.
+
+Note the bug sat directly *behind* the `KeyClaimTracker` contract added for exactly this class of problem:
+the key binding state was correctly left pressed by the keyboard, and then the analogue scaling threw the
+value away one line later.
+
+**Second bug in the same block — sneak speed triple-scaled.** Vanilla
+`MovementInputFromOptions.updatePlayerMoveState()` already multiplies `moveForward`/`moveStrafe` by `0.3`
+when sneaking. The mixin overwrote that value (discarding the factor), then re-applied `0.3` to **both
+axes regardless of who was driving them**. With a controller connected and the keyboard sneak key held,
+keyboard W moved at `0.3 * 0.3 = 0.09` of walk speed.
+
+**Fix:** the scaling math moved to `controller/AnalogMovement.apply(inputValue, stickValue, sneaking)`,
+which
+
+* returns the input untouched when either the in-game axis is idle (`0`) or the stick is centred (`0`),
+  so a connected-but-idle controller can never clobber keyboard WASD,
+* applies the quadratic curve only to axes the stick is actually deflecting, and
+* re-applies the vanilla `0.3` sneak factor **once** (only for axes it replaces), instead of to both axes
+  unconditionally.
+
+New `test/controller/AnalogMovementTest.java` — 8 tests pinning the regression
+(`centredStickLeavesKeyboardMovementUntouched`, `centredStickLeavesSneakingKeyboardMovementUntouched`,
+`sneakFactorIsNotDoubleApplied`), plus the response curve and sign mapping.
