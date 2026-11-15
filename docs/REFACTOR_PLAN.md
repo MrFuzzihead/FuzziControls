@@ -587,7 +587,11 @@ returns.
   `GuiScreenOptionsSoundsButtonAccessors` (mixin accessor), which works in dev and production.
 - [x] Consolidated the repeated one-shot handlers into `ControllerTickHandler.handleEdge(...)`;
   added a rising-edge test.
-- [ ] Remaining: per-tick hash/geometry caching in `GuiFocusNavigator`/`GuiFocusRenderer`.
+- [x] Precomputed geometry for buttons and inventory slots in `FocusableItem`, and
+  `GuiFocusRenderer` now uses `GuiFocusNavigator.getFocusedItemBounds()` so its border cannot drift
+  from the search/click geometry. List entries remain dynamic because the list can scroll.
+  The per-tick button-state hash remains intentionally: button `enabled`/`visible` can change
+  without `initGui` (e.g. selecting a world), and it is an O(buttons) check at 20 Hz.
 
 
 - **Dead fields in `ControllerTickHandler` — removed**: `dropHeldTicks`, `dropHoldFired`,
@@ -605,8 +609,9 @@ returns.
 - **`GuiFocusNavigator.adjustSlider` — done**: `GuiScreenOptionsSoundsButtonAccessors` is an
   accessor mixin for the private sound-slider class, so the fields are remapped in dev and
   production and no reflection runs per press.
-- **`GuiFocusNavigator`/`GuiFocusRenderer`** recompute button hashes and geometry every
-  tick; `InitGuiEvent.Post` + precomputed geometry (already in `BUGS.md`) would remove that.
+- **`GuiFocusNavigator`/`GuiFocusRenderer` — geometry done**: button/inventory-slot geometry is
+  cached at rebuild time and the renderer uses the navigator's bounds. The button-state hash is
+  retained because enable/visible changes can happen without `initGui`; it is cheap at 20 Hz.
 - **`ControllerTickHandler` — done**: the repeated one-shot handlers now delegate to
   `handleEdge(action, state, mapping, Runnable)`; `handleEdgeTrigger` uses the same helper.
   A rising-edge unit test covers it.
@@ -650,7 +655,7 @@ returns.
   verification. The report analyses the **downgraded** main classes the test JVM actually loads
   (`build/tmp/downgradeMainClasses/main`), not `build/classes/java/main`, and excludes
   `META-INF/versions/**` so JaCoCo does not see duplicate class names. Current baseline:
-  **54.9% line / 53.7% branch**.
+  **55.3% line / 53.8% branch**.
 - **`gameTest` source set** with a never-shipped `@Mod` (`src/gameTest/java`), a common/server
   checker and a client checker. `./gradlew gameTestServer` runs
   `runServer25` with the test mod on the classpath; `./gradlew gameTestClient` does the same for
@@ -748,9 +753,10 @@ These were not completed by the migration and remain valid:
 9. **Config/docs/metadata — partly done**: `required-after:lwjgl3ify`, README install, and
    `mcmod.info` are done; restoring the accurate `gradle.properties` comments (including the
    LGPL-2.1 correction) remains.
-10. **Remaining cleanup/refactor**: per-tick hash/geometry caching. (Dead actions, `GUIDE`, the
-    unused `isActive` threshold, the double config load, the sound-slider accessor, and the
-    edge-handler consolidation are done.)
+10. **Cleanup/refactor — done**: dead actions/`GUIDE`, the unused `isActive` threshold, the double
+    config load, the sound-slider accessor, the edge-handler consolidation, and cached button/slot
+    geometry. The per-tick button-state hash is retained deliberately (dynamic enabled/visible
+    changes).
 
 ---
 
@@ -769,7 +775,8 @@ These were not completed by the migration and remain valid:
       messages, self-test noise) with tests.
 - [x] Removed dead actions/buttons, unused `isActive` threshold, and the double config load;
       `./gradlew build` (tests + checkstyle + spotless) green.
-- [ ] Remaining cleanup from section 6: per-tick hash/geometry caching.
+- [x] Section 6 cleanup complete: cached button/slot geometry plus the deliberate per-tick
+      button-state hash remainder documented in section 6.
 - [x] New unit tests from section 8 pass; the client self-test still reports
       `Mixin self-test: 8 checks, 0 failures`.
 - [ ] Manual validation checklist in section 9 completed.

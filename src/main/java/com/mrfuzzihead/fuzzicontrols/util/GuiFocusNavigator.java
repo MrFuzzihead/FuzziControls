@@ -1,6 +1,7 @@
 package com.mrfuzzihead.fuzzicontrols.util;
 
 import java.awt.Point;
+import java.awt.Rectangle;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -78,6 +79,13 @@ public final class GuiFocusNavigator {
         /** The container's {@code guiTop} offset captured at build time (valid for {@link ItemType#INVENTORY_SLOT}). */
         public final int guiTop;
 
+        /**
+         * Geometry captured at rebuild time. Buttons and inventory slots do not move until the
+         * screen is re-initialised (which rebuilds the list); list entries depend on the current
+         * scroll offset and are therefore computed on demand ({@code null} here).
+         */
+        private final AxisAligned box;
+
         FocusableItem(GuiButton button) {
             this.type = ItemType.BUTTON;
             this.button = button;
@@ -86,6 +94,11 @@ public final class GuiFocusNavigator {
             this.inventorySlot = null;
             this.guiLeft = 0;
             this.guiTop = 0;
+            this.box = new AxisAligned(
+                button.xPosition,
+                button.xPosition + button.getButtonWidth(),
+                button.yPosition,
+                button.yPosition + (button.height > 0 ? button.height : 20));
         }
 
         FocusableItem(GuiSlot slot, int slotIndex) {
@@ -96,6 +109,7 @@ public final class GuiFocusNavigator {
             this.inventorySlot = null;
             this.guiLeft = 0;
             this.guiTop = 0;
+            this.box = null;
         }
 
         FocusableItem(Slot inventorySlot, int guiLeft, int guiTop) {
@@ -106,6 +120,9 @@ public final class GuiFocusNavigator {
             this.inventorySlot = inventorySlot;
             this.guiLeft = guiLeft;
             this.guiTop = guiTop;
+            int left = guiLeft + inventorySlot.xDisplayPosition - 1;
+            int top = guiTop + inventorySlot.yDisplayPosition - 1;
+            this.box = new AxisAligned(left, left + 18, top, top + 18);
         }
     }
 
@@ -346,6 +363,19 @@ public final class GuiFocusNavigator {
         FocusableItem item = getFocusedItem();
         if (item == null) return null;
         return getItemCenter(item);
+    }
+
+    /**
+     * Returns the focused element's bounds in scaled GUI coordinates (top-left origin), or
+     * {@code null} when nothing is focused. The renderer uses this so its border geometry cannot
+     * drift from the click/search geometry.
+     */
+    @Nullable
+    public Rectangle getFocusedItemBounds() {
+        FocusableItem item = getFocusedItem();
+        if (item == null) return null;
+        AxisAligned box = getItemBox(item);
+        return new Rectangle(box.left, box.top, box.right - box.left, box.bottom - box.top);
     }
 
     /**
@@ -609,56 +639,17 @@ public final class GuiFocusNavigator {
      * Returns the scaled GUI-space center of the given item (top-left origin).
      */
     private static Point getItemCenter(FocusableItem item) {
-        if (item.type == ItemType.BUTTON) {
-            GuiButton btn = item.button;
-            return new Point(
-                btn.xPosition + btn.getButtonWidth() / 2,
-                btn.yPosition + (btn.height > 0 ? btn.height : 20) / 2);
-        }
-
-        if (item.type == ItemType.INVENTORY_SLOT) {
-            // The 18x18 slot background is drawn at (xDisplayPosition - 1, yDisplayPosition - 1)
-            // and the 16x16 click hotspot starts at (xDisplayPosition, yDisplayPosition), so both
-            // are centred 8 px inside. This must agree with getItemBox(): a click point offset from
-            // the highlighted box would only land in the right slot thanks to vanilla's ±1 px
-            // tolerance in GuiContainer.func_146978_c().
-            return new Point(
-                item.guiLeft + item.inventorySlot.xDisplayPosition + 8,
-                item.guiTop + item.inventorySlot.yDisplayPosition + 8);
-        }
-
-        // Slot entry (GuiSlot list)
-        GuiSlotAccessors slotAcc = (GuiSlotAccessors) item.slot;
-        int scrollOffset = (int) Math.ceil(slotAcc.getAmountScrolled());
-        int y = item.slot.top + item.slot.headerPadding
-            - scrollOffset
-            + 4
-            + item.slotIndex * item.slot.slotHeight
-            + item.slot.slotHeight / 2;
-        return new Point(item.slot.width / 2, y);
+        AxisAligned box = getItemBox(item);
+        return new Point((int) box.centerX, (int) box.centerY);
     }
 
     /**
      * Returns the bounding box of the given item in scaled GUI coordinates (top-left origin).
      */
     private static AxisAligned getItemBox(FocusableItem item) {
-        if (item.type == ItemType.BUTTON) {
-            GuiButton btn = item.button;
-            return new AxisAligned(
-                btn.xPosition,
-                btn.xPosition + btn.getButtonWidth(),
-                btn.yPosition,
-                btn.yPosition + (btn.height > 0 ? btn.height : 20));
-        }
+        if (item.box != null) return item.box;
 
-        if (item.type == ItemType.INVENTORY_SLOT) {
-            // Slot background is 18x18: left/top = guiLeft + xDisplayPosition - 1, right/bottom = +18
-            int left = item.guiLeft + item.inventorySlot.xDisplayPosition - 1;
-            int top = item.guiTop + item.inventorySlot.yDisplayPosition - 1;
-            return new AxisAligned(left, left + 18, top, top + 18);
-        }
-
-        // Slot entry (GuiSlot list)
+        // Slot entry (GuiSlot list): the list can scroll, so this is computed on demand.
         GuiSlotAccessors slotAcc = (GuiSlotAccessors) item.slot;
         int scrollOffset = (int) Math.ceil(slotAcc.getAmountScrolled());
         int y = item.slot.top + item.slot.headerPadding - scrollOffset + 4 + item.slotIndex * item.slot.slotHeight;

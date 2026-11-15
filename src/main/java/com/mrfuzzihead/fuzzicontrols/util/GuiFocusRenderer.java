@@ -1,5 +1,7 @@
 package com.mrfuzzihead.fuzzicontrols.util;
 
+import java.awt.Rectangle;
+
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiButton;
 import net.minecraftforge.client.event.GuiScreenEvent;
@@ -7,7 +9,6 @@ import net.minecraftforge.client.event.GuiScreenEvent;
 import org.lwjgl.opengl.GL11;
 
 import com.mrfuzzihead.fuzzicontrols.Config;
-import com.mrfuzzihead.fuzzicontrols.mixins.early.GuiSlotAccessors;
 import com.mrfuzzihead.fuzzicontrols.util.GuiFocusNavigator.FocusableItem;
 import com.mrfuzzihead.fuzzicontrols.util.GuiFocusNavigator.ItemType;
 
@@ -78,40 +79,21 @@ public final class GuiFocusRenderer {
         FocusableItem focused = navigator.getFocusedItem();
         if (focused == null) return;
 
-        // Determine bounding box in scaled GUI coordinates.
-        int x, y, w, h;
+        if (focused.type == ItemType.BUTTON && !focused.button.visible) return;
 
-        if (focused.type == ItemType.BUTTON) {
-            GuiButton button = focused.button;
-            if (!button.visible) return;
-            x = button.xPosition;
-            y = button.yPosition;
-            w = button.getButtonWidth();
-            h = button.height > 0 ? button.height : 20;
-        } else if (focused.type == ItemType.INVENTORY_SLOT) {
-            // Slot background is 18x18 centred at (guiLeft + xDisplayPosition, guiTop + yDisplayPosition)
-            x = focused.guiLeft + focused.inventorySlot.xDisplayPosition - 1;
-            y = focused.guiTop + focused.inventorySlot.yDisplayPosition - 1;
-            w = 18;
-            h = 18;
-        } else {
-            // GuiSlot entry — use the slot's layout to calculate the entry bounds.
-            // GuiSlot.drawScreen clips entries to the list viewport with a scissor rectangle, so
-            // drawing the border for an entry scrolled out of view would paint it over unrelated
-            // UI (and A would activate an entry the player cannot see).
-            if (!navigator.isFocusedItemVisible()) return;
-            GuiSlotAccessors slotAcc = (GuiSlotAccessors) focused.slot;
-            int slotLeft = focused.slot.width / 2 - slotAcc.callGetListWidth() / 2;
-            int scrollOffset = (int) Math.ceil(slotAcc.getAmountScrolled());
-            int entryTop = focused.slot.top + focused.slot.headerPadding
-                - scrollOffset
-                + 4
-                + focused.slotIndex * focused.slot.slotHeight;
-            x = slotLeft;
-            y = entryTop;
-            w = slotAcc.callGetListWidth();
-            h = focused.slot.slotHeight;
-        }
+        // GuiSlot.drawScreen clips entries to its viewport; never draw the border (or activate)
+        // an entry the player cannot see.
+        if (!navigator.isFocusedItemVisible()) return;
+
+        // The navigator owns the geometry (cached for buttons/slots, computed for scrolling
+        // lists), so the border cannot drift from the search/click coordinates.
+        Rectangle bounds = navigator.getFocusedItemBounds();
+        if (bounds == null) return;
+
+        final int x = bounds.x;
+        final int y = bounds.y;
+        final int w = bounds.width;
+        final int h = bounds.height;
 
         // Pulsing alpha: oscillates between ~120 and ~200 every ~400 ms
         long ms = System.currentTimeMillis();
