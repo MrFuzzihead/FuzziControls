@@ -117,17 +117,25 @@ by a mixin at class load, so **enabling** it needs a restart (disabling it is im
 ## 🧪 Testing
 
 ```bash
-./gradlew test                                        # unit tests
-./gradlew spotlessCheck checkstyleMain checkstyleTest  # style + static analysis
+./gradlew test                            # unit tests (JUnit 4 + Mockito 5)
+./gradlew jacocoTestReport                # HTML/XML coverage report (build/reports/jacoco/test/html)
+./gradlew jacocoTestCoverageVerification  # enforces the configured coverage floor
+./gradlew check                           # tests + coverage floor + spotless + checkstyle
 ```
 
-The parts that cannot run in a plain JVM are covered by an opt-in client harness. It boots at the
-main menu (no world needed), verifies that every mixin was applied, then drives the real navigation
-stack the same way the D-pad confirm does: focus the **Options…** button and activate it, focus **Video
-Settings…** and activate it, step a real slider, navigate the options list, check the `GuiContainer`
-slot path (off-panel slots filtered, click target at the slot centre), and render the focus border for
-a couple of frames. It logs one `PASS`/`FAIL` line per check, prints a summary and exits with the
-failure count as its exit code:
+The unit suite uses JUnit 4.13.2 and Mockito 5 (inline mock maker; Byte Buddy 1.18 for Java 25
+class files). `addon.gradle.kts` wires JaCoCo and a line/branch coverage floor; the report analyses
+the same downgraded classes the test JVM runs, so JaCoCo does not emit "classes do not match" warnings.
+
+Two layers cover what a plain JVM cannot:
+
+**Client self-test** (`FUZZICONTROLS_SELFTEST=1`). It boots at the main menu (no world needed),
+verifies that every mixin was applied, then drives the real navigation stack the same way the D-pad
+confirm does: focus the **Options…** button and activate it, focus **Video Settings…** and activate
+it, step a real slider, navigate the options list, check the `GuiContainer` slot path (off-panel slots
+filtered, click target at the slot centre), and render the focus border for a couple of frames. It
+logs one `PASS`/`FAIL` line per check, prints a summary and exits with the failure count as its exit
+code:
 
 ```bash
 # Linux/macOS
@@ -136,8 +144,20 @@ FUZZICONTROLS_SELFTEST=1 ./gradlew runClient25
 $env:FUZZICONTROLS_SELFTEST=1; ./gradlew runClient25
 ```
 
-CI runs the same harness headless (xvfb + llvmpipe) in the `client-smoke-test-java25` job, so a broken
-mixin refmap or a failed injection fails the build instead of only showing up in game.
+**Game-test mod** (`src/gameTest/java`, a separate `@Mod` that is never shipped). It asserts the live
+integration points and exits the JVM with the assertion result:
+
+```bash
+./gradlew gameTestServer   # dedicated server: config load + default binding table (no display needed)
+./gradlew gameTestClient   # client: mixins, config, manager tick, real main-menu focus
+```
+
+Both write `run/<side>/gametest-report.txt` with `ok`/`FAIL` lines, a `SUMMARY <checks> <failures>`
+line, and `FUZZICONTROLS_GAMETEST_OK` / `FUZZICONTROLS_GAMETEST_FAILED`. The server run needs
+`run/server/eula.txt`; the client run needs a display (use `xvfb-run` on Linux). CI runs the server
+game test as its own job and the client game test headless in `client-smoke-test-java25`, so a broken
+mixin refmap, a config regression, or a controller-manager crash fails the build instead of only
+showing up in game.
 
 ---
 

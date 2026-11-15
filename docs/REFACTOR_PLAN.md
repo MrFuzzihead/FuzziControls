@@ -552,6 +552,32 @@ returns.
 
 ## 8. Tests, CI, docs
 
+### Implemented test infrastructure (this iteration)
+
+- **JUnit 4.13.2 + Mockito 5.24.0** (`mockito-core`, with Byte Buddy 1.18.17 forced so the inline
+  mock maker understands Java 25 class files). `ControllerManagerMockitoTest` pins the
+  select/poll/close interaction contract; the existing hand-written fakes remain the detailed
+  behaviour spec.
+- **JaCoCo 0.8.16** in `addon.gradle.kts`: `jacocoTestReport` (HTML/XML) and
+  `jacocoTestCoverageVerification` (45% line / 45% branch floor). `check` depends on the
+  verification. The report analyses the **downgraded** main classes the test JVM actually loads
+  (`build/tmp/downgradeMainClasses/main`), not `build/classes/java/main`, and excludes
+  `META-INF/versions/**` so JaCoCo does not see duplicate class names. Current baseline:
+  **48.1% line / 49.2% branch**.
+- **`gameTest` source set** with a never-shipped `@Mod` (`src/gameTest/java`), a common/server
+  checker and a client checker. `./gradlew gameTestServer` runs
+  `runServer25` with the test mod on the classpath; `./gradlew gameTestClient` does the same for
+  `runClient25`. Both exit the JVM with the assertion result and write
+  `run/<side>/gametest-report.txt` (`ok`/`FAIL`, `SUMMARY <checks> <failures>`,
+  `FUZZICONTROLS_GAMETEST_OK`/`_FAILED`).
+  - Server: config load, config ranges, default bindings (10 checks).
+  - Client: all mixins applied, config/default bindings, a no-controller `ControllerManager.tick()`
+    (elapsed time logged for the stutter fix), and live `GuiFocusNavigator` enumeration/focus on the
+    real main menu (16 checks).
+- **CI**: a dedicated `game-test-server-java25` job asserts the server report; the existing
+  `client-smoke-test-java25` job runs `gameTestClient` headless after the client self-test and
+  asserts the client report. Both upload logs/reports.
+
 - Missing tests:
   - `DropTapHold.blockNextRelease()` **before** any `update(true)`.
   - `withHysteresis` with a digital binding.
