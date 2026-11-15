@@ -1,5 +1,7 @@
 package com.mrfuzzihead.fuzzicontrols.controller;
 
+import java.util.Locale;
+
 import com.mrfuzzihead.fuzzicontrols.Config;
 import com.mrfuzzihead.fuzzicontrols.FuzziControls;
 
@@ -17,22 +19,28 @@ import com.mrfuzzihead.fuzzicontrols.FuzziControls;
  *
  * <p>
  * <b>Hot-plug:</b> When no driver is active (or the active driver disconnects), the manager
- * automatically retries initialization every {@value #RECONNECT_INTERVAL_TICKS} game ticks
- * (~{@value #RECONNECT_INTERVAL_SECONDS} seconds) so controllers plugged in after game launch
- * are detected without a restart.
+ * retries initialization every {@value #RECONNECT_INTERVAL_TICKS} game ticks
+ * (~{@value #RECONNECT_INTERVAL_SECONDS} seconds) and then backs off up to
+ * {@value #RECONNECT_MAX_TICKS} ticks so an idle machine is not probed aggressively.
  *
  * <p>
- * <b>Performance:</b> The disconnect check ({@code activeDriver.isConnected()}) runs every
- * tick but is zero-overhead — it reuses the same native {@code poll()} call that reading
- * input already requires. The reconnect probe ({@code tryReconnect()}) only runs once every
- * {@value #RECONNECT_INTERVAL_TICKS} ticks and involves constructing one or two driver objects
- * with native library calls; the cost is comparable to a single frame of normal polling and
- * is imperceptible in practice.
+ * <b>Disabling:</b> set {@code driver = none} in the config to stop all controller probing
+ * (including the hot-plug retries). Unknown driver names are treated the same way and logged.
+ *
+ * <p>
+ * <b>Performance:</b> The old reconnect probe constructed a {@code DualSenseDriver} that called
+ * hid4java's {@code HidServices.getHidDevice(vid, pid, ...)}, which enumerates every HID device in
+ * the system (~500 ms on a typical Windows machine) and also left hid4java's 500 ms scanner thread
+ * running. The driver now opens with hidapi's native VID/PID filter instead (~2 ms idle, ~14 ms
+ * when a controller is present), so a probe no longer blocks a frame. The XInput probe is ~20 µs.
  */
 public class ControllerManager {
 
-    /** How many game ticks between reconnection attempts (20 ticks = 1 s). */
+    /** How many game ticks between the first reconnection attempts (20 ticks = 1 s). */
     private static final int RECONNECT_INTERVAL_TICKS = 60; // 3 seconds
+
+    /** Upper bound for the reconnect back-off (30 seconds). */
+    private static final int RECONNECT_MAX_TICKS = 600;
 
     private static final int RECONNECT_INTERVAL_SECONDS = RECONNECT_INTERVAL_TICKS / 20;
 
@@ -44,6 +52,15 @@ public class ControllerManager {
 
     /** Counts down to the next reconnection attempt. */
     private int reconnectCooldown = 0;
+
+    /** Consecutive failed reconnect probes, used to grow {@link #reconnectCooldown}. */
+    private int consecutiveFailures = 0;
+
+    /** True for {@code driver = none} (or an unknown value): no driver is created or polled. */
+    private boolean driverDisabled = false;
+
+    /** Normalized driver preference captured at {@link #init()}, so retries do not re-read the config. */
+    private String driverPref = "auto";
 
     /** Creates the concrete drivers; injectable so the selection/reconnect logic can be unit tested. */
     interface DriverFactory {
@@ -103,25 +120,62 @@ public class ControllerManager {
             activeDriver = null;
             lastConnected = false;
         }
+        lastState = ControllerState.empty();
+        reconnectCooldown = 0;
+        consecutiveFailures = 0;
+        driverDisabled = false;
 
-        String driverPref = Config.controllerDriver.toLowerCase();
+        String requested = Config.controllerDriver;
+        driverPref = requested == null ? ""
+            : requested.trim()
+                .toLowerCase(Locale.ROOT);
+        if (driverPref.isEmpty()) driverPref = "auto";
+
+        if ("none".equals(driverPref)) {
+            driverDisabled = true;
+            lastConnected = false;
+            FuzziControls.LOG.info("[FuzziControls] Controller support disabled (driver=none).");
+            return;
+        }
+
+        if (!isKnownDriver(driverPref)) {
+            driverDisabled = true;
+            lastConnected = false;
+            FuzziControls.LOG.warn(
+                "[FuzziControls] Unknown controller driver '{}'; expected auto, xinput, dualsense or none. "
+                    + "Controller support is disabled until the config is fixed.",
+                requested);
+            return;
+        }
+
         FuzziControls.LOG.info("[FuzziControls] Requested controller driver: {}", driverPref);
 
-        if (selectDriver(driverPref, false)) return;
+        if (selectDriver(driverPref)) {
+            lastConnected = true;
+            return;
+        }
 
         lastConnected = false;
-        FuzziControls.LOG.warn("[FuzziControls] No controller detected.");
+        // init() already paid for one probe; do not repeat it on the very next tick.
+        reconnectCooldown = RECONNECT_INTERVAL_TICKS;
+        FuzziControls.LOG.info(
+            "[FuzziControls] No controller detected; first retry in {}s (backing off to {}s).",
+            RECONNECT_INTERVAL_SECONDS,
+            RECONNECT_MAX_TICKS / 20);
+    }
+
+    private static boolean isKnownDriver(String pref) {
+        return "auto".equals(pref) || "xinput".equals(pref) || "dualsense".equals(pref);
     }
 
     /**
      * Tries the configured drivers in order and adopts the first connected one.
      *
-     * @param driverPref configured preference ({@code auto}, {@code dualsense} or {@code xinput})
-     * @param quiet      true when retrying in the background (suppresses the "no controller" warning)
+     * @param pref normalized driver preference ({@code auto}, {@code dualsense} or {@code xinput})
      * @return true when a driver was selected
      */
-    private boolean selectDriver(String driverPref, boolean quiet) {
-        if ("auto".equals(driverPref) || "dualsense".equals(driverPref)) {
+    private boolean selectDriver(String pref) {
+        if ("auto".equals(pref) || "dualsense".equals(pref)) {
             IControllerDriver ds = driverFactory.createDualSense();
             if (ds != null && ds.isConnected()) {
                 activeDriver = ds;
@@ -132,7 +186,7 @@ public class ControllerManager {
             safeClose(ds);
         }
 
-        if ("auto".equals(driverPref) || "xinput".equals(driverPref)) {
+        if ("auto".equals(pref) || "xinput".equals(pref)) {
             int slot = Config.xInputControllerSlot;
             IControllerDriver xi = driverFactory.createXInput(slot);
             if (xi != null && xi.isConnected()) {
@@ -150,10 +204,16 @@ public class ControllerManager {
     /**
      * Polls the active driver and updates {@link #lastState}.
      * Also handles hot-plug: if no driver is active or the active driver disconnects,
-     * re-initialization is attempted every {@value #RECONNECT_INTERVAL_TICKS} ticks.
+     * re-initialization is attempted (with back-off) while no controller is present.
      * Must be called from the client tick thread.
      */
     public void tick() {
+        if (driverDisabled) {
+            lastState = ControllerState.empty();
+            lastConnected = false;
+            return;
+        }
+
         // If the active driver has disconnected, release it so we attempt a reconnect.
         if (activeDriver != null && !activeDriver.isConnected()) {
             FuzziControls.LOG.info("[FuzziControls] Controller disconnected. Will retry.");
@@ -162,6 +222,7 @@ public class ControllerManager {
             lastState = ControllerState.empty();
             lastConnected = false;
             reconnectCooldown = 0;
+            consecutiveFailures = 0;
         }
 
         if (activeDriver == null) {
@@ -171,35 +232,55 @@ public class ControllerManager {
                 lastConnected = false;
                 return;
             }
-            // Cooldown expired — try to find a controller.
-            reconnectCooldown = RECONNECT_INTERVAL_TICKS;
-            tryReconnect();
-            if (activeDriver == null) {
+
+            if (!tryReconnect()) {
+                consecutiveFailures++;
+                reconnectCooldown = nextReconnectCooldown(consecutiveFailures);
                 lastState = ControllerState.empty();
                 lastConnected = false;
                 return;
             }
+
+            consecutiveFailures = 0;
+            reconnectCooldown = 0;
         }
 
         try {
             lastState = activeDriver.poll(Config.stickDeadZone, Config.triggerThreshold);
             lastConnected = true;
-        } catch (Exception e) {
-            // A transient hardware error must never crash the client tick.
-            FuzziControls.LOG.warn("[FuzziControls] Controller poll error: {}", e.getMessage());
+        } catch (Exception | LinkageError e) {
+            // A transient hardware/native error must never crash the client tick.
+            FuzziControls.LOG.warn("[FuzziControls] Controller poll error: {}", e.toString());
             safeClose(activeDriver);
             activeDriver = null;
             lastState = ControllerState.empty();
             lastConnected = false;
+            reconnectCooldown = 0;
+            consecutiveFailures = 0;
         }
+    }
+
+    /**
+     * Back-off schedule after consecutive failed probes: 3 s, 6 s, 12 s, 24 s, then 30 s.
+     *
+     * @param failures number of consecutive failures (1 for the first)
+     * @return ticks until the next probe
+     */
+    private static int nextReconnectCooldown(int failures) {
+        // failures=1 -> 60, 2 -> 120, 3 -> 240, 4 -> 480, 5+ -> 600
+        int shift = Math.max(0, Math.min(failures - 1, 4));
+        long ticks = (long) RECONNECT_INTERVAL_TICKS << shift;
+        return (int) Math.min(RECONNECT_MAX_TICKS, ticks);
     }
 
     /**
      * Silently attempts to initialize a driver without logging "no controller detected" noise.
      * On success, {@link #activeDriver} is set; on failure it remains {@code null}.
+     *
+     * @return true when a driver was adopted
      */
-    private void tryReconnect() {
-        selectDriver(Config.controllerDriver.toLowerCase(), true);
+    private boolean tryReconnect() {
+        return selectDriver(driverPref);
     }
 
     /** Returns the most recently polled {@link ControllerState}. Never {@code null}. */
@@ -216,8 +297,16 @@ public class ControllerManager {
         if (activeDriver != null && lastConnected) {
             try {
                 lastState = activeDriver.poll(Config.stickDeadZone, Config.triggerThreshold);
-            } catch (Exception e) {
-                FuzziControls.LOG.warn("[FuzziControls] Poll error in pollFresh: {}", e.getMessage());
+            } catch (Exception | LinkageError e) {
+                // A render-frame poll error is usually fatal to the handle. Close it once and let
+                // the next tick reconnect; logging this per frame would flood the log.
+                FuzziControls.LOG.warn("[FuzziControls] Poll error in pollFresh: {}", e.toString());
+                safeClose(activeDriver);
+                activeDriver = null;
+                lastState = ControllerState.empty();
+                lastConnected = false;
+                reconnectCooldown = 0;
+                consecutiveFailures = 0;
             }
         }
         return lastState;
@@ -234,9 +323,9 @@ public class ControllerManager {
         activeDriver = null;
         lastState = ControllerState.empty();
         lastConnected = false;
-        // The shared HidServices instance is released separately by
-        // DualSenseDriver.shutdownSharedServices(), which ClientProxy calls from the JVM shutdown
-        // hook after this method.
+        // The process-wide hidapi library is released separately by
+        // DualSenseDriver.shutdownHid(), which ClientProxy calls from the JVM shutdown hook after
+        // this method.
     }
 
     /** Exposes the active driver name for logging / GUI display. */
@@ -249,8 +338,8 @@ public class ControllerManager {
         if (driver == null) return;
         try {
             driver.close();
-        } catch (Exception e) {
-            FuzziControls.LOG.warn("[FuzziControls] Error closing controller driver: {}", e.getMessage());
+        } catch (Exception | LinkageError e) {
+            FuzziControls.LOG.warn("[FuzziControls] Error closing controller driver: {}", e.toString());
         }
     }
 }

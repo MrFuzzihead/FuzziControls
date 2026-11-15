@@ -75,7 +75,7 @@ All options live in `config/fuzzicontrols.cfg`:
 
 | Option | Default | Description |
 |---|---|---|
-| `driver` | `auto` | Force `xinput`, `dualsense`, or let the mod choose |
+| `driver` | `auto` | Force `xinput`, `dualsense`, `none` (disable all controller polling), or let the mod choose |
 | `xInputSlot` | `0` | Controller index (0–3) for XInput |
 | `stickDeadZone` | `0.15` | Stick dead-zone radius (0.0–0.99) |
 | `triggerThreshold` | `0.2` | Minimum trigger value to register as pressed (0.0–0.99) |

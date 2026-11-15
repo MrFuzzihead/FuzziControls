@@ -53,7 +53,7 @@ public class XInputDriver implements IControllerDriver {
         try {
             device = XInputDevice.getDeviceFor(controllerIndex);
             available = true;
-            FuzziControls.LOG.info("[FuzziControls] XInputDriver initialised for slot {}.", controllerIndex);
+            FuzziControls.LOG.debug("[FuzziControls] XInputDriver initialised for slot {}.", controllerIndex);
         } catch (XInputNotLoadedException e) {
             FuzziControls.LOG.warn("[FuzziControls] XInput not loaded: {}", e.getMessage());
         } catch (Exception | LinkageError e) {

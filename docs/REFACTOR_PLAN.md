@@ -24,7 +24,16 @@
 
 ---
 
-## 2. P0 — the periodic stutter (confirmed, measured)
+## 2. P0 — the periodic stutter (investigated, fixed)
+
+> **Status: FIXED.** `DualSenseDriver` now opens the controller with
+> `HidApi.open(VID, PID, null)` (native VID/PID filter: ~2 ms idle, ~14 ms present), reads with
+> `HidApi.read(handle, buffer, 0)` (**zero-timeout — the no-timeout overload blocks on Windows**),
+> and closes the raw handle. The hid4java `HidServices` instance is no longer created, so its
+> 500 ms scanner thread is gone. Also implemented: `driver = none` and unknown-driver disable, quiet
+> DEBUG retries, 3/6/12/24/30 s reconnect back-off, `read < 0` → disconnect (no stuck buttons),
+> `pollFresh` failure closes the handle, and the stale `lastFrameNanos` reset. The measurements
+> below are retained as the investigation record.
 
 ### 2.1 Measurements
 
@@ -152,7 +161,9 @@ public ControllerState poll(float deadZone, float triggerThreshold) {
     try {
         ControllerState fresh = null;
         int read;
-        while ((read = HidApi.read(handle, data)) >= REPORT_MIN_BYTES) {
+        // The 3-arg overload is hid_read_timeout(..., 0), i.e. non-blocking.
+        // The 2-arg overload is hid_read(), which blocks until a report arrives.
+        while ((read = HidApi.read(handle, data, 0)) >= REPORT_MIN_BYTES) {
             if ((data[0] & 0xFF) != 0x01) continue; // USB input report only; BT is 0x31/78 bytes
             fresh = parseReport(data, deadZone, triggerThreshold);
         }
@@ -214,23 +225,26 @@ third state: the stale-handle problem is back **and** the scanner runs forever. 
 `HidApi` approach above avoids both: the handle is created per driver instance, opened with
 the native filter, and closed on `close()` or on a `read < 0`.
 
-### 2.7 Additional stutter/polish fixes
+### 2.7 Additional stutter/polish fixes (implemented)
 
-- Add `controllerDriver = none` (and treat unknown values as `none`/`auto` with a one-time
-  warning).
-- Log probe failures at DEBUG; log only on state transitions at INFO.
-- Set `reconnectCooldown = RECONNECT_INTERVAL_TICKS` after a failed `init()`, so `init()` +
-  the first tick do not probe twice (~two 500 ms stalls at startup).
-- Back off 3 s → 10 s → 30 s after repeated failures; pause probing while
-  `!Display.isActive()`.
-- Move the probe off the client thread with an `AtomicReference<IControllerDriver>`.
-  With `HidApi.open` it is only ~2 ms, but a worker also hides the one-time 132 ms
-  `HidApi.init()`.
-- `ControllerManager.pollFresh()` logs a WARN **every render frame** on a persistent driver
-  error (ControllerManager.java:220); rate-limit or mark the driver dead.
-- `onRenderTick()` returns before updating `lastFrameNanos` when the manager is inactive
-  (ControllerTickHandler.java:527), so the first frame after a reconnect can jump by the
-  0.1 s clamp. Reset `lastFrameNanos = 0` on that early return.
+- [x] `controllerDriver = none` stops all probing; an unknown driver name is treated as disabled
+  with one warning instead of probing forever.
+- [x] Probe failures log at DEBUG; only "Using …", "disconnected" and "no controller" (once)
+  are INFO. The twice-per-3-seconds INFO pair is gone.
+- [x] `init()` sets `reconnectCooldown` after a failed probe, so `init()` + the next tick do not
+  probe twice.
+- [x] Reconnect back-off: 3 s → 6 s → 12 s → 24 s → 30 s; reset on success. Probes still run
+  while unfocused, but an idle probe is ~2 ms, so this is no longer measurable; skipping while
+  unfocused remains an optional follow-up.
+- [ ] Move the probe off the client thread. Not needed at ~2 ms; the one-time `HidApi.init`
+  (~132 ms) still happens at startup on the client thread. Revisit only if a slow HID stack is
+  reported.
+- [x] `pollFresh()` now closes the handle and clears state on a poll error (one WARN) instead of
+  logging a WARN every render frame.
+- [x] `onRenderTick()` resets `lastFrameNanos` when the manager is inactive, so reconnecting does
+  not jump the camera/cursor by the 0.1 s clamp.
+- [x] `DualSenseDriver.poll()` treats `read == -1` as a disconnect (instead of "no report") and
+  validates the USB report ID, so an unplug no longer leaves buttons stuck.
 
 ---
 
@@ -640,10 +654,10 @@ These were not completed by the migration and remain valid:
 
 ## 10. Suggested order of work
 
-1. **P0 stutter**: switch `DualSenseDriver` to `HidApi.open/read/close`, remove the
-   `HidServices` scanner, update `ClientProxy`'s shutdown call.
-2. **Retry hygiene**: add `driver = none`, DEBUG logging, backoff, skip while unfocused,
-   set the cooldown after `init`.
+1. **P0 stutter — done**: `DualSenseDriver` uses `HidApi.open/read(..., 0)/close`, the
+   `HidServices` scanner is gone, and `ClientProxy` calls `shutdownHid()`.
+2. **Retry hygiene — done (except focus pause)**: `driver = none`, unknown-driver disable,
+   DEBUG retries, 3/6/12/24/30 s backoff, and the post-`init` cooldown.
 3. **Small high-value bugs**: pick block, drop-button remapping, `DropTapHold.blockNextRelease`,
    digital `MOVE_*` bindings.
 4. **DualSense lifecycle**: report-ID check, `read < 0` → disconnect, no double open,
@@ -662,11 +676,10 @@ These were not completed by the migration and remain valid:
 
 ## 11. Definition of done
 
-- [ ] Idle (no controller) probing costs < ~20 ms per probe and never blocks the client
+- [x] Idle (no controller) probing costs < ~20 ms per probe and never blocks the client
       thread for a frame; no hid4java scanner thread.
-- [ ] `HidServices`/`HidApi` lifecycle has no leaked handles; unplug is detected within one
-      tick.
-- [ ] `driver = none` is supported and documented.
+- [x] `HidApi` lifecycle has no leaked handles; unplug is detected within one tick.
+- [x] `driver = none` is supported and documented.
 - [ ] Pick block, drop:one/drop:stack, movement rebinding, sneak takeover, and GUI close via
       B all behave correctly in-game.
 - [ ] `curseForgeEnvironments = client`; dependency versions/notices updated; JNA upgraded;

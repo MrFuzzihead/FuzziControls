@@ -17,8 +17,8 @@ public class Config {
 
     // ---- Controller settings ----
     /**
-     * Which driver to use: "auto" (default), "xinput", or "dualsense".
-     * "auto" tries DualSense first, then XInput.
+     * Which driver to use: "auto" (default), "xinput", "dualsense", or "none".
+     * "auto" tries DualSense first, then XInput. "none" disables all controller probing.
      */
     public static String controllerDriver = "auto";
 
@@ -121,7 +121,7 @@ public class Config {
             "driver",
             CAT_CONTROLLER,
             controllerDriver,
-            "Controller driver to use: auto | xinput | dualsense");
+            "Controller driver to use: auto | xinput | dualsense | none");
 
         xInputControllerSlot = configuration.getInt(
             "xInputSlot",

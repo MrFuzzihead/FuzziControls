@@ -214,6 +214,54 @@ public class ControllerManagerTest {
     }
 
     @Test
+    public void noneDisablesAllProbing() {
+        Config.controllerDriver = "none";
+
+        manager.init();
+        for (int tick = 0; tick < 200; tick++) {
+            manager.tick();
+        }
+
+        assertFalse(manager.isActive());
+        assertEquals("None", manager.getActiveDriverName());
+        assertEquals("driver=none must never create a DualSense probe", 0, factory.dualSenseRequests);
+        assertEquals("driver=none must never create an XInput probe", 0, factory.xInputRequests);
+    }
+
+    @Test
+    public void unknownDriverDisablesProbing() {
+        Config.controllerDriver = "dual-sense"; // typo: must not silently probe forever
+
+        manager.init();
+        for (int tick = 0; tick < 200; tick++) {
+            manager.tick();
+        }
+
+        assertFalse(manager.isActive());
+        assertEquals(0, factory.dualSenseRequests);
+        assertEquals(0, factory.xInputRequests);
+    }
+
+    @Test
+    public void initFailureDoesNotProbeAgainOnTheNextTicks() {
+        factory.queueDualSense(new FakeDriver("DualSense", false));
+        factory.queueXInput(new FakeDriver("XInput", false));
+
+        manager.init();
+        int requestsAfterInit = factory.dualSenseRequests + factory.xInputRequests;
+        assertEquals(2, requestsAfterInit);
+
+        for (int tick = 0; tick < 10; tick++) {
+            manager.tick();
+        }
+
+        assertEquals(
+            "init() already probed; the next probe must wait for the reconnect interval",
+            requestsAfterInit,
+            factory.dualSenseRequests + factory.xInputRequests);
+    }
+
+    @Test
     public void reinitClosesThePreviousDriver() {
         FakeDriver first = new FakeDriver("DualSense", true);
         factory.queueDualSense(first, new FakeDriver("DualSense", true));
@@ -363,6 +411,20 @@ public class ControllerManagerTest {
     // -------------------------------------------------------------------------
     // pollFresh / shutdown
     // -------------------------------------------------------------------------
+
+    @Test
+    public void pollFreshFailureClosesTheDriverAndClearsState() {
+        FakeDriver driver = new FakeDriver("DualSense", true);
+        factory.queueDualSense(driver);
+        manager.init();
+        driver.throwOnPoll = true;
+
+        assertEquals(ControllerState.empty(), manager.pollFresh());
+
+        assertTrue("A render-frame poll error must release the handle", driver.closed);
+        assertFalse(manager.isActive());
+        assertEquals(ControllerState.empty(), manager.getState());
+    }
 
     @Test
     public void pollFreshPollsWithoutReconnectLogic() {

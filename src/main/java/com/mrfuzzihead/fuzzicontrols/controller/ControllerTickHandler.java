@@ -524,7 +524,12 @@ public class ControllerTickHandler {
         Minecraft mc = Minecraft.getMinecraft();
 
         ControllerManager manager = ControllerManager.getInstance();
-        if (!manager.isActive()) return;
+        if (!manager.isActive()) {
+            // Do not carry a stale frame timestamp across a disconnect/reconnect: the first frame
+            // after activation would otherwise see a >0.1 s delta and jump the camera/cursor.
+            lastFrameNanos = 0L;
+            return;
+        }
 
         // Poll fresh controller state each render frame so the camera and cursor never run on
         // staled game-tick data (polled at 20 Hz). For the camera this eliminates micro-stutter

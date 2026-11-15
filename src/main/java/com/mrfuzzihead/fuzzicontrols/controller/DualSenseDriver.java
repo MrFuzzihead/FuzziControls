@@ -3,10 +3,8 @@ package com.mrfuzzihead.fuzzicontrols.controller;
 import java.util.EnumSet;
 import java.util.Set;
 
-import org.hid4java.HidDevice;
-import org.hid4java.HidManager;
-import org.hid4java.HidServices;
-import org.hid4java.HidServicesSpecification;
+import org.hid4java.jna.HidApi;
+import org.hid4java.jna.HidDeviceStructure;
 
 import com.mrfuzzihead.fuzzicontrols.FuzziControls;
 
@@ -14,105 +12,137 @@ import com.mrfuzzihead.fuzzicontrols.FuzziControls;
  * DualSense controller driver using raw HID reports.
  *
  * <p>
- * <b>HID services lifecycle:</b> The {@link HidServices} instance is shared at the class
- * level to avoid create-shutdown-recreate cycles that corrupt hid4java's internal state.
- * Each driver instance opens/closes the USB device independently, but all instances share
- * the same {@link HidServices} for device enumeration.
+ * <b>Why the low-level hidapi API?</b> hid4java's {@code HidServices.getHidDevice(vid, pid, ...)}
+ * first calls {@code hid_enumerate(0, 0)}: it enumerates <em>every</em> HID device on the system and
+ * only then filters in Java. On a Windows machine with a normal set of keyboards, mice, headsets and
+ * RGB devices that measured ~500 ms per probe, which used to block the client tick thread every
+ * 3 seconds (see {@code docs/REFACTOR_PLAN.md} section 2). {@code HidApi.open(vid, pid, null)} lets
+ * hidapi apply the vendor/product filter natively; it measured ~2 ms when no controller is present
+ * and ~14 ms when one is, and it does not start hid4java's 500 ms background scanner thread.
+ *
+ * <p>
+ * <b>Report format:</b> only the USB input report {@code 0x01} (64 bytes) is parsed. A Bluetooth
+ * DualSense uses report {@code 0x31} (78 bytes, CRC32) and a DualSense Edge uses PID {@code 0x0DF2};
+ * neither is supported yet. Non-USB reports are ignored rather than misparsed.
+ *
+ * <p>
+ * <b>Lifecycle:</b> one raw handle per driver instance. {@link #close()} releases it. A read error
+ * ({@code -1}) is treated as a disconnect rather than "no new report", so an unplug closes the
+ * handle and lets {@link ControllerManager} reconnect instead of returning a frozen button state.
  */
 public class DualSenseDriver implements IControllerDriver {
 
-    private static final short VENDOR_ID = (short) 0x054C;
-    private static final short PRODUCT_ID = (short) 0x0CE6;
+    private static final int VENDOR_ID = 0x054C;
+    private static final int PRODUCT_ID = 0x0CE6;
+
+    /** The only input report this parser understands (USB, 64 bytes). Bluetooth uses 0x31. */
+    private static final int USB_INPUT_REPORT_ID = 0x01;
+
     private static final int REPORT_SIZE = 64;
     private static final int REPORT_MIN_BYTES = 10;
 
-    /** Shared HID services instance, null if init failed (non-fatal). */
-    private static HidServices sharedHidServices = null;
+    /** {@code HidApi.init()} is process-wide and only needs to run once. */
+    private static boolean hidInitialised;
+
+    /** A failed native load is permanent for this JVM; remember it instead of retrying every probe. */
+    private static boolean hidInitFailed;
 
     /**
-     * Returns the shared {@link HidServices} instance, creating it once on first call.
-     * Returns {@code null} if HID initialization fails — the driver simply stays
-     * disconnected without crashing the mod.
+     * Initialises the native hidapi library once.
+     *
+     * @return true when the library is ready for {@link HidApi#open(int, int, String)}
      */
-    static synchronized HidServices getHidServices() {
-        if (sharedHidServices == null) {
-            try {
-                HidServicesSpecification spec = new HidServicesSpecification();
-                spec.setAutoShutdown(false);
-                sharedHidServices = HidManager.getHidServices(spec);
-            } catch (Exception e) {
-                FuzziControls.LOG.warn(
-                    "[FuzziControls] Failed to initialise HID services for DualSense: {}. "
-                        + "DualSense driver unavailable. The controller may still work via XInput "
-                        + "(Xbox protocol) on Windows if connected as an Xbox controller.",
-                    e.getMessage());
-            }
-        }
-        return sharedHidServices;
-    }
+    private static synchronized boolean ensureHid() {
+        if (hidInitialised) return true;
+        if (hidInitFailed) return false;
 
-    /** Shuts down the shared HID services. Called from the JVM shutdown hook. */
-    public static void shutdownSharedServices() {
-        if (sharedHidServices != null) {
-            try {
-                sharedHidServices.shutdown();
-            } catch (Exception e) {
-                FuzziControls.LOG.debug("[FuzziControls] HID services shutdown error: {}", e.getMessage());
-            }
-            sharedHidServices = null;
+        try {
+            HidApi.init();
+            hidInitialised = true;
+            return true;
+        } catch (Throwable t) {
+            // JNA/hidapi load failures are often Errors (UnsatisfiedLinkError), not Exceptions.
+            hidInitFailed = true;
+            FuzziControls.LOG.warn(
+                "[FuzziControls] hidapi is unavailable ({}). DualSense support is disabled; "
+                    + "XInput may still work on Windows.",
+                t.toString());
+            return false;
         }
     }
 
-    private HidDevice device;
+    /** Releases the process-wide hidapi library. Called from the JVM shutdown hook. */
+    public static synchronized void shutdownHid() {
+        if (!hidInitialised) return;
+        try {
+            HidApi.exit();
+        } catch (Throwable t) {
+            FuzziControls.LOG.debug("[FuzziControls] hidapi shutdown error: {}", t.toString());
+        }
+        hidInitialised = false;
+        hidInitFailed = false;
+    }
+
+    /** Raw hidapi handle, or null when no controller is open. */
+    private HidDeviceStructure handle;
+
+    /** Reused across polls; the parser consumes it before the next read. */
+    private final byte[] reportBuffer = new byte[REPORT_SIZE];
+
     private final LastReportCache reportCache = new LastReportCache();
 
     public DualSenseDriver() {
+        if (!ensureHid()) return;
+
         try {
-            HidServices services = getHidServices();
-            if (services == null) {
-                FuzziControls.LOG.warn("[FuzziControls] DualSense driver unavailable (HID services not initialised).");
-                device = null;
-                return;
-            }
-            device = services.getHidDevice(VENDOR_ID, PRODUCT_ID, null);
-            if (device != null && device.open()) {
+            // Native VID/PID filter: ~2 ms when absent, ~14 ms when present. No full enumeration,
+            // no background scanner, no second open() (HidServices.open() leaked the first handle).
+            handle = HidApi.open(VENDOR_ID, PRODUCT_ID, null);
+            if (handle != null) {
                 FuzziControls.LOG.info("[FuzziControls] DualSense controller detected and opened.");
             } else {
-                if (device != null) {
-                    try {
-                        device.close();
-                    } catch (Exception ignored) {}
-                }
-                device = null;
-                FuzziControls.LOG.info("[FuzziControls] DualSense not found; driver standby.");
+                FuzziControls.LOG.debug("[FuzziControls] DualSense not found; driver standby.");
             }
-        } catch (Exception e) {
-            FuzziControls.LOG.warn("[FuzziControls] DualSense driver failed to initialise: {}", e.getMessage());
-            device = null;
+        } catch (Throwable t) {
+            FuzziControls.LOG.warn("[FuzziControls] DualSense open failed: {}", t.toString());
+            handle = null;
         }
     }
 
     @Override
     public boolean isConnected() {
-        return device != null && device.isOpen();
+        return handle != null;
     }
 
     @Override
     public ControllerState poll(float deadZone, float triggerThreshold) {
-        if (!isConnected()) return ControllerState.empty();
+        if (handle == null) return ControllerState.empty();
 
-        byte[] data = new byte[REPORT_SIZE];
         try {
             // Drain every report that is waiting; the last one is the freshest state.
             ControllerState fresh = null;
             int read;
-            while ((read = device.read(data, 0)) >= REPORT_MIN_BYTES) {
-                fresh = parseReport(data, deadZone, triggerThreshold);
+            while ((read = HidApi.read(handle, reportBuffer, 0)) >= REPORT_MIN_BYTES) {
+                if ((reportBuffer[0] & 0xFF) != USB_INPUT_REPORT_ID) {
+                    // Bluetooth report (0x31) or a different report: not ours, do not misparse it.
+                    continue;
+                }
+                fresh = parseReport(reportBuffer, deadZone, triggerThreshold);
             }
+
+            if (read < 0) {
+                // -1 is an error (unplug, invalid handle), not "no data" (0). Keeping the cached
+                // state here would leave buttons stuck forever because isConnected() stayed true.
+                FuzziControls.LOG.debug("[FuzziControls] DualSense read error; releasing the device.");
+                close();
+                return ControllerState.empty();
+            }
+
             return reportCache.record(fresh);
-        } catch (Exception e) {
-            FuzziControls.LOG.debug("[FuzziControls] DualSense read error: {}", e.getMessage());
-            return reportCache.current();
+        } catch (Throwable t) {
+            FuzziControls.LOG.debug("[FuzziControls] DualSense poll failed: {}", t.toString());
+            close();
+            return ControllerState.empty();
         }
     }
 
@@ -174,13 +204,13 @@ public class DualSenseDriver implements IControllerDriver {
 
     @Override
     public void close() {
-        if (device != null) {
+        if (handle != null) {
             try {
-                device.close();
-            } catch (Exception e) {
-                FuzziControls.LOG.debug("[FuzziControls] DualSense device close error: {}", e.getMessage());
+                HidApi.close(handle);
+            } catch (Throwable t) {
+                FuzziControls.LOG.debug("[FuzziControls] DualSense device close error: {}", t.toString());
             }
-            device = null;
+            handle = null;
         }
         reportCache.clear();
     }
