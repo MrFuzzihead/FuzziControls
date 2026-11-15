@@ -62,7 +62,6 @@ public class ControllerButtonTest {
     public void isAxis_menuButtons_returnsFalse() {
         assertFalse(ControllerButton.START.isAxis());
         assertFalse(ControllerButton.BACK.isAxis());
-        assertFalse(ControllerButton.GUIDE.isAxis());
     }
 
     /**

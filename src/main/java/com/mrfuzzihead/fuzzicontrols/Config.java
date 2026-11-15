@@ -246,6 +246,20 @@ public class Config {
     }
 
     /**
+     * Returns true when the configuration was already loaded from the given file (same absolute
+     * path). The early mixin loader needs the config before Forge's pre-init; the proxy can use
+     * this to avoid parsing the same file twice.
+     *
+     * @param configFile candidate config file
+     * @return true when {@link #synchronizeConfiguration(File)} has already read that file
+     */
+    public static boolean isLoadedFrom(File configFile) {
+        if (configurationFile == null || configFile == null) return false;
+        return configurationFile.getAbsoluteFile()
+            .equals(configFile.getAbsoluteFile());
+    }
+
+    /**
      * Re-reads the configuration file, so config changes apply without restarting the game.
      * Called by {@code /fuzzicontrols reload}.
      *

@@ -2,6 +2,7 @@ package com.mrfuzzihead.fuzzicontrols.controller;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -168,6 +169,15 @@ public class ControllerStateTest {
     public void isPressed_buttonNotInSet_returnsFalse() {
         ControllerState state = new ControllerState(0, 0, 0, 0, 0, 0, EnumSet.of(ControllerButton.A));
         assertFalse(state.isPressed(ControllerButton.X));
+    }
+
+    @Test
+    public void emptyIsSharedAndImmutable() {
+        assertSame("The empty state is immutable and may be shared", ControllerState.empty(), ControllerState.empty());
+        assertTrue(
+            ControllerState.empty()
+                .pressedButtons()
+                .isEmpty());
     }
 
     @Test

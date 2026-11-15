@@ -120,12 +120,12 @@ tasks.named<JacocoCoverageVerification>("jacocoTestCoverageVerification") {
                 value = "COVEREDRATIO"
                 // Regression guard at the current baseline, not a target. Raise it as the
                 // ControllerTickHandler/driver tests land; see docs/REFACTOR_PLAN.md.
-                minimum = BigDecimal("0.45")
+                minimum = BigDecimal("0.50")
             }
             limit {
                 counter = "BRANCH"
                 value = "COVEREDRATIO"
-                minimum = BigDecimal("0.45")
+                minimum = BigDecimal("0.50")
             }
         }
     }

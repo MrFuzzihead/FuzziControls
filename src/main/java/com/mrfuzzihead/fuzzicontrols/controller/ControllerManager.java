@@ -266,7 +266,7 @@ public class ControllerManager {
      * @param failures number of consecutive failures (1 for the first)
      * @return ticks until the next probe
      */
-    private static int nextReconnectCooldown(int failures) {
+    static int nextReconnectCooldown(int failures) {
         // failures=1 -> 60, 2 -> 120, 3 -> 240, 4 -> 480, 5+ -> 600
         int shift = Math.max(0, Math.min(failures - 1, 4));
         long ticks = (long) RECONNECT_INTERVAL_TICKS << shift;

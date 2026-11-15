@@ -49,17 +49,15 @@ final class StickHysteresis {
      * {@code false} for every non-axis binding, silently disabling movement for those remaps.
      * </p>
      *
-     * @param action    movement action being evaluated
-     * @param mapping   current action-to-button mapping
-     * @param state     current controller state
-     * @param threshold trigger threshold passed to {@link ControllerMapping#isActive} for digital
-     *                  bindings (unused for axes, whose dead-zone is applied by the driver)
+     * @param action  movement action being evaluated
+     * @param mapping current action-to-button mapping
+     * @param state   current controller state
      * @return true when the action counts as active this tick
      */
-    boolean isActive(ControllerAction action, ControllerMapping mapping, ControllerState state, float threshold) {
+    boolean isActive(ControllerAction action, ControllerMapping mapping, ControllerState state) {
         ControllerButton button = mapping.getButton(action);
         if (button == null) return false;
-        if (!button.isAxis()) return mapping.isActive(action, state, threshold);
+        if (!button.isAxis()) return mapping.isActive(action, state);
         return update(action, axisValue(button, state));
     }
 

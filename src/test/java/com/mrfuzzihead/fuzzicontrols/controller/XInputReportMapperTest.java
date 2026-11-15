@@ -166,16 +166,13 @@ public class XInputReportMapperTest {
     }
 
     @Test
-    public void menuAndGuideButtonsMap() {
+    public void menuButtonsMap() {
         buttons.start = true;
         buttons.back = true;
-        buttons.guide = true;
         ControllerState state = map();
 
         assertTrue(state.isPressed(ControllerButton.START));
         assertTrue(state.isPressed(ControllerButton.BACK));
-        // XInput reports the guide button; the DualSense path cannot, which is why it has no default.
-        assertTrue(state.isPressed(ControllerButton.GUIDE));
     }
 
     @Test
@@ -227,7 +224,7 @@ public class XInputReportMapperTest {
         assertEquals(0.4117647f, state.rightStickY(), 1e-5f);
         assertEquals(1f, state.leftTrigger(), 0f);
         assertEquals(0.25f, state.rightTrigger(), 1e-5f);
-        // 14 digital buttons (guide is not set) plus both triggers as digital buttons.
+        // 14 digital buttons plus both triggers as digital buttons.
         assertEquals(
             16,
             state.pressedButtons()

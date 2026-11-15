@@ -50,7 +50,6 @@ final class XInputReportMapper {
         if (buttons.rThumb) pressed.add(ControllerButton.RIGHT_STICK_CLICK);
         if (buttons.start) pressed.add(ControllerButton.START);
         if (buttons.back) pressed.add(ControllerButton.BACK);
-        if (buttons.guide) pressed.add(ControllerButton.GUIDE);
         if (buttons.up) pressed.add(ControllerButton.DPAD_UP);
         if (buttons.down) pressed.add(ControllerButton.DPAD_DOWN);
         if (buttons.left) pressed.add(ControllerButton.DPAD_LEFT);

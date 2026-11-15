@@ -229,6 +229,21 @@ public class ControllerManagerTest {
     }
 
     @Test
+    public void switchingToNoneClosesTheActiveDriver() {
+        FakeDriver driver = new FakeDriver("DualSense", true);
+        factory.queueDualSense(driver);
+        manager.init();
+        assertTrue(manager.isActive());
+
+        Config.controllerDriver = "none";
+        manager.init();
+
+        assertFalse(manager.isActive());
+        assertEquals("None", manager.getActiveDriverName());
+        assertTrue("Disabling must release the active handle", driver.closed);
+    }
+
+    @Test
     public void unknownDriverDisablesProbing() {
         Config.controllerDriver = "dual-sense"; // typo: must not silently probe forever
 
@@ -456,6 +471,17 @@ public class ControllerManagerTest {
         assertNotNull("The singleton must have a driver factory", singleton.getDriverFactoryForTest());
         assertFalse(singleton.isActive());
         assertEquals("None", singleton.getActiveDriverName());
+    }
+
+    @Test
+    public void reconnectBackoffDoublesAndCapsAtThirtySeconds() {
+        assertEquals("first retry", 60, ControllerManager.nextReconnectCooldown(1));
+        assertEquals(120, ControllerManager.nextReconnectCooldown(2));
+        assertEquals(240, ControllerManager.nextReconnectCooldown(3));
+        assertEquals(480, ControllerManager.nextReconnectCooldown(4));
+        assertEquals("5 failures is the 30 s cap", 600, ControllerManager.nextReconnectCooldown(5));
+        assertEquals("the cap is stable", 600, ControllerManager.nextReconnectCooldown(50));
+        assertEquals("defensive zero case", 60, ControllerManager.nextReconnectCooldown(0));
     }
 
     @Test

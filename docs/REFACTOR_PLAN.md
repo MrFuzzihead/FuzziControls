@@ -576,26 +576,31 @@ returns.
 
 - [x] Removed `dropHeldTicks`, `dropHoldFired`, `dropBlockedByGui`, `BASE_DEGREES_PER_SECOND`.
 - [x] Fixed stale Javadoc (`controllerHeldKeys`, `DROP_HOLD_TICKS`, `dropBlockedByGui`).
-- [x] `ControllerState` shared `EMPTY`; redundant accessor/comments removed.
-- [ ] Remaining: dead `LOOK_*`/`DPAD_*` actions, `ControllerMapping.isActive`'s unused
-  `triggerThreshold`, the sound-slider reflection accessor, per-tick hash/geometry caching, and
+- [x] `ControllerState` shared `EMPTY`; redundant accessor/comments removed. The defensive
+  `EnumSet` copy is retained intentionally for immutability.
+- [x] Removed the never-handled `LOOK_UP/DOWN/LEFT/RIGHT` and `DPAD_UP/DOWN/LEFT/RIGHT` actions.
+  Old config files keep those keys, but they are no longer read or written.
+- [x] Removed `ControllerButton.GUIDE` and its `XInputReportMapper` line; XInputGetState never
+  reports the guide button, so it could never fire.
+- [x] Removed the unused `triggerThreshold` parameter from `ControllerMapping.isActive` and
+  `StickHysteresis.isActive`.
+- [x] Avoided the double config load: `Config.isLoadedFrom(...)` lets `CommonProxy.preInit` skip a
+  second parse when the early mixin loader already read the same file.
+- [ ] Remaining: the sound-slider reflection accessor, per-tick hash/geometry caching, and
   consolidating the repeated edge handlers.
 
-- **Dead fields in `ControllerTickHandler`**: `dropHeldTicks`, `dropHoldFired`,
-  `dropBlockedByGui`, `BASE_DEGREES_PER_SECOND`. Remove.
-- **Dead actions**: `ControllerAction.LOOK_UP/DOWN/LEFT/RIGHT` are never handled (camera
-  uses raw axes); `ControllerAction.DPAD_UP/DOWN/LEFT/RIGHT` are never handled (the
-  *buttons* are used by `GUI_NAV_*`). They still appear in `config/fuzzicontrols.cfg`.
-  Remove or implement them.
-- **`ControllerButton.GUIDE`**: `XInputReportMapper` maps `buttons.guide`, but
-  XInputGetState never reports the guide button (it needs `XInputGetKeystroke`), and the
-  DualSense parser never sets it.
-- **`ControllerMapping.isActive(..., triggerThreshold)`**: the parameter is unused; all
-  drivers pre-threshold triggers. Remove it.
-- **Stale Javadoc**: `{@value #DROP_HOLD_TICKS}` (moved to `DropTapHold.HOLD_TICKS`) and
-  `{@link #controllerHeldKeys}` (renamed `heldKeys`) in `ControllerTickHandler`; the
-  `DropTapHold` doc references the removed `dropBlockedByGui`. The Javadoc task will warn.
-- **`ControllerManager` Javadoc** performance claim: replace with the measured reality.
+- **Dead fields in `ControllerTickHandler` — removed**: `dropHeldTicks`, `dropHoldFired`,
+  `dropBlockedByGui`, `BASE_DEGREES_PER_SECOND`.
+- **Dead actions — removed**: `LOOK_*` and the `DPAD_*` *actions* are gone; the D-pad
+  *buttons* remain for `GUI_NAV_*`. Existing configs keep the stale keys but they are ignored.
+- **`ControllerButton.GUIDE` — removed**: XInputGetState never reports the guide button (it needs
+  `XInputGetKeystroke`), and the DualSense parser never set it.
+- **`ControllerMapping.isActive(..., triggerThreshold)` — removed**: drivers pre-threshold
+  triggers/sticks, so the parameter was dead.
+- **Stale Javadoc — fixed**: `DROP_HOLD_TICKS`, `controllerHeldKeys`, and `dropBlockedByGui`
+  references were corrected.
+- **`ControllerManager` Javadoc — fixed in P0**: it now documents the filtered HID probe and the
+  measured ~2 ms idle cost instead of the old “imperceptible” claim.
 - **`GuiFocusNavigator.adjustSlider`** uses hard-coded SRG reflection for
   `GuiScreenOptionsSounds$Button`. It works in production but likely fails in a dev
   environment with MCP field names, and re-reflects on every press. Add a mixin accessor
@@ -605,11 +610,10 @@ returns.
 - **`ControllerTickHandler`** repeats the same “isActive + edge + wasActive” pattern;
   `handleEdgeTrigger()` already exists. A small `handleEdge(action, Runnable)` would remove
   ~60 lines and make edge handling consistent.
-- **`Config`** is loaded twice on the client (`EarlyMixinsLoader.getMixins()` and
-  `CommonProxy.preInit`). The early load is required for `analogMovement`, but the second
-  load is redundant.
-- **`HidManager` vs `new HidServices`**: if `HidServices` stays, use `new HidServices(spec)`
-  so `autoStart=false`/`NO_SCAN` is guaranteed.
+- **`Config` double load — fixed**: `Config.isLoadedFrom(...)` lets `CommonProxy.preInit` skip the
+  second parse when the early mixin loader already read the same file.
+- **`HidManager` vs `new HidServices` — moot**: P0 removed `HidServices`; the driver uses a raw
+  `HidApi.open/read/close` handle.
 
 ---
 
@@ -642,11 +646,11 @@ returns.
   select/poll/close interaction contract; the existing hand-written fakes remain the detailed
   behaviour spec.
 - **JaCoCo 0.8.16** in `addon.gradle.kts`: `jacocoTestReport` (HTML/XML) and
-  `jacocoTestCoverageVerification` (45% line / 45% branch floor). `check` depends on the
+  `jacocoTestCoverageVerification` (50% line / 50% branch floor). `check` depends on the
   verification. The report analyses the **downgraded** main classes the test JVM actually loads
   (`build/tmp/downgradeMainClasses/main`), not `build/classes/java/main`, and excludes
   `META-INF/versions/**` so JaCoCo does not see duplicate class names. Current baseline:
-  **48.1% line / 49.2% branch**.
+  **53.2% line / 50.9% branch**.
 - **`gameTest` source set** with a never-shipped `@Mod` (`src/gameTest/java`), a common/server
   checker and a client checker. `./gradlew gameTestServer` runs
   `runServer25` with the test mod on the classpath; `./gradlew gameTestClient` does the same for
@@ -660,6 +664,9 @@ returns.
 - **CI**: a dedicated `game-test-server-java25` job asserts the server report; the existing
   `client-smoke-test-java25` job runs `gameTestClient` headless after the client self-test and
   asserts the client report. Both upload logs/reports.
+- **Additional coverage in the cleanup batch**: reconnect back-off schedule
+  (`nextReconnectCooldown`), shared `ControllerState.EMPTY`, `Config.isLoadedFrom`, padded
+  binding names/`NONE`, and the no-lwjgl3ify fallback paths for mouse/key injection.
 
 - Missing tests:
   - `DropTapHold.blockNextRelease()` **before** any `update(true)`.
@@ -741,8 +748,9 @@ These were not completed by the migration and remain valid:
 9. **Config/docs/metadata**: `required-after:lwjgl3ify` (or guard the fallbacks), README install,
    BUTTON_BINDINGS, restore accurate `gradle.properties` comments (including the LGPL-2.1
    correction).
-10. **Remaining cleanup/refactor**: dead `LOOK_*`/`DPAD_*` actions, the unused `isActive`
-    threshold parameter, the sound-slider reflection accessor, and per-tick hash/geometry caching.
+10. **Remaining cleanup/refactor**: the sound-slider reflection accessor, per-tick hash/geometry
+    caching, and consolidating the repeated edge handlers. (Dead actions, `GUIDE`, the unused
+    `isActive` threshold, and the double config load are done.)
 
 ---
 
@@ -759,8 +767,10 @@ These were not completed by the migration and remain valid:
 - [ ] JNA upgraded to 5.19.1 and third-party notices added.
 - [x] P2 correctness fixes (keyboard input, GUI edge sync, mouse flags, config parsing, chat
       messages, self-test noise) with tests.
-- [ ] Remaining dead actions / cleanup from section 6; `./gradlew build` (tests + checkstyle +
-      spotless) green.
+- [x] Removed dead actions/buttons, unused `isActive` threshold, and the double config load;
+      `./gradlew build` (tests + checkstyle + spotless) green.
+- [ ] Remaining cleanup from section 6: sound-slider accessor, per-tick caches, edge-handler
+      consolidation.
 - [x] New unit tests from section 8 pass; the client self-test still reports
       `Mixin self-test: 7 checks, 0 failures`.
 - [ ] Manual validation checklist in section 9 completed.

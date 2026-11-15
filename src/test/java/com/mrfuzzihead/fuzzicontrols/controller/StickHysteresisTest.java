@@ -66,17 +66,17 @@ public class StickHysteresisTest {
 
         assertTrue(
             "A digital MOVE_FORWARD binding must still move",
-            hysteresis.isActive(ControllerAction.MOVE_FORWARD, mapping, pressed, 0.2f));
+            hysteresis.isActive(ControllerAction.MOVE_FORWARD, mapping, pressed));
         assertFalse(
             "A released digital binding must not move",
-            hysteresis.isActive(ControllerAction.MOVE_FORWARD, mapping, ControllerState.empty(), 0.2f));
+            hysteresis.isActive(ControllerAction.MOVE_FORWARD, mapping, ControllerState.empty()));
     }
 
     @Test
     public void unboundActionIsInactive() {
         ControllerMapping mapping = new ControllerMapping();
         mapping.bind(ControllerAction.MOVE_FORWARD, null);
-        assertFalse(hysteresis.isActive(ControllerAction.MOVE_FORWARD, mapping, ControllerState.empty(), 0.2f));
+        assertFalse(hysteresis.isActive(ControllerAction.MOVE_FORWARD, mapping, ControllerState.empty()));
     }
 
     @Test
@@ -86,11 +86,11 @@ public class StickHysteresisTest {
         ControllerState nearCentre = new ControllerState(0f, -0.02f, 0f, 0f, 0f, 0f, Collections.emptySet());
         ControllerState centred = ControllerState.empty();
 
-        assertTrue(hysteresis.isActive(ControllerAction.MOVE_FORWARD, mapping, half, 0.2f));
+        assertTrue(hysteresis.isActive(ControllerAction.MOVE_FORWARD, mapping, half));
         assertTrue(
             "Inside the hysteresis band the direction stays on",
-            hysteresis.isActive(ControllerAction.MOVE_FORWARD, mapping, nearCentre, 0.2f));
-        assertFalse(hysteresis.isActive(ControllerAction.MOVE_FORWARD, mapping, centred, 0.2f));
+            hysteresis.isActive(ControllerAction.MOVE_FORWARD, mapping, nearCentre));
+        assertFalse(hysteresis.isActive(ControllerAction.MOVE_FORWARD, mapping, centred));
     }
 
     @Test

@@ -139,6 +139,17 @@ public class ConfigReloadTest {
     }
 
     @Test
+    public void isLoadedFromDetectsTheLoadedFile() throws Exception {
+        writeConfig("bindings {", "    S:JUMP=A", "}");
+        Config.synchronizeConfiguration(configFile);
+
+        assertTrue(Config.isLoadedFrom(configFile));
+        assertFalse(
+            "A different config file must not count as loaded",
+            Config.isLoadedFrom(new File(configFile.getParentFile(), "other.cfg")));
+    }
+
+    @Test
     public void bindingNamesAreTrimmedBeforeParsing() throws Exception {
         writeConfig("bindings {", "    S:JUMP=  X  ", "}");
 

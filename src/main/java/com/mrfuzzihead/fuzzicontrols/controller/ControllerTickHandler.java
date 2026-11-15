@@ -95,7 +95,7 @@ public class ControllerTickHandler {
 
     /** Evaluates a direction with hysteresis for axis bindings, falling back to the normal mapping. */
     private boolean withHysteresis(ControllerAction action, ControllerState state, ControllerMapping mapping) {
-        return stickHysteresis.isActive(action, mapping, state, Config.triggerThreshold);
+        return stickHysteresis.isActive(action, mapping, state);
     }
 
     /**
@@ -252,10 +252,10 @@ public class ControllerTickHandler {
             // Activation: any D-pad ↑/↓/←/→ physically pressed (not rising edge — the rising edge is
             // preserved for the actual focus movement below).
             // Deactivation: left-stick movement past the threshold, or OS mouse movement.
-            boolean anyDpadPressed = mapping.isActive(ControllerAction.GUI_NAV_UP, state, Config.triggerThreshold)
-                || mapping.isActive(ControllerAction.GUI_NAV_DOWN, state, Config.triggerThreshold)
-                || mapping.isActive(ControllerAction.GUI_NAV_LEFT, state, Config.triggerThreshold)
-                || mapping.isActive(ControllerAction.GUI_NAV_RIGHT, state, Config.triggerThreshold);
+            boolean anyDpadPressed = mapping.isActive(ControllerAction.GUI_NAV_UP, state)
+                || mapping.isActive(ControllerAction.GUI_NAV_DOWN, state)
+                || mapping.isActive(ControllerAction.GUI_NAV_LEFT, state)
+                || mapping.isActive(ControllerAction.GUI_NAV_RIGHT, state);
 
             boolean navActive = dpadNav.update(
                 Config.dpadNavigation,
@@ -303,8 +303,7 @@ public class ControllerTickHandler {
                 if (isNavRisingEdge(NAV_CONFIRM_IDX, state, mapping)) {
                     activateFocused(0);
                 }
-                if (mapping.isActive(ControllerAction.GUI_RIGHT_CLICK, state, Config.triggerThreshold)
-                    && !wasGuiRightClick) {
+                if (mapping.isActive(ControllerAction.GUI_RIGHT_CLICK, state) && !wasGuiRightClick) {
                     activateFocused(1);
                 }
 
@@ -326,14 +325,14 @@ public class ControllerTickHandler {
             } else {
                 // Advance the edge state so the press neither repeats nor falls through to the
                 // cursor on the release tick.
-                wasGuiLeftClick = mapping.isActive(ControllerAction.GUI_LEFT_CLICK, state, Config.triggerThreshold);
+                wasGuiLeftClick = mapping.isActive(ControllerAction.GUI_LEFT_CLICK, state);
             }
             suppressGuiLeftClick = false;
 
             if (!suppressGuiRightClick) {
                 handleGuiClick(ControllerAction.GUI_RIGHT_CLICK, 1, state, mapping, mc);
             } else {
-                wasGuiRightClick = mapping.isActive(ControllerAction.GUI_RIGHT_CLICK, state, Config.triggerThreshold);
+                wasGuiRightClick = mapping.isActive(ControllerAction.GUI_RIGHT_CLICK, state);
             }
             suppressGuiRightClick = false;
 
@@ -349,8 +348,8 @@ public class ControllerTickHandler {
             // GuiKeyHelper dispatches keyTyped(Escape) directly, which works for inventory, pause
             // menu, main-menu submenus, chat, etc. without needing a player.
             int bIdx = ControllerAction.CLOSE_GUI.ordinal();
-            boolean bActive = mapping.isActive(ControllerAction.CLOSE_GUI, state, Config.triggerThreshold)
-                || mapping.isActive(ControllerAction.DROP_ITEM, state, Config.triggerThreshold);
+            boolean bActive = mapping.isActive(ControllerAction.CLOSE_GUI, state)
+                || mapping.isActive(ControllerAction.DROP_ITEM, state);
             if (bActive && !wasActive[bIdx]) {
                 // Synthesize Escape: set it down, call keyTyped, then clear it.
                 // GuiScreen.keyTyped with keyCode 1 (Escape) calls mc.displayGuiScreen(null)
@@ -427,8 +426,7 @@ public class ControllerTickHandler {
         // --- Jump ---
         driveKey(
             mc.gameSettings.keyBindJump,
-            mapping.isActive(ControllerAction.JUMP, state, Config.triggerThreshold)
-                && !isActionBlocked(ControllerAction.JUMP, mapping));
+            mapping.isActive(ControllerAction.JUMP, state) && !isActionBlocked(ControllerAction.JUMP, mapping));
 
         // --- Sneak ---
         // Toggle mode: rising edge flips sneakToggled; the key is held down/up based on the flag.
@@ -438,8 +436,7 @@ public class ControllerTickHandler {
         // --- Sprint ---
         driveKey(
             mc.gameSettings.keyBindSprint,
-            mapping.isActive(ControllerAction.SPRINT, state, Config.triggerThreshold)
-                && !isActionBlocked(ControllerAction.SPRINT, mapping));
+            mapping.isActive(ControllerAction.SPRINT, state) && !isActionBlocked(ControllerAction.SPRINT, mapping));
 
         // --- Attack (hold) ---
         // Two separate mechanisms for the two attack modes Minecraft uses:
@@ -454,7 +451,7 @@ public class ControllerTickHandler {
         // matching how mouse clicks work. Calling onTick every held tick would make creative
         // insta-break (which destroys a block per click attempt) fire 20 times per second.
         int attackIdx = ControllerAction.ATTACK.ordinal();
-        boolean attacking = mapping.isActive(ControllerAction.ATTACK, state, Config.triggerThreshold)
+        boolean attacking = mapping.isActive(ControllerAction.ATTACK, state)
             && !isActionBlocked(ControllerAction.ATTACK, mapping);
         boolean attackJustPressed = attacking && !wasActive[attackIdx];
         driveKey(mc.gameSettings.keyBindAttack, attacking);
@@ -468,8 +465,7 @@ public class ControllerTickHandler {
         // --- Use item / place (hold) ---
         driveKey(
             mc.gameSettings.keyBindUseItem,
-            mapping.isActive(ControllerAction.USE_ITEM, state, Config.triggerThreshold)
-                && !isActionBlocked(ControllerAction.USE_ITEM, mapping));
+            mapping.isActive(ControllerAction.USE_ITEM, state) && !isActionBlocked(ControllerAction.USE_ITEM, mapping));
 
         // --- Pick block (one-shot) ---
         // Vanilla reads keyBindPickBlock.isPressed(), i.e. the KeyBinding press counter, not the
@@ -623,7 +619,7 @@ public class ControllerTickHandler {
      */
     private void handleSneak(ControllerAction action, ControllerState state, ControllerMapping mapping, Minecraft mc) {
         int idx = action.ordinal();
-        boolean active = mapping.isActive(action, state, Config.triggerThreshold) && !isActionBlocked(action, mapping);
+        boolean active = mapping.isActive(action, state) && !isActionBlocked(action, mapping);
         boolean justPressed = active && !wasActive[idx];
 
         if (Config.sneakToggle) {
@@ -656,7 +652,7 @@ public class ControllerTickHandler {
     private void handleEdgeTrigger(ControllerAction action, ControllerState state, ControllerMapping mapping,
         KeyBinding binding) {
         int idx = action.ordinal();
-        boolean active = mapping.isActive(action, state, Config.triggerThreshold) && !isActionBlocked(action, mapping);
+        boolean active = mapping.isActive(action, state) && !isActionBlocked(action, mapping);
         if (active && !wasActive[idx]) {
             KeyBinding.onTick(binding.getKeyCode());
         }
@@ -669,7 +665,7 @@ public class ControllerTickHandler {
      */
     void syncInWorldEdges(ControllerState state, ControllerMapping mapping) {
         for (ControllerAction action : IN_WORLD_EDGE_ACTIONS) {
-            wasActive[action.ordinal()] = mapping.isActive(action, state, Config.triggerThreshold);
+            wasActive[action.ordinal()] = mapping.isActive(action, state);
         }
     }
 
@@ -702,11 +698,11 @@ public class ControllerTickHandler {
      */
     private void syncEdges(ControllerState state, ControllerMapping mapping) {
         for (ControllerAction action : ControllerAction.values()) {
-            wasActive[action.ordinal()] = mapping.isActive(action, state, Config.triggerThreshold);
+            wasActive[action.ordinal()] = mapping.isActive(action, state);
         }
-        wasGuiLeftClick = mapping.isActive(ControllerAction.GUI_LEFT_CLICK, state, Config.triggerThreshold);
-        wasGuiRightClick = mapping.isActive(ControllerAction.GUI_RIGHT_CLICK, state, Config.triggerThreshold);
-        wasGuiShiftClick = mapping.isActive(ControllerAction.GUI_SHIFT_CLICK, state, Config.triggerThreshold);
+        wasGuiLeftClick = mapping.isActive(ControllerAction.GUI_LEFT_CLICK, state);
+        wasGuiRightClick = mapping.isActive(ControllerAction.GUI_RIGHT_CLICK, state);
+        wasGuiShiftClick = mapping.isActive(ControllerAction.GUI_SHIFT_CLICK, state);
         dropTapHold.reset();
         guiShiftToggled = false;
         suppressGuiLeftClick = false;
@@ -739,8 +735,7 @@ public class ControllerTickHandler {
 
         // Only the drop binding may drop in-world. CLOSE_GUI is handled by the GUI path; treating it
         // as a drop trigger meant remapping CLOSE_GUI to another button caused unwanted drops.
-        boolean active = mapping.isActive(dropAction, state, Config.triggerThreshold)
-            && !isActionBlocked(dropAction, mapping);
+        boolean active = mapping.isActive(dropAction, state) && !isActionBlocked(dropAction, mapping);
 
         // Tap-versus-hold bookkeeping lives in DropTapHold so it can be unit tested.
         switch (dropTapHold.update(active, Config.dropEntireStack)) {
@@ -753,7 +748,7 @@ public class ControllerTickHandler {
     private void handleHotbarNext(ControllerAction action, ControllerState state, ControllerMapping mapping,
         Minecraft mc) {
         int idx = action.ordinal();
-        boolean active = mapping.isActive(action, state, Config.triggerThreshold) && !isActionBlocked(action, mapping);
+        boolean active = mapping.isActive(action, state) && !isActionBlocked(action, mapping);
         if (active && !wasActive[idx]) {
             mc.thePlayer.inventory.changeCurrentItem(-1);
         }
@@ -763,7 +758,7 @@ public class ControllerTickHandler {
     private void handleHotbarPrev(ControllerAction action, ControllerState state, ControllerMapping mapping,
         Minecraft mc) {
         int idx = action.ordinal();
-        boolean active = mapping.isActive(action, state, Config.triggerThreshold) && !isActionBlocked(action, mapping);
+        boolean active = mapping.isActive(action, state) && !isActionBlocked(action, mapping);
         if (active && !wasActive[idx]) {
             mc.thePlayer.inventory.changeCurrentItem(1);
         }
@@ -772,7 +767,7 @@ public class ControllerTickHandler {
 
     private void handlePause(ControllerAction action, ControllerState state, ControllerMapping mapping, Minecraft mc) {
         int idx = action.ordinal();
-        boolean active = mapping.isActive(action, state, Config.triggerThreshold) && !isActionBlocked(action, mapping);
+        boolean active = mapping.isActive(action, state) && !isActionBlocked(action, mapping);
         if (active && !wasActive[idx]) {
             mc.displayGuiScreen(new GuiIngameMenu());
         }
@@ -781,7 +776,7 @@ public class ControllerTickHandler {
 
     private void handleChat(ControllerAction action, ControllerState state, ControllerMapping mapping, Minecraft mc) {
         int idx = action.ordinal();
-        boolean active = mapping.isActive(action, state, Config.triggerThreshold) && !isActionBlocked(action, mapping);
+        boolean active = mapping.isActive(action, state) && !isActionBlocked(action, mapping);
         if (active && !wasActive[idx]) {
             mc.displayGuiScreen(new GuiChat(""));
         }
@@ -791,7 +786,7 @@ public class ControllerTickHandler {
     private void handleCommand(ControllerAction action, ControllerState state, ControllerMapping mapping,
         Minecraft mc) {
         int idx = action.ordinal();
-        boolean active = mapping.isActive(action, state, Config.triggerThreshold) && !isActionBlocked(action, mapping);
+        boolean active = mapping.isActive(action, state) && !isActionBlocked(action, mapping);
         if (active && !wasActive[idx]) {
             mc.displayGuiScreen(new GuiChat("/"));
         }
@@ -861,7 +856,7 @@ public class ControllerTickHandler {
     private void handleGuiClick(ControllerAction action, int mouseButton, ControllerState state,
         ControllerMapping mapping, Minecraft mc) {
 
-        boolean active = mapping.isActive(action, state, Config.triggerThreshold);
+        boolean active = mapping.isActive(action, state);
         boolean wasClick = action == ControllerAction.GUI_LEFT_CLICK ? wasGuiLeftClick : wasGuiRightClick;
         boolean justPressed = active && !wasClick;
         boolean justReleased = !active && wasClick;
@@ -937,7 +932,7 @@ public class ControllerTickHandler {
      */
     private void handleGuiShiftClick(ControllerState state, ControllerMapping mapping, Minecraft mc) {
         int idx = ControllerAction.GUI_SHIFT_CLICK.ordinal();
-        boolean active = mapping.isActive(ControllerAction.GUI_SHIFT_CLICK, state, Config.triggerThreshold);
+        boolean active = mapping.isActive(ControllerAction.GUI_SHIFT_CLICK, state);
         boolean justPressed = active && !wasGuiShiftClick;
         if (justPressed) {
             guiShiftToggled = !guiShiftToggled;
@@ -951,7 +946,7 @@ public class ControllerTickHandler {
      * {@link #wasGuiShiftClick} clean so rising edges don't carry over into a newly opened GUI.
      */
     private void consumeGuiClick(ControllerAction action, ControllerState state, ControllerMapping mapping) {
-        boolean active = mapping.isActive(action, state, Config.triggerThreshold);
+        boolean active = mapping.isActive(action, state);
         if (action == ControllerAction.GUI_LEFT_CLICK) {
             wasGuiLeftClick = active;
         } else if (action == ControllerAction.GUI_RIGHT_CLICK) {
@@ -970,7 +965,7 @@ public class ControllerTickHandler {
      * @return true when the action's button is currently held
      */
     private boolean isNavHeld(int actionIdx, ControllerState state, ControllerMapping mapping) {
-        return mapping.isActive(ControllerAction.values()[actionIdx], state, Config.triggerThreshold);
+        return mapping.isActive(ControllerAction.values()[actionIdx], state);
     }
 
     /**
@@ -981,7 +976,7 @@ public class ControllerTickHandler {
      * @return true on the first tick the action becomes active
      */
     private boolean isNavRisingEdge(int actionIdx, ControllerState state, ControllerMapping mapping) {
-        boolean active = mapping.isActive(ControllerAction.values()[actionIdx], state, Config.triggerThreshold);
+        boolean active = mapping.isActive(ControllerAction.values()[actionIdx], state);
         boolean rising = active && !wasActive[actionIdx];
         wasActive[actionIdx] = active;
         return rising;
@@ -993,11 +988,11 @@ public class ControllerTickHandler {
      * edges clean so they don't fire if the user switches dpadNavigation on mid-session.
      */
     private void consumeNavEdges(ControllerState state, ControllerMapping mapping) {
-        wasActive[NAV_UP_IDX] = mapping.isActive(ControllerAction.GUI_NAV_UP, state, Config.triggerThreshold);
-        wasActive[NAV_DOWN_IDX] = mapping.isActive(ControllerAction.GUI_NAV_DOWN, state, Config.triggerThreshold);
-        wasActive[NAV_LEFT_IDX] = mapping.isActive(ControllerAction.GUI_NAV_LEFT, state, Config.triggerThreshold);
-        wasActive[NAV_RIGHT_IDX] = mapping.isActive(ControllerAction.GUI_NAV_RIGHT, state, Config.triggerThreshold);
-        wasActive[NAV_CONFIRM_IDX] = mapping.isActive(ControllerAction.GUI_NAV_CONFIRM, state, Config.triggerThreshold);
+        wasActive[NAV_UP_IDX] = mapping.isActive(ControllerAction.GUI_NAV_UP, state);
+        wasActive[NAV_DOWN_IDX] = mapping.isActive(ControllerAction.GUI_NAV_DOWN, state);
+        wasActive[NAV_LEFT_IDX] = mapping.isActive(ControllerAction.GUI_NAV_LEFT, state);
+        wasActive[NAV_RIGHT_IDX] = mapping.isActive(ControllerAction.GUI_NAV_RIGHT, state);
+        wasActive[NAV_CONFIRM_IDX] = mapping.isActive(ControllerAction.GUI_NAV_CONFIRM, state);
         // Drop any pending auto-repeat so re-entering navigation starts from a fresh press.
         navRepeat.clear();
     }
