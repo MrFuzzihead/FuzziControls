@@ -59,13 +59,6 @@ import cpw.mods.fml.common.gameevent.TickEvent;
 public class ControllerTickHandler {
 
     /**
-     * /**
-     * {@link LookStepper#BASE_DEGREES_PER_SECOND} of camera rotation per second at maximum stick
-     * deflection (before {@link Config#lookSensitivity} scaling).
-     */
-    private static final float BASE_DEGREES_PER_SECOND = LookStepper.BASE_DEGREES_PER_SECOND;
-
-    /**
      * Tap-versus-hold logic for the drop button, including the "this press closed a GUI" block.
      */
     private final DropTapHold dropTapHold = new DropTapHold();
@@ -82,19 +75,6 @@ public class ControllerTickHandler {
 
     /** Whether a connected driver was present on the previous processed game tick (for edge resync). */
     private boolean wasControllerConnected = false;
-
-    /** How many consecutive ticks the drop button has been held down. */
-    private int dropHeldTicks = 0;
-
-    /** True once the hold-drop has fired this press so we don't repeat it. */
-    private boolean dropHoldFired = false;
-
-    /**
-     * True when the B button was released after closing a GUI screen, and the button has not
-     * yet been physically released. Prevents the drop-item logic from firing on the first
-     * "no-GUI" tick following a GUI close.
-     */
-    private boolean dropBlockedByGui = false;
 
     /**
      * Tracks whether the sneak key is currently toggled on (only meaningful when
@@ -188,6 +168,16 @@ public class ControllerTickHandler {
     private static final int NAV_LEFT_IDX = ControllerAction.GUI_NAV_LEFT.ordinal();
     private static final int NAV_RIGHT_IDX = ControllerAction.GUI_NAV_RIGHT.ordinal();
     private static final int NAV_CONFIRM_IDX = ControllerAction.GUI_NAV_CONFIRM.ordinal();
+
+    /**
+     * Actions whose rising edge is consumed by the in-world path. While a GUI is open these are
+     * not processed, so their {@link #wasActive} entries must be advanced each GUI tick; otherwise
+     * a button pressed/released inside the screen leaves a stale edge.
+     */
+    private static final ControllerAction[] IN_WORLD_EDGE_ACTIONS = { ControllerAction.ATTACK,
+        ControllerAction.PICK_BLOCK, ControllerAction.INVENTORY, ControllerAction.HOTBAR_NEXT,
+        ControllerAction.HOTBAR_PREV, ControllerAction.CHAT, ControllerAction.COMMAND, ControllerAction.PAUSE,
+        ControllerAction.SNEAK };
 
     /** Whether D-pad discrete navigation currently owns the GUI (see {@link DpadNavState}). */
     private final DpadNavState dpadNav = new DpadNavState();
@@ -356,13 +346,12 @@ public class ControllerTickHandler {
             }
 
             // B / Circle: inject an Escape key press to back out of any screen.
-            // Using handleKeyboardInput with Escape (keycode 1) is universal — it works for
-            // inventory, pause menu, main-menu submenus, chat, etc., without needing a player.
+            // GuiKeyHelper dispatches keyTyped(Escape) directly, which works for inventory, pause
+            // menu, main-menu submenus, chat, etc. without needing a player.
             int bIdx = ControllerAction.CLOSE_GUI.ordinal();
             boolean bActive = mapping.isActive(ControllerAction.CLOSE_GUI, state, Config.triggerThreshold)
                 || mapping.isActive(ControllerAction.DROP_ITEM, state, Config.triggerThreshold);
             if (bActive && !wasActive[bIdx]) {
-                mc.currentScreen.handleKeyboardInput();
                 // Synthesize Escape: set it down, call keyTyped, then clear it.
                 // GuiScreen.keyTyped with keyCode 1 (Escape) calls mc.displayGuiScreen(null)
                 // or goes back to the parent screen — same as pressing Esc on the keyboard.
@@ -373,10 +362,10 @@ public class ControllerTickHandler {
             // Also consume DROP_ITEM edge so it doesn't fire after screen closes.
             wasActive[ControllerAction.DROP_ITEM.ordinal()] = bActive;
 
-            // Consume in-world action edges so they don't fire on GUI close.
-            consumeEdge(ControllerAction.CHAT, state, mapping);
-            consumeEdge(ControllerAction.COMMAND, state, mapping);
-            consumeEdge(ControllerAction.PAUSE, state, mapping);
+            // Follow the in-world edge state through the GUI. Without this a button that was
+            // pressed or released inside the screen leaves wasActive stale: the first press after
+            // closing can be swallowed, or a held button can fire an unwanted edge.
+            syncInWorldEdges(state, mapping);
 
             // Snapshot every button that is currently held. When the GUI closes next tick,
             // each of these buttons will be blocked from triggering in-world actions until
@@ -602,9 +591,9 @@ public class ControllerTickHandler {
      *
      * <ul>
      * <li>When {@code active} is true the controller claims the key: {@code setKeyBindState}
-     * is called with {@code true} and the key code is recorded in {@link #controllerHeldKeys}.</li>
+     * is called with {@code true} and the key code is recorded in {@code heldKeys}.</li>
      * <li>When {@code active} is false the controller only releases the key if it was the
-     * controller itself that last pressed it (i.e. the key is in {@link #controllerHeldKeys}).
+     * controller itself that last pressed it (i.e. the key is in {@code heldKeys}).
      * If the key is not in the set — meaning the keyboard is driving it — we leave it alone.</li>
      * </ul>
      */
@@ -645,7 +634,7 @@ public class ControllerTickHandler {
             // If the keyboard sneak key is physically pressed by the player, treat that as
             // intent to take over sneak from the controller. Clear the toggle and release
             // the controller's claim on the key so the keyboard drives it cleanly.
-            // We intentionally do NOT guard with !controllerHeldKeys.contains here — the
+            // We intentionally do NOT guard with heldKeys.isClaimed(...) here — the
             // controller holding the key via driveKey does not mean the keyboard isn't also
             // being pressed by the player.
             int sneakKeyCode = mc.gameSettings.keyBindSneak.getKeyCode();
@@ -674,10 +663,19 @@ public class ControllerTickHandler {
         wasActive[idx] = active;
     }
 
-    /** Advances wasActive without performing any action — used to keep edge-trigger state clean. */
-    private void consumeEdge(ControllerAction action, ControllerState state, ControllerMapping mapping) {
-        int idx = action.ordinal();
-        wasActive[idx] = mapping.isActive(action, state, Config.triggerThreshold);
+    /**
+     * Advances the edge state for actions handled only in the in-world path, without touching the
+     * GUI/navigation/drop state. Called while a screen is open.
+     */
+    void syncInWorldEdges(ControllerState state, ControllerMapping mapping) {
+        for (ControllerAction action : IN_WORLD_EDGE_ACTIONS) {
+            wasActive[action.ordinal()] = mapping.isActive(action, state, Config.triggerThreshold);
+        }
+    }
+
+    /** Test-only: whether the given action was active on the previous processed tick. */
+    boolean wasActiveForTest(ControllerAction action) {
+        return wasActive[action.ordinal()];
     }
 
     /**
@@ -728,7 +726,7 @@ public class ControllerTickHandler {
      * <ul>
      * <li>{@link Config#dropEntireStack} = false (default): drop one item on tap (release).</li>
      * <li>{@link Config#dropEntireStack} = true: drop one item on tap, or drop the entire
-     * stack after the button is held for {@value #DROP_HOLD_TICKS} ticks. Nothing drops on
+     * stack after the button is held for 10 ticks (0.5 s). Nothing drops on
      * the initial press — we wait to see whether it's a tap or a hold.</li>
      * </ul>
      *

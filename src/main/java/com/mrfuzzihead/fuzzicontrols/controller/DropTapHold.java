@@ -10,7 +10,7 @@ package com.mrfuzzihead.fuzzicontrols.controller;
  *
  * <p>
  * A press that closed a GUI must not also drop an item, so the caller marks it with
- * {@link #blockNextRelease()} — that is the {@code dropBlockedByGui} flag, moved here so the state
+ * {@link #blockNextRelease()} — that is the old external block flag, moved here so the state
  * machine can be unit tested.
  */
 final class DropTapHold {

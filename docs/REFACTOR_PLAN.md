@@ -383,7 +383,28 @@ All P1 items are fixed and covered where a headless test can reach them:
 - [x] **Keyboard sneak takeover** — no longer clears the key the keyboard is physically holding;
   disconnect cleanup also leaves keyboard-held keys alone.
 
-The P2 items below remain open.
+### P2 status (this iteration)
+
+All P2 items are fixed:
+
+- [x] **`handleKeyboardInput()` duplicate event** — removed; `GuiKeyHelper.injectKey` calls
+  `keyTyped` directly.
+- [x] **Stale in-world edge state across GUIs** — `ControllerTickHandler.syncInWorldEdges(...)` runs
+  every GUI tick; `ControllerTickHandlerTest` pins the behaviour.
+- [x] **`GuiMouseHelper` flag restore** — `directMouseClicked` restores the exact previous
+  `sdlMouseButtonFlags` in a `finally`; a failed `addButtonEvent` restores the flags before the
+  direct-dispatch fallback, so the button cannot be left logically down.
+- [x] **`Config.parseButton`** — trims whitespace and uses `Locale.ROOT`; `ConfigReloadTest` covers
+  a padded binding name.
+- [x] **`ControllerState`** — shared immutable `EMPTY`; redundant accessor/comments removed.
+- [x] **`CommandReloadControllers`** — literal `ChatComponentText` messages instead of using English
+  strings as translation keys.
+- [x] **`MixinSelfTest`** — no longer logs "mixin not applied?" when `analogMovement=false` is
+  intentional.
+- [x] **Dead fields / stale Javadoc** — `dropHeldTicks`, `dropHoldFired`, `dropBlockedByGui`,
+  `BASE_DEGREES_PER_SECOND`, `controllerHeldKeys`, `DROP_HOLD_TICKS` references removed or fixed.
+
+The remaining items are cleanup/optimization in section 6, not P2 correctness bugs.
 
 ### P1 — Pick block never fires — FIXED
 
@@ -503,7 +524,7 @@ key is released and pressed again. Remove the `setKeyBindState(false)`; the keyb
 set it true. Similarly, `releaseAllControllerKeys()` (line 584) clears every claimed key even
 if the keyboard holds it; check `Keyboard.isKeyDown(code)` before clearing.
 
-### P2 — `handleKeyboardInput()` re-dispatches the last key event
+### P2 — `handleKeyboardInput()` re-dispatches the last key event — FIXED
 
 The B-button GUI close does:
 
@@ -518,7 +539,7 @@ stale) LWJGL event is a key-down. It can re-deliver the last typed character (du
 input in chat/text fields). `GuiKeyHelper.injectKey()` already calls `keyTyped` with
 Escape; remove the `handleKeyboardInput()` call.
 
-### P2 — Stale in-world edge state across GUIs
+### P2 — Stale in-world edge state across GUIs — FIXED
 
 The GUI path returns without advancing `wasActive` for `ATTACK`, `HOTBAR_*`, `INVENTORY`,
 etc. If a button was active before a GUI opened, released inside the GUI, and pressed again
@@ -527,7 +548,7 @@ after closing, `wasActive` can still be true and the first press (including the 
 in-world actions, without resetting GUI state like `syncEdges` does) before the GUI path
 returns.
 
-### P2 — Misc correctness
+### P2 — Misc correctness — FIXED
 
 - `ControllerManager.pollFresh()` warns per frame on a persistent poll error; rate-limit or
   close the driver.
@@ -550,6 +571,15 @@ returns.
 ---
 
 ## 6. Dead code and refactor opportunities
+
+### Cleanup status (this iteration)
+
+- [x] Removed `dropHeldTicks`, `dropHoldFired`, `dropBlockedByGui`, `BASE_DEGREES_PER_SECOND`.
+- [x] Fixed stale Javadoc (`controllerHeldKeys`, `DROP_HOLD_TICKS`, `dropBlockedByGui`).
+- [x] `ControllerState` shared `EMPTY`; redundant accessor/comments removed.
+- [ ] Remaining: dead `LOOK_*`/`DPAD_*` actions, `ControllerMapping.isActive`'s unused
+  `triggerThreshold`, the sound-slider reflection accessor, per-tick hash/geometry caching, and
+  consolidating the repeated edge handlers.
 
 - **Dead fields in `ControllerTickHandler`**: `dropHeldTicks`, `dropHoldFired`,
   `dropBlockedByGui`, `BASE_DEGREES_PER_SECOND`. Remove.
@@ -701,16 +731,18 @@ These were not completed by the migration and remain valid:
    `DropTapHold.blockNextRelease`, digital `MOVE_*` bindings.
 4. **DualSense lifecycle — done in P0**: report-ID check, `read < 0` → disconnect, no double open,
    `LinkageError` guards.
-5. **Keyboard interaction — done for P1**: stop clearing keyboard-held keys on sneak
-   takeover/disconnect and catch `LinkageError`; the P2 `handleKeyboardInput` cleanup remains.
-6. **Hot-plug responsiveness (next UX item)**: focus-aware probe reset + a 10 s cap; see 2.8.
-6. **Dependencies**: JNA 5.19.1, remove `jna-platform`, fix the JXInput comment, add
-   `THIRD_PARTY_NOTICES.md`.
-7. **Config/docs/metadata**: `curseForgeEnvironments=client`,
-   `required-after:lwjgl3ify` (or guard the fallbacks), README install, BUTTON_BINDINGS,
-   restore accurate `gradle.properties` comments (including the LGPL-2.1 correction).
-8. **Refactor/dead code**: remove dead fields/actions, fix stale Javadoc, add the
-   sound-slider accessor, consolidate edge handling, then add the tests in section 8.
+5. **Keyboard interaction — done**: keyboard-held keys preserved on takeover/disconnect,
+   `LinkageError` guarded, and the P2 `handleKeyboardInput` duplicate removed.
+6. **P2 correctness — done**: GUI-open edge sync, mouse-flag restore, config parsing, literal chat
+   messages, `MixinSelfTest` noise, dead fields/Javadoc.
+7. **Hot-plug responsiveness (next UX item)**: focus-aware probe reset + a 10 s cap; see 2.8.
+8. **Dependencies**: upgrade JNA to 5.19.1, fix the JXInput comment, add
+   `THIRD_PARTY_NOTICES.md` (`jna-platform` is already removed).
+9. **Config/docs/metadata**: `required-after:lwjgl3ify` (or guard the fallbacks), README install,
+   BUTTON_BINDINGS, restore accurate `gradle.properties` comments (including the LGPL-2.1
+   correction).
+10. **Remaining cleanup/refactor**: dead `LOOK_*`/`DPAD_*` actions, the unused `isActive`
+    threshold parameter, the sound-slider reflection accessor, and per-tick hash/geometry caching.
 
 ---
 
@@ -723,10 +755,12 @@ These were not completed by the migration and remain valid:
 - [x] Pick block, drop:one/drop:stack, movement rebinding, sneak takeover, and GUI close via
       B all behave correctly in-game (unit tests cover the parts that do not need a live client).
 - [ ] Focus-aware hot-plug detection + a 10 s backoff cap (see 2.8).
-- [ ] `curseForgeEnvironments = client`; dependency versions/notices updated; JNA upgraded;
-      `jna-platform` removed.
-- [ ] Dead fields/actions/Javadoc removed; `./gradlew build` (tests + checkstyle + spotless)
-      green.
-- [ ] New unit tests from section 8 pass; the client self-test still reports
+- [x] `curseForgeEnvironments = client`; `jna-platform` removed.
+- [ ] JNA upgraded to 5.19.1 and third-party notices added.
+- [x] P2 correctness fixes (keyboard input, GUI edge sync, mouse flags, config parsing, chat
+      messages, self-test noise) with tests.
+- [ ] Remaining dead actions / cleanup from section 6; `./gradlew build` (tests + checkstyle +
+      spotless) green.
+- [x] New unit tests from section 8 pass; the client self-test still reports
       `Mixin self-test: 7 checks, 0 failures`.
 - [ ] Manual validation checklist in section 9 completed.

@@ -2,7 +2,7 @@ package com.mrfuzzihead.fuzzicontrols.command;
 
 import net.minecraft.command.CommandBase;
 import net.minecraft.command.ICommandSender;
-import net.minecraft.util.ChatComponentTranslation;
+import net.minecraft.util.ChatComponentText;
 import net.minecraft.util.EnumChatFormatting;
 
 import com.mrfuzzihead.fuzzicontrols.Config;
@@ -34,7 +34,7 @@ public class CommandReloadControllers extends CommandBase {
     @Override
     public void processCommand(ICommandSender sender, String[] args) {
         if (args.length < 1 || !"reload".equalsIgnoreCase(args[0])) {
-            sender.addChatMessage(new ChatComponentTranslation("Usage: /fuzzicontrols reload"));
+            sender.addChatMessage(new ChatComponentText("Usage: /fuzzicontrols reload"));
             return;
         }
 
@@ -47,19 +47,18 @@ public class CommandReloadControllers extends CommandBase {
 
         if (!configReloaded) {
             sender.addChatMessage(
-                new ChatComponentTranslation(
+                new ChatComponentText(
                     EnumChatFormatting.YELLOW + "Config has not been loaded yet; only controllers were reloaded."));
         }
 
         if (active) {
             sender.addChatMessage(
-                new ChatComponentTranslation(
-                    EnumChatFormatting.GREEN + "Controllers reloaded. Active driver: %s",
-                    manager.getActiveDriverName()));
+                new ChatComponentText(
+                    EnumChatFormatting.GREEN + "Controllers reloaded. Active driver: "
+                        + manager.getActiveDriverName()));
         } else {
             sender.addChatMessage(
-                new ChatComponentTranslation(
-                    EnumChatFormatting.YELLOW + "Controllers reloaded. No controller detected."));
+                new ChatComponentText(EnumChatFormatting.YELLOW + "Controllers reloaded. No controller detected."));
         }
     }
 }

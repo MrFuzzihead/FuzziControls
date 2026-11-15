@@ -134,11 +134,6 @@ public final class MixinSelfTest {
                 if (method.getName()
                     .startsWith(prefix)) return true;
             }
-            FuzziControls.LOG.info(
-                "[FuzziControls] No '{}' method on {} ({} declared methods) — mixin not applied?",
-                prefix,
-                target.getSimpleName(),
-                methods.length);
             return false;
         } catch (Throwable t) {
             return false;
