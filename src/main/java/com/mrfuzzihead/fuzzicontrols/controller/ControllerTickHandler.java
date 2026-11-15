@@ -476,17 +476,13 @@ public class ControllerTickHandler {
         // --- B button: drop item (no GUI open) ---
         handleBButton(ControllerAction.DROP_ITEM, state, mapping, mc);
 
-        // --- Inventory (edge-triggered) ---
+        // --- Inventory, chat, command, pause and hotbar are all one-shot edges ---
         handleEdgeTrigger(ControllerAction.INVENTORY, state, mapping, mc.gameSettings.keyBindInventory);
-
-        // --- Chat / Command / Pause (edge-triggered) ---
-        handleChat(ControllerAction.CHAT, state, mapping, mc);
-        handleCommand(ControllerAction.COMMAND, state, mapping, mc);
-        handlePause(ControllerAction.PAUSE, state, mapping, mc);
-
-        // --- Hotbar (edge-triggered, bumpers) ---
-        handleHotbarNext(ControllerAction.HOTBAR_NEXT, state, mapping, mc);
-        handleHotbarPrev(ControllerAction.HOTBAR_PREV, state, mapping, mc);
+        handleEdge(ControllerAction.CHAT, state, mapping, () -> mc.displayGuiScreen(new GuiChat("")));
+        handleEdge(ControllerAction.COMMAND, state, mapping, () -> mc.displayGuiScreen(new GuiChat("/")));
+        handleEdge(ControllerAction.PAUSE, state, mapping, () -> mc.displayGuiScreen(new GuiIngameMenu()));
+        handleEdge(ControllerAction.HOTBAR_NEXT, state, mapping, () -> mc.thePlayer.inventory.changeCurrentItem(-1));
+        handleEdge(ControllerAction.HOTBAR_PREV, state, mapping, () -> mc.thePlayer.inventory.changeCurrentItem(1));
     }
 
     // -------------------------------------------------------------------------
@@ -651,10 +647,23 @@ public class ControllerTickHandler {
 
     private void handleEdgeTrigger(ControllerAction action, ControllerState state, ControllerMapping mapping,
         KeyBinding binding) {
+        handleEdge(action, state, mapping, () -> KeyBinding.onTick(binding.getKeyCode()));
+    }
+
+    /**
+     * Runs a one-shot effect on the rising edge of an action, keeping {@link #wasActive} current.
+     *
+     * <p>
+     * This is the common implementation for inventory, pick block, chat, command, pause and the
+     * hotbar buttons. Keeping it in one place is what makes the GUI-open edge sync in
+     * {@link #syncInWorldEdges} consistent with the in-world handlers.
+     * </p>
+     */
+    void handleEdge(ControllerAction action, ControllerState state, ControllerMapping mapping, Runnable effect) {
         int idx = action.ordinal();
         boolean active = mapping.isActive(action, state) && !isActionBlocked(action, mapping);
         if (active && !wasActive[idx]) {
-            KeyBinding.onTick(binding.getKeyCode());
+            effect.run();
         }
         wasActive[idx] = active;
     }
@@ -743,54 +752,6 @@ public class ControllerTickHandler {
             case DROP_STACK -> mc.thePlayer.dropOneItem(true);
             case NONE -> {}
         }
-    }
-
-    private void handleHotbarNext(ControllerAction action, ControllerState state, ControllerMapping mapping,
-        Minecraft mc) {
-        int idx = action.ordinal();
-        boolean active = mapping.isActive(action, state) && !isActionBlocked(action, mapping);
-        if (active && !wasActive[idx]) {
-            mc.thePlayer.inventory.changeCurrentItem(-1);
-        }
-        wasActive[idx] = active;
-    }
-
-    private void handleHotbarPrev(ControllerAction action, ControllerState state, ControllerMapping mapping,
-        Minecraft mc) {
-        int idx = action.ordinal();
-        boolean active = mapping.isActive(action, state) && !isActionBlocked(action, mapping);
-        if (active && !wasActive[idx]) {
-            mc.thePlayer.inventory.changeCurrentItem(1);
-        }
-        wasActive[idx] = active;
-    }
-
-    private void handlePause(ControllerAction action, ControllerState state, ControllerMapping mapping, Minecraft mc) {
-        int idx = action.ordinal();
-        boolean active = mapping.isActive(action, state) && !isActionBlocked(action, mapping);
-        if (active && !wasActive[idx]) {
-            mc.displayGuiScreen(new GuiIngameMenu());
-        }
-        wasActive[idx] = active;
-    }
-
-    private void handleChat(ControllerAction action, ControllerState state, ControllerMapping mapping, Minecraft mc) {
-        int idx = action.ordinal();
-        boolean active = mapping.isActive(action, state) && !isActionBlocked(action, mapping);
-        if (active && !wasActive[idx]) {
-            mc.displayGuiScreen(new GuiChat(""));
-        }
-        wasActive[idx] = active;
-    }
-
-    private void handleCommand(ControllerAction action, ControllerState state, ControllerMapping mapping,
-        Minecraft mc) {
-        int idx = action.ordinal();
-        boolean active = mapping.isActive(action, state) && !isActionBlocked(action, mapping);
-        if (active && !wasActive[idx]) {
-            mc.displayGuiScreen(new GuiChat("/"));
-        }
-        wasActive[idx] = active;
     }
 
     /**

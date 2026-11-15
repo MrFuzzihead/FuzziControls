@@ -332,13 +332,10 @@ if the `after:` dependency stays soft) and `required-project:lwjgl3ify` on Modri
 - `.github/workflows/build-and-test.yml:12` still says `enableModernJavaSyntax = modern`.
   It is now `jvmDowngrader` with a Java 17 base. Update the comment; `client-only: true`
   remains correct because the base bytecode is 17, not 8.
-- `README.md` installation says “install Forge, drop in the jar”. The mod is Java 17+ and
-  directly references lwjgl3ify (`org.lwjglx`). The install section should require
-  **lwjgl3ify** and Java 17+, matching the build section.
-- Consider `@Mod(dependencies = "required-after:lwjgl3ify")` rather than `after:`. A
-  non-lwjgl3ify install loads the mod and then throws `NoClassDefFoundError` from
-  `KeyboardHelper`/`GuiMouseHelper` when input is used. If it stays soft, guard every
-  `org.lwjglx` reference with `Exception | LinkageError`.
+- `README.md` installation — updated: it now requires lwjgl3ify and Java 17+.
+- `@Mod(dependencies = "required-after:lwjgl3ify")` — done, together with
+  `mcmod.info` `requiredMods`. The `Exception | LinkageError` fallbacks remain as defence in
+  depth.
 
 ---
 
@@ -586,8 +583,12 @@ returns.
   `StickHysteresis.isActive`.
 - [x] Avoided the double config load: `Config.isLoadedFrom(...)` lets `CommonProxy.preInit` skip a
   second parse when the early mixin loader already read the same file.
-- [ ] Remaining: the sound-slider reflection accessor, per-tick hash/geometry caching, and
-  consolidating the repeated edge handlers.
+- [x] Replaced the sound-slider reflection with
+  `GuiScreenOptionsSoundsButtonAccessors` (mixin accessor), which works in dev and production.
+- [x] Consolidated the repeated one-shot handlers into `ControllerTickHandler.handleEdge(...)`;
+  added a rising-edge test.
+- [ ] Remaining: per-tick hash/geometry caching in `GuiFocusNavigator`/`GuiFocusRenderer`.
+
 
 - **Dead fields in `ControllerTickHandler` — removed**: `dropHeldTicks`, `dropHoldFired`,
   `dropBlockedByGui`, `BASE_DEGREES_PER_SECOND`.
@@ -601,15 +602,14 @@ returns.
   references were corrected.
 - **`ControllerManager` Javadoc — fixed in P0**: it now documents the filtered HID probe and the
   measured ~2 ms idle cost instead of the old “imperceptible” claim.
-- **`GuiFocusNavigator.adjustSlider`** uses hard-coded SRG reflection for
-  `GuiScreenOptionsSounds$Button`. It works in production but likely fails in a dev
-  environment with MCP field names, and re-reflects on every press. Add a mixin accessor
-  for the private class/fields.
+- **`GuiFocusNavigator.adjustSlider` — done**: `GuiScreenOptionsSoundsButtonAccessors` is an
+  accessor mixin for the private sound-slider class, so the fields are remapped in dev and
+  production and no reflection runs per press.
 - **`GuiFocusNavigator`/`GuiFocusRenderer`** recompute button hashes and geometry every
   tick; `InitGuiEvent.Post` + precomputed geometry (already in `BUGS.md`) would remove that.
-- **`ControllerTickHandler`** repeats the same “isActive + edge + wasActive” pattern;
-  `handleEdgeTrigger()` already exists. A small `handleEdge(action, Runnable)` would remove
-  ~60 lines and make edge handling consistent.
+- **`ControllerTickHandler` — done**: the repeated one-shot handlers now delegate to
+  `handleEdge(action, state, mapping, Runnable)`; `handleEdgeTrigger` uses the same helper.
+  A rising-edge unit test covers it.
 - **`Config` double load — fixed**: `Config.isLoadedFrom(...)` lets `CommonProxy.preInit` skip the
   second parse when the early mixin loader already read the same file.
 - **`HidManager` vs `new HidServices` — moot**: P0 removed `HidServices`; the driver uses a raw
@@ -619,7 +619,7 @@ returns.
 
 ## 7. Features worth adding
 
-- **`driver = none`** / `enabled` toggle so users without a controller pay zero cost.
+- **`driver = none`** — done (see P0): users without a controller pay zero cost; an extra `enabled` toggle is unnecessary.
 - **Bluetooth DualSense support**: the driver only parses USB report `0x01` (64 bytes).
   Bluetooth uses report `0x31` (78 bytes, CRC32); DualSense Edge uses PID `0x0DF2`.
   Currently a BT DualSense is either not detected or misparsed. At minimum document “USB
@@ -646,11 +646,11 @@ returns.
   select/poll/close interaction contract; the existing hand-written fakes remain the detailed
   behaviour spec.
 - **JaCoCo 0.8.16** in `addon.gradle.kts`: `jacocoTestReport` (HTML/XML) and
-  `jacocoTestCoverageVerification` (50% line / 50% branch floor). `check` depends on the
+  `jacocoTestCoverageVerification` (52% line / 52% branch floor). `check` depends on the
   verification. The report analyses the **downgraded** main classes the test JVM actually loads
   (`build/tmp/downgradeMainClasses/main`), not `build/classes/java/main`, and excludes
   `META-INF/versions/**` so JaCoCo does not see duplicate class names. Current baseline:
-  **53.2% line / 50.9% branch**.
+  **54.9% line / 53.7% branch**.
 - **`gameTest` source set** with a never-shipped `@Mod` (`src/gameTest/java`), a common/server
   checker and a client checker. `./gradlew gameTestServer` runs
   `runServer25` with the test mod on the classpath; `./gradlew gameTestClient` does the same for
@@ -745,12 +745,12 @@ These were not completed by the migration and remain valid:
 7. **Hot-plug responsiveness (next UX item)**: focus-aware probe reset + a 10 s cap; see 2.8.
 8. **Dependencies**: upgrade JNA to 5.19.1, fix the JXInput comment, add
    `THIRD_PARTY_NOTICES.md` (`jna-platform` is already removed).
-9. **Config/docs/metadata**: `required-after:lwjgl3ify` (or guard the fallbacks), README install,
-   BUTTON_BINDINGS, restore accurate `gradle.properties` comments (including the LGPL-2.1
-   correction).
-10. **Remaining cleanup/refactor**: the sound-slider reflection accessor, per-tick hash/geometry
-    caching, and consolidating the repeated edge handlers. (Dead actions, `GUIDE`, the unused
-    `isActive` threshold, and the double config load are done.)
+9. **Config/docs/metadata — partly done**: `required-after:lwjgl3ify`, README install, and
+   `mcmod.info` are done; restoring the accurate `gradle.properties` comments (including the
+   LGPL-2.1 correction) remains.
+10. **Remaining cleanup/refactor**: per-tick hash/geometry caching. (Dead actions, `GUIDE`, the
+    unused `isActive` threshold, the double config load, the sound-slider accessor, and the
+    edge-handler consolidation are done.)
 
 ---
 
@@ -769,8 +769,7 @@ These were not completed by the migration and remain valid:
       messages, self-test noise) with tests.
 - [x] Removed dead actions/buttons, unused `isActive` threshold, and the double config load;
       `./gradlew build` (tests + checkstyle + spotless) green.
-- [ ] Remaining cleanup from section 6: sound-slider accessor, per-tick caches, edge-handler
-      consolidation.
+- [ ] Remaining cleanup from section 6: per-tick hash/geometry caching.
 - [x] New unit tests from section 8 pass; the client self-test still reports
-      `Mixin self-test: 7 checks, 0 failures`.
+      `Mixin self-test: 8 checks, 0 failures`.
 - [ ] Manual validation checklist in section 9 completed.

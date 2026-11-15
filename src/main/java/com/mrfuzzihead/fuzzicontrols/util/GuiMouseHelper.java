@@ -37,13 +37,14 @@ public final class GuiMouseHelper {
      * click and the warning is logged only once.
      *
      * <p>
-     * The mod declares only a soft ordering dependency on lwjgl3ify ({@code after:lwjgl3ify}), but
+     * The mod now declares {@code required-after:lwjgl3ify}, but the fallbacks remain as defence in
+     * depth (a broken installation, a unit-test JVM, or a future soft-dependency build).
      * {@code org.lwjglx.input.Mouse} and its {@code sdlMouseButtonFlags} / {@code addButtonEvent} /
-     * {@code addWheelEvent} members are lwjgl3ify extensions. On an install without it, referencing
-     * them throws {@link LinkageError} ({@code NoClassDefFoundError}, {@code NoSuchMethodError}, …),
-     * which is an {@code Error} and therefore was <em>not</em> caught by the previous
-     * {@code catch (Exception)} — so the documented fallback could never engage and the error
-     * escaped into the client tick / render loop.
+     * {@code addWheelEvent} members are lwjgl3ify extensions; referencing them without it throws
+     * {@link LinkageError} ({@code NoClassDefFoundError}, {@code NoSuchMethodError}, …), which is an
+     * {@code Error} and therefore was <em>not</em> caught by the previous {@code catch (Exception)}
+     * — so the documented fallback could never engage and the error escaped into the client tick /
+     * render loop.
      */
     private static boolean lwjgl3ifyInjectionFailed = false;
 

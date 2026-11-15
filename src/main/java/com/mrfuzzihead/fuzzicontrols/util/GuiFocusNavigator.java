@@ -8,12 +8,14 @@ import java.util.List;
 import javax.annotation.Nullable;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.audio.SoundCategory;
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiOptionSlider;
 import net.minecraft.client.gui.GuiOptionsRowList;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.GuiSlot;
 import net.minecraft.client.gui.inventory.GuiContainer;
+import net.minecraft.client.resources.I18n;
 import net.minecraft.client.settings.GameSettings;
 import net.minecraft.inventory.Container;
 import net.minecraft.inventory.Slot;
@@ -24,6 +26,7 @@ import com.mrfuzzihead.fuzzicontrols.mixins.early.GuiContainerAccessors;
 import com.mrfuzzihead.fuzzicontrols.mixins.early.GuiOptionSliderAccessors;
 import com.mrfuzzihead.fuzzicontrols.mixins.early.GuiOptionsRowListRowAccessors;
 import com.mrfuzzihead.fuzzicontrols.mixins.early.GuiScreenAccessors;
+import com.mrfuzzihead.fuzzicontrols.mixins.early.GuiScreenOptionsSoundsButtonAccessors;
 import com.mrfuzzihead.fuzzicontrols.mixins.early.GuiSlotAccessors;
 
 import cpw.mods.fml.relauncher.Side;
@@ -910,34 +913,23 @@ public final class GuiFocusNavigator {
         }
 
         // ---- GuiScreenOptionsSounds.Button (Music & Sounds sliders) ----
-        // Private inner class slider. Uses reflection since the class isn't
-        // accessible for a mixin. Fields: field_146156_o (float sliderValue),
-        // field_146153_r (SoundCategory), field_146152_s (String label).
-        try {
-            Class<?> clazz = button.getClass();
-            if (!clazz.getName()
-                .equals("net.minecraft.client.gui.GuiScreenOptionsSounds$Button")) {
-                return;
-            }
-            java.lang.reflect.Field valueField = clazz.getDeclaredField("field_146156_o");
-            java.lang.reflect.Field categoryField = clazz.getDeclaredField("field_146153_r");
-            java.lang.reflect.Field labelField = clazz.getDeclaredField("field_146152_s");
-            valueField.setAccessible(true);
-            categoryField.setAccessible(true);
-            labelField.setAccessible(true);
-            float current = valueField.getFloat(button);
+        // The private inner slider is targeted by an accessor mixin, so the same field names are
+        // remapped in dev (MCP) and production (SRG) and no per-press reflection is needed.
+        if (button instanceof GuiScreenOptionsSoundsButtonAccessors soundButton) {
+            float current = soundButton.getSliderValue();
             float newValue = Math.max(0.0f, Math.min(1.0f, current + delta));
-            valueField.setFloat(button, newValue);
+            soundButton.setSliderValue(newValue);
+
             Minecraft mc = Minecraft.getMinecraft();
-            Object soundCategory = categoryField.get(button);
-            mc.gameSettings.setSoundLevel((net.minecraft.client.audio.SoundCategory) soundCategory, newValue);
-            // Update display string: label + ": " + percentage or "Off"
-            // Replicates GuiScreenOptionsSounds.func_146504_a logic
-            float level = mc.gameSettings.getSoundLevel((net.minecraft.client.audio.SoundCategory) soundCategory);
-            String offStr = net.minecraft.client.resources.I18n.format("options.off");
-            String pct = level == 0.0F ? offStr : (int) (level * 100.0F) + "%";
-            button.displayString = labelField.get(button) + ": " + pct;
-        } catch (Exception ignored) {}
+            SoundCategory category = soundButton.getSoundCategory();
+            mc.gameSettings.setSoundLevel(category, newValue);
+
+            // Update the display string: label + ": " + percentage or "Off".
+            float level = mc.gameSettings.getSoundLevel(category);
+            String offStr = I18n.format("options.off");
+            String pct = level == 0.0f ? offStr : (int) (level * 100.0f) + "%";
+            button.displayString = soundButton.getLabel() + ": " + pct;
+        }
     }
 
     /**
@@ -950,9 +942,6 @@ public final class GuiFocusNavigator {
      */
     public static boolean isSliderButton(GuiButton button) {
         if (button instanceof GuiOptionSlider) return true;
-        // GuiScreenOptionsSounds.Button is a private inner class slider.
-        return button.getClass()
-            .getName()
-            .equals("net.minecraft.client.gui.GuiScreenOptionsSounds$Button");
+        return button instanceof GuiScreenOptionsSoundsButtonAccessors;
     }
 }

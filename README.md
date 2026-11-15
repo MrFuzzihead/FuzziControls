@@ -100,8 +100,10 @@ by a mixin at class load, so **enabling** it needs a restart (disabling it is im
 ## 🚀 Installation
 
 1. Install [Minecraft Forge 1.7.10](https://files.minecraftforge.net/).
-2. Drop the `fuzzicontrols-*.jar` into your `mods/` folder.
-3. Launch the game, plug in your controller, and play.
+2. Install [lwjgl3ify](https://github.com/GTNewHorizons/lwjgl3ify) — **required**, and the reason the mod
+   runs on Java 17+ rather than Java 8.
+3. Drop the `fuzzicontrols-*.jar` into your `mods/` folder.
+4. Launch the game, plug in your controller, and play.
 
 > FuzziControls is **client-side only**. Installing it on a server has no effect.
 

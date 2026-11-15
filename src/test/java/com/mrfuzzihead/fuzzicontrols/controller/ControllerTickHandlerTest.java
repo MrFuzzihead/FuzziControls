@@ -1,5 +1,6 @@
 package com.mrfuzzihead.fuzzicontrols.controller;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -20,6 +21,21 @@ import org.junit.Test;
  * </p>
  */
 public class ControllerTickHandlerTest {
+
+    @Test
+    public void oneShotEdgeFiresOnlyOnTheRisingEdge() {
+        ControllerTickHandler handler = new ControllerTickHandler();
+        ControllerMapping mapping = new ControllerMapping(); // JUMP is bound to A
+        ControllerState pressed = new ControllerState(0f, 0f, 0f, 0f, 0f, 0f, EnumSet.of(ControllerButton.A));
+        int[] runs = { 0 };
+
+        handler.handleEdge(ControllerAction.JUMP, pressed, mapping, () -> runs[0]++);
+        handler.handleEdge(ControllerAction.JUMP, pressed, mapping, () -> runs[0]++);
+        handler.handleEdge(ControllerAction.JUMP, ControllerState.empty(), mapping, () -> runs[0]++);
+        handler.handleEdge(ControllerAction.JUMP, pressed, mapping, () -> runs[0]++);
+
+        assertEquals("One effect per physical press, not per held tick", 2, runs[0]);
+    }
 
     @Test
     public void inWorldEdgesTrackStateWhileAGuiIsOpen() {

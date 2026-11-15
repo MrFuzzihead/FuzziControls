@@ -260,7 +260,7 @@ jobs:
             echo "::error::No self-test report at $report - the client never ran the harness (see the log tail above)"; status=1
           fi
 
-          if ! grep -qF "Mixin self-test: 7 checks, 0 failures" client.log; then
+          if ! grep -qF "Mixin self-test: 8 checks, 0 failures" client.log; then
             echo "::error::Not all mixins were applied (see the log tail above)"; status=1
           fi
           if grep -qE "Mixin apply failed|MixinApplyError|InvalidInjectionException|A fatal error has been detected" client.log; then
