@@ -23,24 +23,14 @@ public class ControllerMappingTest {
     /**
      * Actions intentionally left unbound in the default mapping:
      * <ul>
-     * <li>LOOK_* — camera is driven natively by raw axis values in applyLook(), not via the
-     * mapping.</li>
-     * <li>DPAD_UP/DOWN/LEFT/RIGHT — all D-pad directions are unbound by default (the
-     * GUI_NAV_* counterparts are bound to the D-pad directions instead).</li>
-     * <li>COMMAND — unbound by default; configurable via {@code COMMAND=DPAD_DOWN} in
-     * config.</li>
+     * <li>COMMAND — unbound by default; configurable via {@code COMMAND=DPAD_DOWN} in config.</li>
      * </ul>
+     * <p>
+     * Camera and D-pad direction actions no longer exist: the camera is driven natively from raw
+     * right-stick axes, and the D-pad buttons are used by the GUI_NAV_* actions.
+     * </p>
      */
-    private static final Set<ControllerAction> INTENTIONALLY_UNBOUND = EnumSet.of(
-        ControllerAction.LOOK_UP,
-        ControllerAction.LOOK_DOWN,
-        ControllerAction.LOOK_LEFT,
-        ControllerAction.LOOK_RIGHT,
-        ControllerAction.DPAD_UP,
-        ControllerAction.DPAD_DOWN,
-        ControllerAction.DPAD_LEFT,
-        ControllerAction.DPAD_RIGHT,
-        ControllerAction.COMMAND);
+    private static final Set<ControllerAction> INTENTIONALLY_UNBOUND = EnumSet.of(ControllerAction.COMMAND);
 
     private ControllerMapping mapping;
 
@@ -206,7 +196,7 @@ public class ControllerMappingTest {
     @Test
     public void isActive_guiShiftClick_activeWhenLeftTriggerPressed() {
         ControllerState state = new ControllerState(0, 0, 0, 0, 0.8f, 0, Collections.emptySet());
-        assertTrue(mapping.isActive(ControllerAction.GUI_SHIFT_CLICK, state, 0.2f));
+        assertTrue(mapping.isActive(ControllerAction.GUI_SHIFT_CLICK, state));
     }
 
     @Test
@@ -215,7 +205,7 @@ public class ControllerMappingTest {
         // value below threshold produces a 0 normalised trigger → inactive.
         float norm = ControllerState.normaliseTrigger(0.1f, 0.2f);
         ControllerState state = new ControllerState(0, 0, 0, 0, norm, 0, Collections.emptySet());
-        assertFalse(mapping.isActive(ControllerAction.GUI_SHIFT_CLICK, state, 0.2f));
+        assertFalse(mapping.isActive(ControllerAction.GUI_SHIFT_CLICK, state));
     }
 
     /**
@@ -296,19 +286,17 @@ public class ControllerMappingTest {
     @Test
     public void applyDefaults_clearsCustomBindingsWithNoDefault() {
         // Regression: applyDefaults() must clear the map first so a custom binding on an action
-        // that has no default (LOOK_UP) does not survive a reset.
-        mapping.bind(ControllerAction.LOOK_UP, ControllerButton.RIGHT_STICK_UP);
-        mapping.bind(ControllerAction.DPAD_DOWN, ControllerButton.DPAD_DOWN);
+        // that has no default (COMMAND) does not survive a reset.
+        mapping.bind(ControllerAction.COMMAND, ControllerButton.A);
         mapping.applyDefaults();
-        assertNull("applyDefaults() must clear LOOK_UP (no default)", mapping.getButton(ControllerAction.LOOK_UP));
-        assertNull("applyDefaults() must clear DPAD_DOWN (no default)", mapping.getButton(ControllerAction.DPAD_DOWN));
+        assertNull("applyDefaults() must clear COMMAND (no default)", mapping.getButton(ControllerAction.COMMAND));
     }
 
     @Test
     public void getAllBindings_isUnmodifiable() {
         Map<ControllerAction, ControllerButton> bindings = mapping.getAllBindings();
         try {
-            bindings.put(ControllerAction.JUMP, ControllerButton.GUIDE);
+            bindings.put(ControllerAction.JUMP, ControllerButton.X);
             fail("Expected UnsupportedOperationException");
         } catch (UnsupportedOperationException expected) {
             // pass
@@ -322,13 +310,13 @@ public class ControllerMappingTest {
     @Test
     public void isActive_digitalButton_pressed_returnsTrue() {
         ControllerState state = new ControllerState(0, 0, 0, 0, 0, 0, EnumSet.of(ControllerButton.A));
-        assertTrue(mapping.isActive(ControllerAction.JUMP, state, 0.2f));
+        assertTrue(mapping.isActive(ControllerAction.JUMP, state));
     }
 
     @Test
     public void isActive_digitalButton_notPressed_returnsFalse() {
         ControllerState state = ControllerState.empty();
-        assertFalse(mapping.isActive(ControllerAction.JUMP, state, 0.2f));
+        assertFalse(mapping.isActive(ControllerAction.JUMP, state));
     }
 
     @Test
@@ -337,25 +325,25 @@ public class ControllerMappingTest {
         ControllerState state = new ControllerState(0, 0, 0, 0, 0, 0, EnumSet.allOf(ControllerButton.class));
         assertFalse(
             "Unbound action should return false even when all buttons are pressed",
-            mapping.isActive(ControllerAction.COMMAND, state, 0.2f));
+            mapping.isActive(ControllerAction.COMMAND, state));
     }
 
     @Test
     public void isActive_guiLeftClick_activeWhenAPressed() {
         ControllerState state = new ControllerState(0, 0, 0, 0, 0, 0, EnumSet.of(ControllerButton.A));
-        assertTrue(mapping.isActive(ControllerAction.GUI_LEFT_CLICK, state, 0.2f));
+        assertTrue(mapping.isActive(ControllerAction.GUI_LEFT_CLICK, state));
     }
 
     @Test
     public void isActive_guiRightClick_activeWhenXPressed() {
         ControllerState state = new ControllerState(0, 0, 0, 0, 0, 0, EnumSet.of(ControllerButton.X));
-        assertTrue(mapping.isActive(ControllerAction.GUI_RIGHT_CLICK, state, 0.2f));
+        assertTrue(mapping.isActive(ControllerAction.GUI_RIGHT_CLICK, state));
     }
 
     @Test
     public void isActive_guiLeftClick_inactiveWhenANotPressed() {
         ControllerState state = ControllerState.empty();
-        assertFalse(mapping.isActive(ControllerAction.GUI_LEFT_CLICK, state, 0.2f));
+        assertFalse(mapping.isActive(ControllerAction.GUI_LEFT_CLICK, state));
     }
 
     // -------------------------------------------------------------------------
@@ -366,70 +354,70 @@ public class ControllerMappingTest {
     public void isActive_leftStickUp_positiveY_isForward() {
         // leftStickY < -threshold means UP/forward
         ControllerState state = new ControllerState(0, -0.5f, 0, 0, 0, 0, Collections.emptySet());
-        assertTrue(mapping.isActive(ControllerAction.MOVE_FORWARD, state, 0.2f));
+        assertTrue(mapping.isActive(ControllerAction.MOVE_FORWARD, state));
     }
 
     @Test
     public void isActive_leftStickDown_negativeY_isBackward() {
         ControllerState state = new ControllerState(0, 0.5f, 0, 0, 0, 0, Collections.emptySet());
-        assertTrue(mapping.isActive(ControllerAction.MOVE_BACKWARD, state, 0.2f));
+        assertTrue(mapping.isActive(ControllerAction.MOVE_BACKWARD, state));
     }
 
     @Test
     public void isActive_leftStickLeft_negativX_isStrafeLeft() {
         // leftStickX < -threshold means strafe left
         ControllerState state = new ControllerState(-0.5f, 0, 0, 0, 0, 0, Collections.emptySet());
-        assertTrue(mapping.isActive(ControllerAction.STRAFE_LEFT, state, 0.2f));
+        assertTrue(mapping.isActive(ControllerAction.STRAFE_LEFT, state));
     }
 
     @Test
     public void isActive_leftStickRight_positiveX_isStrafeRight() {
         ControllerState state = new ControllerState(0.5f, 0, 0, 0, 0, 0, Collections.emptySet());
-        assertTrue(mapping.isActive(ControllerAction.STRAFE_RIGHT, state, 0.2f));
+        assertTrue(mapping.isActive(ControllerAction.STRAFE_RIGHT, state));
     }
 
     @Test
     public void isActive_leftStickNeutral_noMovement() {
         ControllerState state = new ControllerState(0, 0, 0, 0, 0, 0, Collections.emptySet());
-        assertFalse(mapping.isActive(ControllerAction.MOVE_FORWARD, state, 0.2f));
-        assertFalse(mapping.isActive(ControllerAction.MOVE_BACKWARD, state, 0.2f));
-        assertFalse(mapping.isActive(ControllerAction.STRAFE_LEFT, state, 0.2f));
-        assertFalse(mapping.isActive(ControllerAction.STRAFE_RIGHT, state, 0.2f));
+        assertFalse(mapping.isActive(ControllerAction.MOVE_FORWARD, state));
+        assertFalse(mapping.isActive(ControllerAction.MOVE_BACKWARD, state));
+        assertFalse(mapping.isActive(ControllerAction.STRAFE_LEFT, state));
+        assertFalse(mapping.isActive(ControllerAction.STRAFE_RIGHT, state));
     }
 
     @Test
-    public void isActive_rightStickUp_negativY_isLookUp() {
-        // rightStickY < -threshold when bound to LOOK_UP
-        mapping.bind(ControllerAction.LOOK_UP, ControllerButton.RIGHT_STICK_UP);
+    public void isActive_rightStickUp_negativeY_isActiveWhenBound() {
+        // rightStickY < 0 means up; COMMAND is used here only because it has no default binding.
+        mapping.bind(ControllerAction.COMMAND, ControllerButton.RIGHT_STICK_UP);
         ControllerState state = new ControllerState(0, 0, 0, -0.5f, 0, 0, Collections.emptySet());
-        assertTrue(mapping.isActive(ControllerAction.LOOK_UP, state, 0.2f));
+        assertTrue(mapping.isActive(ControllerAction.COMMAND, state));
     }
 
     @Test
-    public void isActive_rightStickDown_positivY_isLookDown() {
-        mapping.bind(ControllerAction.LOOK_DOWN, ControllerButton.RIGHT_STICK_DOWN);
+    public void isActive_rightStickDown_positiveY_isActiveWhenBound() {
+        mapping.bind(ControllerAction.COMMAND, ControllerButton.RIGHT_STICK_DOWN);
         ControllerState state = new ControllerState(0, 0, 0, 0.5f, 0, 0, Collections.emptySet());
-        assertTrue(mapping.isActive(ControllerAction.LOOK_DOWN, state, 0.2f));
+        assertTrue(mapping.isActive(ControllerAction.COMMAND, state));
     }
 
     @Test
-    public void isActive_rightStickLeft_negativX_isLookLeft() {
-        mapping.bind(ControllerAction.LOOK_LEFT, ControllerButton.RIGHT_STICK_LEFT);
+    public void isActive_rightStickLeft_negativeX_isActiveWhenBound() {
+        mapping.bind(ControllerAction.COMMAND, ControllerButton.RIGHT_STICK_LEFT);
         ControllerState state = new ControllerState(0, 0, -0.5f, 0, 0, 0, Collections.emptySet());
-        assertTrue(mapping.isActive(ControllerAction.LOOK_LEFT, state, 0.2f));
+        assertTrue(mapping.isActive(ControllerAction.COMMAND, state));
     }
 
     @Test
-    public void isActive_rightStickRight_positivX_isLookRight() {
-        mapping.bind(ControllerAction.LOOK_RIGHT, ControllerButton.RIGHT_STICK_RIGHT);
+    public void isActive_rightStickRight_positiveX_isActiveWhenBound() {
+        mapping.bind(ControllerAction.COMMAND, ControllerButton.RIGHT_STICK_RIGHT);
         ControllerState state = new ControllerState(0, 0, 0.5f, 0, 0, 0, Collections.emptySet());
-        assertTrue(mapping.isActive(ControllerAction.LOOK_RIGHT, state, 0.2f));
+        assertTrue(mapping.isActive(ControllerAction.COMMAND, state));
     }
 
     @Test
     public void isActive_rightTrigger_aboveThreshold_isAttack() {
         ControllerState state = new ControllerState(0, 0, 0, 0, 0, 0.8f, Collections.emptySet());
-        assertTrue(mapping.isActive(ControllerAction.ATTACK, state, 0.2f));
+        assertTrue(mapping.isActive(ControllerAction.ATTACK, state));
     }
 
     @Test
@@ -437,7 +425,7 @@ public class ControllerMappingTest {
         // Real flow: the driver normalises the raw trigger (0.1 < threshold 0.2 → 0.0).
         float norm = ControllerState.normaliseTrigger(0.1f, 0.2f);
         ControllerState state = new ControllerState(0, 0, 0, 0, 0, norm, Collections.emptySet());
-        assertFalse(mapping.isActive(ControllerAction.ATTACK, state, 0.2f));
+        assertFalse(mapping.isActive(ControllerAction.ATTACK, state));
     }
 
     @Test
@@ -448,20 +436,20 @@ public class ControllerMappingTest {
         ControllerState state = new ControllerState(0, 0, 0, 0, 0, norm, Collections.emptySet());
         assertFalse(
             "Trigger exactly at threshold normalises to 0 and must not be active",
-            mapping.isActive(ControllerAction.ATTACK, state, 0.2f));
+            mapping.isActive(ControllerAction.ATTACK, state));
     }
 
     @Test
     public void isActive_leftTrigger_aboveThreshold_isUseItem() {
         ControllerState state = new ControllerState(0, 0, 0, 0, 0.8f, 0, Collections.emptySet());
-        assertTrue(mapping.isActive(ControllerAction.USE_ITEM, state, 0.2f));
+        assertTrue(mapping.isActive(ControllerAction.USE_ITEM, state));
     }
 
     @Test
     public void isActive_leftTrigger_belowThreshold_notUseItem() {
         float norm = ControllerState.normaliseTrigger(0.1f, 0.2f);
         ControllerState state = new ControllerState(0, 0, 0, 0, norm, 0, Collections.emptySet());
-        assertFalse(mapping.isActive(ControllerAction.USE_ITEM, state, 0.2f));
+        assertFalse(mapping.isActive(ControllerAction.USE_ITEM, state));
     }
 
     // -------------------------------------------------------------------------
@@ -484,14 +472,14 @@ public class ControllerMappingTest {
     public void isActive_triggerRawBelowThreshold_notAttack() {
         // Raw 0.1 < threshold 0.2 → normalised 0 → inactive (no double-thresholding).
         ControllerState state = normalised(0, 0, 0, 0, 0, 0.1f, 0.15f, 0.2f);
-        assertFalse(mapping.isActive(ControllerAction.ATTACK, state, 0.2f));
+        assertFalse(mapping.isActive(ControllerAction.ATTACK, state));
     }
 
     @Test
     public void isActive_triggerRawJustAboveThreshold_active() {
         // Raw 0.25 just above threshold 0.2 → normalised ~0.0625 > 0 → active immediately.
         ControllerState state = normalised(0, 0, 0, 0, 0, 0.25f, 0.15f, 0.2f);
-        assertTrue(mapping.isActive(ControllerAction.ATTACK, state, 0.2f));
+        assertTrue(mapping.isActive(ControllerAction.ATTACK, state));
     }
 
     @Test
@@ -499,8 +487,8 @@ public class ControllerMappingTest {
         // Raw 0.16 > dead-zone 0.15 → normalised ~0.011 > 0 → strafe right is active immediately
         // past the dead-zone (no extra triggerThreshold band).
         ControllerState state = normalised(0.16f, 0f, 0f, 0f, 0f, 0f, 0.15f, 0.2f);
-        assertTrue(mapping.isActive(ControllerAction.STRAFE_RIGHT, state, 0.2f));
-        assertFalse(mapping.isActive(ControllerAction.STRAFE_LEFT, state, 0.2f));
+        assertTrue(mapping.isActive(ControllerAction.STRAFE_RIGHT, state));
+        assertFalse(mapping.isActive(ControllerAction.STRAFE_LEFT, state));
     }
 
     @Test
@@ -512,9 +500,7 @@ public class ControllerMappingTest {
                 case MOVE_BACKWARD:
                 case STRAFE_LEFT:
                 case STRAFE_RIGHT:
-                    assertFalse(
-                        action + " should not be active inside the dead-zone",
-                        mapping.isActive(action, state, 0.2f));
+                    assertFalse(action + " should not be active inside the dead-zone", mapping.isActive(action, state));
                     break;
                 default:
                     break;

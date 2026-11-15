@@ -38,8 +38,8 @@ public class ControllerMapping {
         actionToButton.put(ControllerAction.STRAFE_LEFT, ControllerButton.LEFT_STICK_LEFT);
         actionToButton.put(ControllerAction.STRAFE_RIGHT, ControllerButton.LEFT_STICK_RIGHT);
 
-        // Camera (LOOK_UP/DOWN/LEFT/RIGHT) — handled natively by applyLook() in the tick
-        // handler using raw axis values; not routed through the action mapping.
+        // Camera is handled natively by applyLook() using raw right-stick axis values; there is
+        // deliberately no LOOK_* action to bind.
 
         // Actions
         actionToButton.put(ControllerAction.JUMP, ControllerButton.A);
@@ -72,9 +72,6 @@ public class ControllerMapping {
         actionToButton.put(ControllerAction.GUI_RIGHT_CLICK, ControllerButton.X);
         actionToButton.put(ControllerAction.GUI_SHIFT_CLICK, ControllerButton.LEFT_TRIGGER);
 
-        // D-Pad — all directions unbound by default
-        // DPAD_UP, DPAD_DOWN, DPAD_LEFT, DPAD_RIGHT intentionally left unbound
-
         // GUI D-Pad navigation (only active when dpadNavigation config is true)
         actionToButton.put(ControllerAction.GUI_NAV_UP, ControllerButton.DPAD_UP);
         actionToButton.put(ControllerAction.GUI_NAV_DOWN, ControllerButton.DPAD_DOWN);
@@ -96,8 +93,13 @@ public class ControllerMapping {
     /**
      * Returns true if the given action is active in the provided {@link ControllerState}.
      * Handles both digital buttons and axis-driven bindings.
+     *
+     * <p>
+     * Axes and triggers arrive already normalised: the driver has applied the configured
+     * dead-zone/threshold, so a zero value means inactive and any non-zero value is active.
+     * </p>
      */
-    public boolean isActive(ControllerAction action, ControllerState state, float triggerThreshold) {
+    public boolean isActive(ControllerAction action, ControllerState state) {
         ControllerButton button = actionToButton.get(action);
         if (button == null) return false;
 

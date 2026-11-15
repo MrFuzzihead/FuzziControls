@@ -17,6 +17,7 @@ import com.mrfuzzihead.fuzzicontrols.mixins.early.GuiContainerAccessors;
 import com.mrfuzzihead.fuzzicontrols.mixins.early.GuiOptionSliderAccessors;
 import com.mrfuzzihead.fuzzicontrols.mixins.early.GuiOptionsRowListRowAccessors;
 import com.mrfuzzihead.fuzzicontrols.mixins.early.GuiScreenAccessors;
+import com.mrfuzzihead.fuzzicontrols.mixins.early.GuiScreenOptionsSoundsButtonAccessors;
 import com.mrfuzzihead.fuzzicontrols.mixins.early.GuiSlotAccessors;
 
 import cpw.mods.fml.relauncher.Side;
@@ -64,6 +65,12 @@ public final class MixinSelfTest {
                 isApplied(GuiOptionsRowListRowAccessors.class, GuiOptionsRowList.Row.class)));
         checks.add(
             new Check(
+                "GuiScreenOptionsSoundsButtonAccessors -> GuiScreenOptionsSounds$Button",
+                isApplied(
+                    GuiScreenOptionsSoundsButtonAccessors.class,
+                    "net.minecraft.client.gui.GuiScreenOptionsSounds$Button")));
+        checks.add(
+            new Check(
                 "GuiContainerAccessors -> GuiContainer",
                 isApplied(GuiContainerAccessors.class, GuiContainer.class)));
         checks.add(
@@ -95,7 +102,7 @@ public final class MixinSelfTest {
      * Logs one error per missing mixin plus a single summary line.
      *
      * <p>
-     * The summary has a fixed shape ({@code Mixin self-test: 7 checks, N failures}) so it can be
+     * The summary has a fixed shape ({@code Mixin self-test: 8 checks, N failures}) so it can be
      * asserted by automation.
      */
     public static void logReport() {
@@ -119,6 +126,15 @@ public final class MixinSelfTest {
         }
     }
 
+    /** Resolves a target by name for private/inner classes that cannot be named directly. */
+    private static boolean isApplied(Class<?> mixin, String targetName) {
+        try {
+            return isApplied(mixin, Class.forName(targetName));
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     /**
      * Returns true when the given class declares any method whose name starts with {@code prefix}.
      *
@@ -134,11 +150,6 @@ public final class MixinSelfTest {
                 if (method.getName()
                     .startsWith(prefix)) return true;
             }
-            FuzziControls.LOG.info(
-                "[FuzziControls] No '{}' method on {} ({} declared methods) — mixin not applied?",
-                prefix,
-                target.getSimpleName(),
-                methods.length);
             return false;
         } catch (Throwable t) {
             return false;

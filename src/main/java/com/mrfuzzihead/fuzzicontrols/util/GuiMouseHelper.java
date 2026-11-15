@@ -37,13 +37,14 @@ public final class GuiMouseHelper {
      * click and the warning is logged only once.
      *
      * <p>
-     * The mod declares only a soft ordering dependency on lwjgl3ify ({@code after:lwjgl3ify}), but
+     * The mod now declares {@code required-after:lwjgl3ify}, but the fallbacks remain as defence in
+     * depth (a broken installation, a unit-test JVM, or a future soft-dependency build).
      * {@code org.lwjglx.input.Mouse} and its {@code sdlMouseButtonFlags} / {@code addButtonEvent} /
-     * {@code addWheelEvent} members are lwjgl3ify extensions. On an install without it, referencing
-     * them throws {@link LinkageError} ({@code NoClassDefFoundError}, {@code NoSuchMethodError}, …),
-     * which is an {@code Error} and therefore was <em>not</em> caught by the previous
-     * {@code catch (Exception)} — so the documented fallback could never engage and the error
-     * escaped into the client tick / render loop.
+     * {@code addWheelEvent} members are lwjgl3ify extensions; referencing them without it throws
+     * {@link LinkageError} ({@code NoClassDefFoundError}, {@code NoSuchMethodError}, …), which is an
+     * {@code Error} and therefore was <em>not</em> caught by the previous {@code catch (Exception)}
+     * — so the documented fallback could never engage and the error escaped into the client tick /
+     * render loop.
      */
     private static boolean lwjgl3ifyInjectionFailed = false;
 
@@ -92,7 +93,18 @@ public final class GuiMouseHelper {
         final int flag = 1 << mouseButton;
         final int flags = org.lwjglx.input.Mouse.sdlMouseButtonFlags;
         org.lwjglx.input.Mouse.sdlMouseButtonFlags = pressed ? (flags | flag) : (flags & ~flag);
-        org.lwjglx.input.Mouse.addButtonEvent(mouseButton, pressed);
+        try {
+            org.lwjglx.input.Mouse.addButtonEvent(mouseButton, pressed);
+        } catch (RuntimeException | LinkageError e) {
+            // Do not leave the button logically down/up when the enqueue failed; the caller falls
+            // back to direct dispatch.
+            try {
+                org.lwjglx.input.Mouse.sdlMouseButtonFlags = flags;
+            } catch (RuntimeException | LinkageError ignored) {
+                // The class/field is unavailable; the caller's fallback handles it.
+            }
+            throw e;
+        }
     }
 
     /**
@@ -125,16 +137,27 @@ public final class GuiMouseHelper {
      */
     public static void directMouseClicked(GuiScreen screen, int mouseButton, int guiX, int guiY) {
         if (!lwjgl3ifyInjectionFailed) {
+            final int flags;
             try {
-                final int flag = 1 << mouseButton;
-                final int flags = org.lwjglx.input.Mouse.sdlMouseButtonFlags;
-                org.lwjglx.input.Mouse.sdlMouseButtonFlags = flags | flag;
-                mouseClicked(screen, guiX, guiY, mouseButton);
-                org.lwjglx.input.Mouse.sdlMouseButtonFlags = flags & ~flag;
-                return;
+                flags = org.lwjglx.input.Mouse.sdlMouseButtonFlags;
+                org.lwjglx.input.Mouse.sdlMouseButtonFlags = flags | (1 << mouseButton);
             } catch (Exception | LinkageError e) {
                 onLwjgl3ifyFailure("sdlMouseButtonFlags", e);
+                mouseClicked(screen, guiX, guiY, mouseButton);
+                return;
             }
+            try {
+                mouseClicked(screen, guiX, guiY, mouseButton);
+            } finally {
+                // Restore the exact previous state; clearing the bit unconditionally could
+                // release a button that was already down before this synthetic click.
+                try {
+                    org.lwjglx.input.Mouse.sdlMouseButtonFlags = flags;
+                } catch (Exception | LinkageError e) {
+                    onLwjgl3ifyFailure("sdlMouseButtonFlags", e);
+                }
+            }
+            return;
         }
         mouseClicked(screen, guiX, guiY, mouseButton);
     }

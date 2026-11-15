@@ -16,22 +16,12 @@ public enum ControllerAction {
     /** Strafe right (left stick right). */
     STRAFE_RIGHT,
 
-    // ---- Camera ----
-    /** Look up (right stick up). */
-    LOOK_UP,
-    /** Look down (right stick down). */
-    LOOK_DOWN,
-    /** Look left (right stick left). */
-    LOOK_LEFT,
-    /** Look right (right stick right). */
-    LOOK_RIGHT,
-
     // ---- Actions ----
     /** Jump — A / Cross. */
     JUMP,
     /** Sneak / crouch — Right stick click (RS / R3). */
     SNEAK,
-    /** Toggle sprint — Left stick click (LS / L3). */
+    /** Sprint while held — Left stick click (LS / L3). */
     SPRINT,
 
     /** Attack / mine (hold) — Right trigger (RT / R2). */
@@ -43,9 +33,9 @@ public enum ControllerAction {
     PICK_BLOCK,
 
     // ---- Hotbar ----
-    /** Select next hotbar slot — D-pad right. */
+    /** Select next hotbar slot — Right bumper (RB / R1). */
     HOTBAR_NEXT,
-    /** Select previous hotbar slot — D-pad left. */
+    /** Select previous hotbar slot — Left bumper (LB / L1). */
     HOTBAR_PREV,
 
     // ---- UI ----
@@ -80,12 +70,6 @@ public enum ControllerAction {
      * Only fires when a GUI screen is open. Bound to LT by default.
      */
     GUI_SHIFT_CLICK,
-
-    // ---- D-Pad (all unbound by default, user-configurable) ----
-    DPAD_UP,
-    DPAD_DOWN,
-    DPAD_LEFT,
-    DPAD_RIGHT,
 
     // ---- GUI D-Pad navigation (only active when dpadNavigation config is true and a GuiScreen is open) ----
     /** Navigate focus to the previous button (D-pad up). */

@@ -35,7 +35,7 @@ public final class GuiKeyHelper {
     public static void injectKey(GuiScreen screen, int keyCode, char typedChar) {
         try {
             ((GuiScreenAccessors) screen).callKeyTyped(typedChar, keyCode);
-        } catch (Exception e) {
+        } catch (Exception | LinkageError e) {
             // The invoker is applied at class load by the mixin; it is always available for any
             // GuiScreen-instantiating class. If this somehow fails, the click is simply lost.
         }

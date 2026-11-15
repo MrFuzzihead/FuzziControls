@@ -32,6 +32,18 @@ public class GuiMouseHelperLinkageTest {
     }
 
     @Test
+    public void buttonAndKeyInjectionNeverThrowWhenLwjgl3ifyIsAbsent() {
+        // A null screen exercises the fallback path without needing a live Minecraft/GuiScreen
+        // (Mockito cannot instrument GuiScreen in the unit-test JVM because a supertype needs a
+        // display). The invoker helpers catch and log the resulting NPE, so the tick/render loop
+        // must still not see an exception.
+        GuiMouseHelper.injectMouseButton(null, 0, true, 0, 0);
+        GuiMouseHelper.injectMouseButton(null, 0, false, 0, 0);
+        GuiMouseHelper.directMouseClicked(null, 0, 0, 0);
+        GuiKeyHelper.injectKey(null, 1, '\0');
+    }
+
+    @Test
     public void wheelInjectionNeverThrowsWhenLwjgl3ifyIsAbsent() {
         assertFalse(
             "Test JVM is expected to have no usable lwjgl3ify input API, so the LinkageError path runs",

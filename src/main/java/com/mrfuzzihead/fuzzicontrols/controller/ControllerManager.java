@@ -1,5 +1,7 @@
 package com.mrfuzzihead.fuzzicontrols.controller;
 
+import java.util.Locale;
+
 import com.mrfuzzihead.fuzzicontrols.Config;
 import com.mrfuzzihead.fuzzicontrols.FuzziControls;
 
@@ -16,25 +18,36 @@ import com.mrfuzzihead.fuzzicontrols.FuzziControls;
  * </ol>
  *
  * <p>
- * <b>Hot-plug:</b> When no driver is active (or the active driver disconnects), the manager
- * automatically retries initialization every {@value #RECONNECT_INTERVAL_TICKS} game ticks
- * (~{@value #RECONNECT_INTERVAL_SECONDS} seconds) so controllers plugged in after game launch
- * are detected without a restart.
+ * <b>Hot-plug:</b> While the game window is focused, the manager probes for a controller every
+ * {@value #FOCUSED_RECONNECT_TICKS} ticks (~{@value #FOCUSED_RECONNECT_SECONDS} second), so a
+ * controller plugged in during play is usable almost immediately. While the window is unfocused or
+ * minimized it probes only every {@value #UNFOCUSED_RECONNECT_TICKS} ticks
+ * (~{@value #UNFOCUSED_RECONNECT_SECONDS} seconds); returning focus triggers an immediate probe.
+ * The active driver's disconnect is detected on the next client tick.
  *
  * <p>
- * <b>Performance:</b> The disconnect check ({@code activeDriver.isConnected()}) runs every
- * tick but is zero-overhead — it reuses the same native {@code poll()} call that reading
- * input already requires. The reconnect probe ({@code tryReconnect()}) only runs once every
- * {@value #RECONNECT_INTERVAL_TICKS} ticks and involves constructing one or two driver objects
- * with native library calls; the cost is comparable to a single frame of normal polling and
- * is imperceptible in practice.
+ * <b>Disabling:</b> set {@code driver = none} in the config to stop all controller probing
+ * (including the hot-plug retries). Unknown driver names are treated the same way and logged.
+ *
+ * <p>
+ * <b>Performance:</b> The old reconnect probe constructed a {@code DualSenseDriver} that called
+ * hid4java's {@code HidServices.getHidDevice(vid, pid, ...)}, which enumerates every HID device in
+ * the system (~500 ms on a typical Windows machine) and also left hid4java's 500 ms scanner thread
+ * running. The driver now opens with hidapi's native VID/PID filter instead (~2 ms idle, ~14 ms
+ * when a controller is present), so the 1 Hz focused probe costs roughly 0.2% of one core and no
+ * longer blocks a frame. The XInput probe is ~20 µs.
  */
 public class ControllerManager {
 
-    /** How many game ticks between reconnection attempts (20 ticks = 1 s). */
-    private static final int RECONNECT_INTERVAL_TICKS = 60; // 3 seconds
+    /** Probe interval while the game window is focused (20 ticks = 1 s). */
+    private static final int FOCUSED_RECONNECT_TICKS = 20;
 
-    private static final int RECONNECT_INTERVAL_SECONDS = RECONNECT_INTERVAL_TICKS / 20;
+    /** Probe interval while the game window is unfocused/minimized (600 ticks = 30 s). */
+    private static final int UNFOCUSED_RECONNECT_TICKS = 600;
+
+    private static final int FOCUSED_RECONNECT_SECONDS = FOCUSED_RECONNECT_TICKS / 20;
+
+    private static final int UNFOCUSED_RECONNECT_SECONDS = UNFOCUSED_RECONNECT_TICKS / 20;
 
     private IControllerDriver activeDriver;
     private ControllerState lastState = ControllerState.empty();
@@ -44,6 +57,15 @@ public class ControllerManager {
 
     /** Counts down to the next reconnection attempt. */
     private int reconnectCooldown = 0;
+
+    /** Whether the game window currently has focus; controls the hot-plug probe interval. */
+    private boolean focused = true;
+
+    /** True for {@code driver = none} (or an unknown value): no driver is created or polled. */
+    private boolean driverDisabled = false;
+
+    /** Normalized driver preference captured at {@link #init()}, so retries do not re-read the config. */
+    private String driverPref = "auto";
 
     /** Creates the concrete drivers; injectable so the selection/reconnect logic can be unit tested. */
     interface DriverFactory {
@@ -103,25 +125,61 @@ public class ControllerManager {
             activeDriver = null;
             lastConnected = false;
         }
+        lastState = ControllerState.empty();
+        reconnectCooldown = 0;
+        driverDisabled = false;
 
-        String driverPref = Config.controllerDriver.toLowerCase();
+        String requested = Config.controllerDriver;
+        driverPref = requested == null ? ""
+            : requested.trim()
+                .toLowerCase(Locale.ROOT);
+        if (driverPref.isEmpty()) driverPref = "auto";
+
+        if ("none".equals(driverPref)) {
+            driverDisabled = true;
+            lastConnected = false;
+            FuzziControls.LOG.info("[FuzziControls] Controller support disabled (driver=none).");
+            return;
+        }
+
+        if (!isKnownDriver(driverPref)) {
+            driverDisabled = true;
+            lastConnected = false;
+            FuzziControls.LOG.warn(
+                "[FuzziControls] Unknown controller driver '{}'; expected auto, xinput, dualsense or none. "
+                    + "Controller support is disabled until the config is fixed.",
+                requested);
+            return;
+        }
+
         FuzziControls.LOG.info("[FuzziControls] Requested controller driver: {}", driverPref);
 
-        if (selectDriver(driverPref, false)) return;
+        if (selectDriver(driverPref)) {
+            lastConnected = true;
+            return;
+        }
 
         lastConnected = false;
-        FuzziControls.LOG.warn("[FuzziControls] No controller detected.");
+        // init() already paid for one probe; do not repeat it on the very next tick.
+        reconnectCooldown = focused ? FOCUSED_RECONNECT_TICKS : UNFOCUSED_RECONNECT_TICKS;
+        FuzziControls.LOG.info(
+            "[FuzziControls] No controller detected; probing every {}s while focused ({}s when unfocused).",
+            FOCUSED_RECONNECT_SECONDS,
+            UNFOCUSED_RECONNECT_SECONDS);
+    }
+
+    private static boolean isKnownDriver(String pref) {
+        return "auto".equals(pref) || "xinput".equals(pref) || "dualsense".equals(pref);
     }
 
     /**
      * Tries the configured drivers in order and adopts the first connected one.
      *
-     * @param driverPref configured preference ({@code auto}, {@code dualsense} or {@code xinput})
-     * @param quiet      true when retrying in the background (suppresses the "no controller" warning)
+     * @param pref normalized driver preference ({@code auto}, {@code dualsense} or {@code xinput})
      * @return true when a driver was selected
      */
-    private boolean selectDriver(String driverPref, boolean quiet) {
-        if ("auto".equals(driverPref) || "dualsense".equals(driverPref)) {
+    private boolean selectDriver(String pref) {
+        if ("auto".equals(pref) || "dualsense".equals(pref)) {
             IControllerDriver ds = driverFactory.createDualSense();
             if (ds != null && ds.isConnected()) {
                 activeDriver = ds;
@@ -132,7 +190,7 @@ public class ControllerManager {
             safeClose(ds);
         }
 
-        if ("auto".equals(driverPref) || "xinput".equals(driverPref)) {
+        if ("auto".equals(pref) || "xinput".equals(pref)) {
             int slot = Config.xInputControllerSlot;
             IControllerDriver xi = driverFactory.createXInput(slot);
             if (xi != null && xi.isConnected()) {
@@ -149,11 +207,19 @@ public class ControllerManager {
 
     /**
      * Polls the active driver and updates {@link #lastState}.
-     * Also handles hot-plug: if no driver is active or the active driver disconnects,
-     * re-initialization is attempted every {@value #RECONNECT_INTERVAL_TICKS} ticks.
+     * Also handles hot-plug: while no driver is active the manager probes every
+     * {@value #FOCUSED_RECONNECT_TICKS} ticks when the window is focused and every
+     * {@value #UNFOCUSED_RECONNECT_TICKS} ticks when it is not. A disconnect is detected and
+     * retried immediately.
      * Must be called from the client tick thread.
      */
     public void tick() {
+        if (driverDisabled) {
+            lastState = ControllerState.empty();
+            lastConnected = false;
+            return;
+        }
+
         // If the active driver has disconnected, release it so we attempt a reconnect.
         if (activeDriver != null && !activeDriver.isConnected()) {
             FuzziControls.LOG.info("[FuzziControls] Controller disconnected. Will retry.");
@@ -167,39 +233,71 @@ public class ControllerManager {
         if (activeDriver == null) {
             if (reconnectCooldown > 0) {
                 reconnectCooldown--;
+                // Probe on the tick the countdown reaches zero, so a 20-tick interval is 1 s
+                // rather than 1 s plus one tick.
+                if (reconnectCooldown > 0) {
+                    lastState = ControllerState.empty();
+                    lastConnected = false;
+                    return;
+                }
+            }
+
+            if (!tryReconnect()) {
+                reconnectCooldown = focused ? FOCUSED_RECONNECT_TICKS : UNFOCUSED_RECONNECT_TICKS;
                 lastState = ControllerState.empty();
                 lastConnected = false;
                 return;
             }
-            // Cooldown expired — try to find a controller.
-            reconnectCooldown = RECONNECT_INTERVAL_TICKS;
-            tryReconnect();
-            if (activeDriver == null) {
-                lastState = ControllerState.empty();
-                lastConnected = false;
-                return;
-            }
+
+            reconnectCooldown = 0;
         }
 
         try {
             lastState = activeDriver.poll(Config.stickDeadZone, Config.triggerThreshold);
             lastConnected = true;
-        } catch (Exception e) {
-            // A transient hardware error must never crash the client tick.
-            FuzziControls.LOG.warn("[FuzziControls] Controller poll error: {}", e.getMessage());
+        } catch (Exception | LinkageError e) {
+            // A transient hardware/native error must never crash the client tick.
+            FuzziControls.LOG.warn("[FuzziControls] Controller poll error: {}", e.toString());
             safeClose(activeDriver);
             activeDriver = null;
             lastState = ControllerState.empty();
             lastConnected = false;
+            reconnectCooldown = 0;
+        }
+    }
+
+    /**
+     * Updates the hot-plug probe schedule when the game window gains or loses focus.
+     *
+     * <p>
+     * A focus gain triggers an immediate probe (cooldown 0) so a controller plugged in while the
+     * player was alt-tabbed is picked up on the next tick. A focus loss while no controller is
+     * active defers probing to the unfocused interval instead of leaving a 1 Hz scan running in
+     * the background.
+     * </p>
+     *
+     * @param focused true when the game window is active
+     */
+    public void setFocused(boolean focused) {
+        if (this.focused == focused) return;
+        this.focused = focused;
+        if (driverDisabled) return;
+
+        if (focused) {
+            reconnectCooldown = 0;
+        } else if (activeDriver == null) {
+            reconnectCooldown = UNFOCUSED_RECONNECT_TICKS;
         }
     }
 
     /**
      * Silently attempts to initialize a driver without logging "no controller detected" noise.
      * On success, {@link #activeDriver} is set; on failure it remains {@code null}.
+     *
+     * @return true when a driver was adopted
      */
-    private void tryReconnect() {
-        selectDriver(Config.controllerDriver.toLowerCase(), true);
+    private boolean tryReconnect() {
+        return selectDriver(driverPref);
     }
 
     /** Returns the most recently polled {@link ControllerState}. Never {@code null}. */
@@ -216,8 +314,15 @@ public class ControllerManager {
         if (activeDriver != null && lastConnected) {
             try {
                 lastState = activeDriver.poll(Config.stickDeadZone, Config.triggerThreshold);
-            } catch (Exception e) {
-                FuzziControls.LOG.warn("[FuzziControls] Poll error in pollFresh: {}", e.getMessage());
+            } catch (Exception | LinkageError e) {
+                // A render-frame poll error is usually fatal to the handle. Close it once and let
+                // the next tick reconnect; logging this per frame would flood the log.
+                FuzziControls.LOG.warn("[FuzziControls] Poll error in pollFresh: {}", e.toString());
+                safeClose(activeDriver);
+                activeDriver = null;
+                lastState = ControllerState.empty();
+                lastConnected = false;
+                reconnectCooldown = 0;
             }
         }
         return lastState;
@@ -234,9 +339,9 @@ public class ControllerManager {
         activeDriver = null;
         lastState = ControllerState.empty();
         lastConnected = false;
-        // The shared HidServices instance is released separately by
-        // DualSenseDriver.shutdownSharedServices(), which ClientProxy calls from the JVM shutdown
-        // hook after this method.
+        // The process-wide hidapi library is released separately by
+        // DualSenseDriver.shutdownHid(), which ClientProxy calls from the JVM shutdown hook after
+        // this method.
     }
 
     /** Exposes the active driver name for logging / GUI display. */
@@ -249,8 +354,8 @@ public class ControllerManager {
         if (driver == null) return;
         try {
             driver.close();
-        } catch (Exception e) {
-            FuzziControls.LOG.warn("[FuzziControls] Error closing controller driver: {}", e.getMessage());
+        } catch (Exception | LinkageError e) {
+            FuzziControls.LOG.warn("[FuzziControls] Error closing controller driver: {}", e.toString());
         }
     }
 }

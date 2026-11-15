@@ -7,6 +7,8 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import java.awt.Point;
+import java.awt.Rectangle;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -719,5 +721,46 @@ public class GuiFocusNavigatorTest {
                     GuiFocusNavigator.isEntryVisible(entryTop, ENTRY_H, VIEWPORT_H, target));
             }
         }
+    }
+
+    @Test
+    public void focusedButtonBoundsAreCachedFromTheButton() {
+        navigator.rebuildForTest(Arrays.asList(btn(1, 10, 20, 40, 20, true, true)));
+        navigator.focusIndex(0);
+
+        Rectangle bounds = navigator.getFocusedItemBounds();
+        assertNotNull(bounds);
+        assertEquals(10, bounds.x);
+        assertEquals(20, bounds.y);
+        assertEquals(40, bounds.width);
+        assertEquals(20, bounds.height);
+
+        Point center = navigator.getFocusedItemCenter();
+        assertEquals(30, center.x);
+        assertEquals(30, center.y);
+    }
+
+    @Test
+    public void focusedInventorySlotBoundsIncludeThe18pxBackground() {
+        navigator.rebuildForTestInventory(new int[] { 5 }, new int[] { 6 }, 100, 200);
+        navigator.focusIndex(0);
+
+        Rectangle bounds = navigator.getFocusedItemBounds();
+        assertNotNull(bounds);
+        // Slot background: (guiLeft + x - 1, guiTop + y - 1) with an 18x18 size.
+        assertEquals(104, bounds.x);
+        assertEquals(205, bounds.y);
+        assertEquals(18, bounds.width);
+        assertEquals(18, bounds.height);
+
+        Point center = navigator.getFocusedItemCenter();
+        assertEquals("Centre of the 18x18 box", 113, center.x);
+        assertEquals(214, center.y);
+    }
+
+    @Test
+    public void missingFocusHasNoBounds() {
+        navigator.rebuildForTest(new ArrayList<>());
+        assertNull(navigator.getFocusedItemBounds());
     }
 }

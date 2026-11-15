@@ -13,9 +13,9 @@
 		"logoFile": "pack.png",
 		"screenshots": [],
 		"parent": "",
-		"requiredMods": [],
+		"requiredMods": [ "lwjgl3ify" ],
 		"dependencies": [],
 		"dependants": [],
-		"useDependencyInformation": false
+		"useDependencyInformation": true
 	}]
 }

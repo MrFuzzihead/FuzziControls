@@ -43,8 +43,6 @@ public enum ControllerButton {
     START,
     /** Back / Share / Select */
     BACK,
-    /** Guide / PS button */
-    GUIDE,
 
     // Axes treated as directional inputs (for action mappings that need a direction)
     LEFT_STICK_UP,

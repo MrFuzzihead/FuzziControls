@@ -1,6 +1,7 @@
 package com.mrfuzzihead.fuzzicontrols.util;
 
 import java.awt.Point;
+import java.awt.Rectangle;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -8,12 +9,14 @@ import java.util.List;
 import javax.annotation.Nullable;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.audio.SoundCategory;
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiOptionSlider;
 import net.minecraft.client.gui.GuiOptionsRowList;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.GuiSlot;
 import net.minecraft.client.gui.inventory.GuiContainer;
+import net.minecraft.client.resources.I18n;
 import net.minecraft.client.settings.GameSettings;
 import net.minecraft.inventory.Container;
 import net.minecraft.inventory.Slot;
@@ -24,6 +27,7 @@ import com.mrfuzzihead.fuzzicontrols.mixins.early.GuiContainerAccessors;
 import com.mrfuzzihead.fuzzicontrols.mixins.early.GuiOptionSliderAccessors;
 import com.mrfuzzihead.fuzzicontrols.mixins.early.GuiOptionsRowListRowAccessors;
 import com.mrfuzzihead.fuzzicontrols.mixins.early.GuiScreenAccessors;
+import com.mrfuzzihead.fuzzicontrols.mixins.early.GuiScreenOptionsSoundsButtonAccessors;
 import com.mrfuzzihead.fuzzicontrols.mixins.early.GuiSlotAccessors;
 
 import cpw.mods.fml.relauncher.Side;
@@ -75,6 +79,13 @@ public final class GuiFocusNavigator {
         /** The container's {@code guiTop} offset captured at build time (valid for {@link ItemType#INVENTORY_SLOT}). */
         public final int guiTop;
 
+        /**
+         * Geometry captured at rebuild time. Buttons and inventory slots do not move until the
+         * screen is re-initialised (which rebuilds the list); list entries depend on the current
+         * scroll offset and are therefore computed on demand ({@code null} here).
+         */
+        private final AxisAligned box;
+
         FocusableItem(GuiButton button) {
             this.type = ItemType.BUTTON;
             this.button = button;
@@ -83,6 +94,11 @@ public final class GuiFocusNavigator {
             this.inventorySlot = null;
             this.guiLeft = 0;
             this.guiTop = 0;
+            this.box = new AxisAligned(
+                button.xPosition,
+                button.xPosition + button.getButtonWidth(),
+                button.yPosition,
+                button.yPosition + (button.height > 0 ? button.height : 20));
         }
 
         FocusableItem(GuiSlot slot, int slotIndex) {
@@ -93,6 +109,7 @@ public final class GuiFocusNavigator {
             this.inventorySlot = null;
             this.guiLeft = 0;
             this.guiTop = 0;
+            this.box = null;
         }
 
         FocusableItem(Slot inventorySlot, int guiLeft, int guiTop) {
@@ -103,6 +120,9 @@ public final class GuiFocusNavigator {
             this.inventorySlot = inventorySlot;
             this.guiLeft = guiLeft;
             this.guiTop = guiTop;
+            int left = guiLeft + inventorySlot.xDisplayPosition - 1;
+            int top = guiTop + inventorySlot.yDisplayPosition - 1;
+            this.box = new AxisAligned(left, left + 18, top, top + 18);
         }
     }
 
@@ -343,6 +363,19 @@ public final class GuiFocusNavigator {
         FocusableItem item = getFocusedItem();
         if (item == null) return null;
         return getItemCenter(item);
+    }
+
+    /**
+     * Returns the focused element's bounds in scaled GUI coordinates (top-left origin), or
+     * {@code null} when nothing is focused. The renderer uses this so its border geometry cannot
+     * drift from the click/search geometry.
+     */
+    @Nullable
+    public Rectangle getFocusedItemBounds() {
+        FocusableItem item = getFocusedItem();
+        if (item == null) return null;
+        AxisAligned box = getItemBox(item);
+        return new Rectangle(box.left, box.top, box.right - box.left, box.bottom - box.top);
     }
 
     /**
@@ -606,56 +639,17 @@ public final class GuiFocusNavigator {
      * Returns the scaled GUI-space center of the given item (top-left origin).
      */
     private static Point getItemCenter(FocusableItem item) {
-        if (item.type == ItemType.BUTTON) {
-            GuiButton btn = item.button;
-            return new Point(
-                btn.xPosition + btn.getButtonWidth() / 2,
-                btn.yPosition + (btn.height > 0 ? btn.height : 20) / 2);
-        }
-
-        if (item.type == ItemType.INVENTORY_SLOT) {
-            // The 18x18 slot background is drawn at (xDisplayPosition - 1, yDisplayPosition - 1)
-            // and the 16x16 click hotspot starts at (xDisplayPosition, yDisplayPosition), so both
-            // are centred 8 px inside. This must agree with getItemBox(): a click point offset from
-            // the highlighted box would only land in the right slot thanks to vanilla's ±1 px
-            // tolerance in GuiContainer.func_146978_c().
-            return new Point(
-                item.guiLeft + item.inventorySlot.xDisplayPosition + 8,
-                item.guiTop + item.inventorySlot.yDisplayPosition + 8);
-        }
-
-        // Slot entry (GuiSlot list)
-        GuiSlotAccessors slotAcc = (GuiSlotAccessors) item.slot;
-        int scrollOffset = (int) Math.ceil(slotAcc.getAmountScrolled());
-        int y = item.slot.top + item.slot.headerPadding
-            - scrollOffset
-            + 4
-            + item.slotIndex * item.slot.slotHeight
-            + item.slot.slotHeight / 2;
-        return new Point(item.slot.width / 2, y);
+        AxisAligned box = getItemBox(item);
+        return new Point((int) box.centerX, (int) box.centerY);
     }
 
     /**
      * Returns the bounding box of the given item in scaled GUI coordinates (top-left origin).
      */
     private static AxisAligned getItemBox(FocusableItem item) {
-        if (item.type == ItemType.BUTTON) {
-            GuiButton btn = item.button;
-            return new AxisAligned(
-                btn.xPosition,
-                btn.xPosition + btn.getButtonWidth(),
-                btn.yPosition,
-                btn.yPosition + (btn.height > 0 ? btn.height : 20));
-        }
+        if (item.box != null) return item.box;
 
-        if (item.type == ItemType.INVENTORY_SLOT) {
-            // Slot background is 18x18: left/top = guiLeft + xDisplayPosition - 1, right/bottom = +18
-            int left = item.guiLeft + item.inventorySlot.xDisplayPosition - 1;
-            int top = item.guiTop + item.inventorySlot.yDisplayPosition - 1;
-            return new AxisAligned(left, left + 18, top, top + 18);
-        }
-
-        // Slot entry (GuiSlot list)
+        // Slot entry (GuiSlot list): the list can scroll, so this is computed on demand.
         GuiSlotAccessors slotAcc = (GuiSlotAccessors) item.slot;
         int scrollOffset = (int) Math.ceil(slotAcc.getAmountScrolled());
         int y = item.slot.top + item.slot.headerPadding - scrollOffset + 4 + item.slotIndex * item.slot.slotHeight;
@@ -910,34 +904,23 @@ public final class GuiFocusNavigator {
         }
 
         // ---- GuiScreenOptionsSounds.Button (Music & Sounds sliders) ----
-        // Private inner class slider. Uses reflection since the class isn't
-        // accessible for a mixin. Fields: field_146156_o (float sliderValue),
-        // field_146153_r (SoundCategory), field_146152_s (String label).
-        try {
-            Class<?> clazz = button.getClass();
-            if (!clazz.getName()
-                .equals("net.minecraft.client.gui.GuiScreenOptionsSounds$Button")) {
-                return;
-            }
-            java.lang.reflect.Field valueField = clazz.getDeclaredField("field_146156_o");
-            java.lang.reflect.Field categoryField = clazz.getDeclaredField("field_146153_r");
-            java.lang.reflect.Field labelField = clazz.getDeclaredField("field_146152_s");
-            valueField.setAccessible(true);
-            categoryField.setAccessible(true);
-            labelField.setAccessible(true);
-            float current = valueField.getFloat(button);
+        // The private inner slider is targeted by an accessor mixin, so the same field names are
+        // remapped in dev (MCP) and production (SRG) and no per-press reflection is needed.
+        if (button instanceof GuiScreenOptionsSoundsButtonAccessors soundButton) {
+            float current = soundButton.getSliderValue();
             float newValue = Math.max(0.0f, Math.min(1.0f, current + delta));
-            valueField.setFloat(button, newValue);
+            soundButton.setSliderValue(newValue);
+
             Minecraft mc = Minecraft.getMinecraft();
-            Object soundCategory = categoryField.get(button);
-            mc.gameSettings.setSoundLevel((net.minecraft.client.audio.SoundCategory) soundCategory, newValue);
-            // Update display string: label + ": " + percentage or "Off"
-            // Replicates GuiScreenOptionsSounds.func_146504_a logic
-            float level = mc.gameSettings.getSoundLevel((net.minecraft.client.audio.SoundCategory) soundCategory);
-            String offStr = net.minecraft.client.resources.I18n.format("options.off");
-            String pct = level == 0.0F ? offStr : (int) (level * 100.0F) + "%";
-            button.displayString = labelField.get(button) + ": " + pct;
-        } catch (Exception ignored) {}
+            SoundCategory category = soundButton.getSoundCategory();
+            mc.gameSettings.setSoundLevel(category, newValue);
+
+            // Update the display string: label + ": " + percentage or "Off".
+            float level = mc.gameSettings.getSoundLevel(category);
+            String offStr = I18n.format("options.off");
+            String pct = level == 0.0f ? offStr : (int) (level * 100.0f) + "%";
+            button.displayString = soundButton.getLabel() + ": " + pct;
+        }
     }
 
     /**
@@ -950,9 +933,6 @@ public final class GuiFocusNavigator {
      */
     public static boolean isSliderButton(GuiButton button) {
         if (button instanceof GuiOptionSlider) return true;
-        // GuiScreenOptionsSounds.Button is a private inner class slider.
-        return button.getClass()
-            .getName()
-            .equals("net.minecraft.client.gui.GuiScreenOptionsSounds$Button");
+        return button instanceof GuiScreenOptionsSoundsButtonAccessors;
     }
 }

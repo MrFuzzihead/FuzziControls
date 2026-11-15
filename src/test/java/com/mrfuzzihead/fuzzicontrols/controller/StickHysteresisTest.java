@@ -5,6 +5,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.util.Collections;
+import java.util.EnumSet;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -55,6 +56,41 @@ public class StickHysteresisTest {
             float value = (tick % 2 == 0) ? 0.02f : 0.05f;
             assertTrue("Tick " + tick + " must stay on", hysteresis.update(ControllerAction.MOVE_FORWARD, value));
         }
+    }
+
+    @Test
+    public void digitalBindingFallsBackToTheNormalMapping() {
+        ControllerMapping mapping = new ControllerMapping();
+        mapping.bind(ControllerAction.MOVE_FORWARD, ControllerButton.A);
+        ControllerState pressed = new ControllerState(0f, 0f, 0f, 0f, 0f, 0f, EnumSet.of(ControllerButton.A));
+
+        assertTrue(
+            "A digital MOVE_FORWARD binding must still move",
+            hysteresis.isActive(ControllerAction.MOVE_FORWARD, mapping, pressed));
+        assertFalse(
+            "A released digital binding must not move",
+            hysteresis.isActive(ControllerAction.MOVE_FORWARD, mapping, ControllerState.empty()));
+    }
+
+    @Test
+    public void unboundActionIsInactive() {
+        ControllerMapping mapping = new ControllerMapping();
+        mapping.bind(ControllerAction.MOVE_FORWARD, null);
+        assertFalse(hysteresis.isActive(ControllerAction.MOVE_FORWARD, mapping, ControllerState.empty()));
+    }
+
+    @Test
+    public void axisBindingKeepsTheHysteresisBehaviour() {
+        ControllerMapping mapping = new ControllerMapping(); // MOVE_FORWARD = LEFT_STICK_UP
+        ControllerState half = new ControllerState(0f, -0.5f, 0f, 0f, 0f, 0f, Collections.emptySet());
+        ControllerState nearCentre = new ControllerState(0f, -0.02f, 0f, 0f, 0f, 0f, Collections.emptySet());
+        ControllerState centred = ControllerState.empty();
+
+        assertTrue(hysteresis.isActive(ControllerAction.MOVE_FORWARD, mapping, half));
+        assertTrue(
+            "Inside the hysteresis band the direction stays on",
+            hysteresis.isActive(ControllerAction.MOVE_FORWARD, mapping, nearCentre));
+        assertFalse(hysteresis.isActive(ControllerAction.MOVE_FORWARD, mapping, centred));
     }
 
     @Test

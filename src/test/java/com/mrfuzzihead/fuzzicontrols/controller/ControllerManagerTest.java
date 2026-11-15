@@ -214,6 +214,69 @@ public class ControllerManagerTest {
     }
 
     @Test
+    public void noneDisablesAllProbing() {
+        Config.controllerDriver = "none";
+
+        manager.init();
+        for (int tick = 0; tick < 200; tick++) {
+            manager.tick();
+        }
+
+        assertFalse(manager.isActive());
+        assertEquals("None", manager.getActiveDriverName());
+        assertEquals("driver=none must never create a DualSense probe", 0, factory.dualSenseRequests);
+        assertEquals("driver=none must never create an XInput probe", 0, factory.xInputRequests);
+    }
+
+    @Test
+    public void switchingToNoneClosesTheActiveDriver() {
+        FakeDriver driver = new FakeDriver("DualSense", true);
+        factory.queueDualSense(driver);
+        manager.init();
+        assertTrue(manager.isActive());
+
+        Config.controllerDriver = "none";
+        manager.init();
+
+        assertFalse(manager.isActive());
+        assertEquals("None", manager.getActiveDriverName());
+        assertTrue("Disabling must release the active handle", driver.closed);
+    }
+
+    @Test
+    public void unknownDriverDisablesProbing() {
+        Config.controllerDriver = "dual-sense"; // typo: must not silently probe forever
+
+        manager.init();
+        for (int tick = 0; tick < 200; tick++) {
+            manager.tick();
+        }
+
+        assertFalse(manager.isActive());
+        assertEquals(0, factory.dualSenseRequests);
+        assertEquals(0, factory.xInputRequests);
+    }
+
+    @Test
+    public void initFailureDoesNotProbeAgainOnTheNextTicks() {
+        factory.queueDualSense(new FakeDriver("DualSense", false));
+        factory.queueXInput(new FakeDriver("XInput", false));
+
+        manager.init();
+        int requestsAfterInit = factory.dualSenseRequests + factory.xInputRequests;
+        assertEquals(2, requestsAfterInit);
+
+        for (int tick = 0; tick < 10; tick++) {
+            manager.tick();
+        }
+
+        assertEquals(
+            "init() already probed; the next probe must wait for the reconnect interval",
+            requestsAfterInit,
+            factory.dualSenseRequests + factory.xInputRequests);
+    }
+
+    @Test
     public void reinitClosesThePreviousDriver() {
         FakeDriver first = new FakeDriver("DualSense", true);
         factory.queueDualSense(first, new FakeDriver("DualSense", true));
@@ -320,7 +383,7 @@ public class ControllerManagerTest {
     }
 
     @Test
-    public void failedReconnectBacksOffForTheConfiguredInterval() {
+    public void failedReconnectWaitsForTheFocusedInterval() {
         FakeDriver first = new FakeDriver("DualSense", true);
         factory.queueDualSense(first);
 
@@ -365,6 +428,20 @@ public class ControllerManagerTest {
     // -------------------------------------------------------------------------
 
     @Test
+    public void pollFreshFailureClosesTheDriverAndClearsState() {
+        FakeDriver driver = new FakeDriver("DualSense", true);
+        factory.queueDualSense(driver);
+        manager.init();
+        driver.throwOnPoll = true;
+
+        assertEquals(ControllerState.empty(), manager.pollFresh());
+
+        assertTrue("A render-frame poll error must release the handle", driver.closed);
+        assertFalse(manager.isActive());
+        assertEquals(ControllerState.empty(), manager.getState());
+    }
+
+    @Test
     public void pollFreshPollsWithoutReconnectLogic() {
         FakeDriver driver = new FakeDriver("DualSense", true);
         factory.queueDualSense(driver);
@@ -394,6 +471,50 @@ public class ControllerManagerTest {
         assertNotNull("The singleton must have a driver factory", singleton.getDriverFactoryForTest());
         assertFalse(singleton.isActive());
         assertEquals("None", singleton.getActiveDriverName());
+    }
+
+    @Test
+    public void focusedProbingRepeatsEverySecond() {
+        manager.init(); // init() performs one probe
+        int afterInit = factory.dualSenseRequests + factory.xInputRequests;
+
+        for (int tick = 0; tick < 20; tick++) {
+            manager.tick();
+        }
+
+        assertTrue(
+            "A focused window must probe again after one second",
+            factory.dualSenseRequests + factory.xInputRequests > afterInit);
+    }
+
+    @Test
+    public void unfocusedProbingIsThrottledToThirtySeconds() {
+        manager.setFocused(false);
+        manager.init(); // init() performs one probe
+        int afterInit = factory.dualSenseRequests + factory.xInputRequests;
+
+        for (int tick = 0; tick < 200; tick++) {
+            manager.tick();
+        }
+
+        assertEquals(
+            "200 ticks (10 s) must not reach the 30 s unfocused probe",
+            afterInit,
+            factory.dualSenseRequests + factory.xInputRequests);
+    }
+
+    @Test
+    public void focusGainProbesImmediately() {
+        manager.setFocused(false);
+        manager.init();
+        int afterInit = factory.dualSenseRequests + factory.xInputRequests;
+
+        manager.setFocused(true);
+        manager.tick();
+
+        assertTrue(
+            "Returning focus must probe on the next tick",
+            factory.dualSenseRequests + factory.xInputRequests > afterInit);
     }
 
     @Test

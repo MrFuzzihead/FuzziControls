@@ -57,7 +57,7 @@ public class ClientProxy extends CommonProxy {
         Runtime.getRuntime()
             .addShutdownHook(new Thread(() -> {
                 manager.shutdown();
-                DualSenseDriver.shutdownSharedServices();
+                DualSenseDriver.shutdownHid();
             }, "FuzziControls-Shutdown"));
     }
 

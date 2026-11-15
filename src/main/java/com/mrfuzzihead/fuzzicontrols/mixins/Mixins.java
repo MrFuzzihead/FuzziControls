@@ -14,6 +14,9 @@ public enum Mixins implements IMixins {
     GUI_OPTION_SLIDER_ACCESSORS(new MixinBuilder().setPhase(Phase.EARLY)
         .addClientMixins("GuiOptionSliderAccessors")),
 
+    GUI_SCREEN_OPTIONS_SOUNDS_BUTTON_ACCESSORS(new MixinBuilder().setPhase(Phase.EARLY)
+        .addClientMixins("GuiScreenOptionsSoundsButtonAccessors")),
+
     GUI_SLOT_ACCESSORS(new MixinBuilder().setPhase(Phase.EARLY)
         .addClientMixins("GuiSlotAccessors")),
 

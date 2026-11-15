@@ -39,6 +39,28 @@ final class StickHysteresis {
         return nowActive;
     }
 
+    /**
+     * Resolves a movement direction from the current mapping.
+     *
+     * <p>
+     * Axis bindings use the two-threshold hysteresis above. Digital bindings fall back to the
+     * normal mapping lookup, so rebinding {@code MOVE_FORWARD} (or another movement action) to
+     * {@code A}, {@code DPAD_UP}, etc. still works. The previous implementation returned
+     * {@code false} for every non-axis binding, silently disabling movement for those remaps.
+     * </p>
+     *
+     * @param action  movement action being evaluated
+     * @param mapping current action-to-button mapping
+     * @param state   current controller state
+     * @return true when the action counts as active this tick
+     */
+    boolean isActive(ControllerAction action, ControllerMapping mapping, ControllerState state) {
+        ControllerButton button = mapping.getButton(action);
+        if (button == null) return false;
+        if (!button.isAxis()) return mapping.isActive(action, state);
+        return update(action, axisValue(button, state));
+    }
+
     /** Forgets all state, e.g. when input processing resumes after being paused. */
     void clear() {
         active.clear();

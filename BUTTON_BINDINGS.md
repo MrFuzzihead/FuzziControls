@@ -155,7 +155,7 @@ Scroll behavior is controlled by `rightStickScrolling` (default `true`) and `scr
 | `dpadSliderStep` | `0.05` | Step size for D-pad slider adjustment as a fraction of the slider's full range [0.01–0.5]. Only relevant when `dpadNavigation = true`. |
 | `rightStickScrolling` | `true` | When `true`, the right stick can scroll in GUI screens (inventories, lists, modded scrolling GUIs, etc.) by pushing up/down. |
 | `scrollSensitivity` | `10.0` | Scroll speed in notches per second at full right-stick deflection [1.0–100.0]. |
-| `driver` | `auto` | Controller driver: `auto`, `xinput`, or `dualsense` |
+| `driver` | `auto` | Controller driver: `auto`, `xinput`, `dualsense`, or `none` (disable all controller polling) |
 | `xInputSlot` | `0` | XInput controller slot to use [0–3] |
 
 ---

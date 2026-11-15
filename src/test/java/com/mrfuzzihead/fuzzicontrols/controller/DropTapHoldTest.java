@@ -72,6 +72,20 @@ public class DropTapHoldTest {
     }
 
     @Test
+    public void blockBeforeTheFirstPressStillBlocksTheWholeHold() {
+        // The GUI path calls blockNextRelease() before the in-world handler ever sees the press;
+        // the first update(true) must not clear the block (regression: it used to, so the hold
+        // fired 0.5 s after closing a screen with B).
+        drop.blockNextRelease();
+
+        assertEquals(DropTapHold.Action.NONE, drop.update(true, true));
+        for (int tick = 0; tick < DropTapHold.HOLD_TICKS * 2; tick++) {
+            assertEquals("A blocked press must never drop a stack", DropTapHold.Action.NONE, drop.update(true, true));
+        }
+        assertEquals(DropTapHold.Action.NONE, drop.update(false, true));
+    }
+
+    @Test
     public void pressThatClosedAGuiDoesNotStartHolding() {
         drop.update(true, true);
         drop.blockNextRelease();

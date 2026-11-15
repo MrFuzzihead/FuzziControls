@@ -1,5 +1,7 @@
 package com.mrfuzzihead.fuzzicontrols;
 
+import java.io.File;
+
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
@@ -13,7 +15,13 @@ import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 public class CommonProxy {
 
     public void preInit(FMLPreInitializationEvent event) {
-        Config.synchronizeConfiguration(event.getSuggestedConfigurationFile());
+        // EarlyMixinsLoader already reads the config before the mixin phase; only load it again
+        // when Forge points at a different file (for example on a launcher with a custom config
+        // directory), so a normal launch parses it once.
+        File configFile = event.getSuggestedConfigurationFile();
+        if (!Config.isLoadedFrom(configFile)) {
+            Config.synchronizeConfiguration(configFile);
+        }
     }
 
     public void init(FMLInitializationEvent event) {}

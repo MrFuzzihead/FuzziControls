@@ -18,11 +18,8 @@ import java.util.Set;
 public record ControllerState(float leftStickX, float leftStickY, float rightStickX, float rightStickY,
     float leftTrigger, float rightTrigger, Set<ControllerButton> pressedButtons) {
 
-    // ---- Axes (values in [-1.0, 1.0] after normalisation) ----
-
-    // ---- Digital buttons ----
-
-    // ---- Constructor ----
+    /** Shared empty state; the record is immutable, so one instance is enough. */
+    private static final ControllerState EMPTY = new ControllerState(0f, 0f, 0f, 0f, 0f, 0f, Collections.emptySet());
 
     public ControllerState(float leftStickX, float leftStickY, float rightStickX, float rightStickY, float leftTrigger,
         float rightTrigger, Set<ControllerButton> pressedButtons) {
@@ -40,24 +37,14 @@ public record ControllerState(float leftStickX, float leftStickY, float rightSti
      * Returns an empty / disconnected state.
      */
     public static ControllerState empty() {
-        return new ControllerState(0f, 0f, 0f, 0f, 0f, 0f, Collections.emptySet());
+        return EMPTY;
     }
-
-    // ---- Queries ----
 
     /**
      * Returns true if the given button is pressed this tick.
      */
     public boolean isPressed(ControllerButton button) {
         return pressedButtons.contains(button);
-    }
-
-    /**
-     * Returns an unmodifiable view of all pressed buttons.
-     */
-    @Override
-    public Set<ControllerButton> pressedButtons() {
-        return pressedButtons;
     }
 
     /**

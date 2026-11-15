@@ -59,13 +59,6 @@ import cpw.mods.fml.common.gameevent.TickEvent;
 public class ControllerTickHandler {
 
     /**
-     * /**
-     * {@link LookStepper#BASE_DEGREES_PER_SECOND} of camera rotation per second at maximum stick
-     * deflection (before {@link Config#lookSensitivity} scaling).
-     */
-    private static final float BASE_DEGREES_PER_SECOND = LookStepper.BASE_DEGREES_PER_SECOND;
-
-    /**
      * Tap-versus-hold logic for the drop button, including the "this press closed a GUI" block.
      */
     private final DropTapHold dropTapHold = new DropTapHold();
@@ -82,19 +75,6 @@ public class ControllerTickHandler {
 
     /** Whether a connected driver was present on the previous processed game tick (for edge resync). */
     private boolean wasControllerConnected = false;
-
-    /** How many consecutive ticks the drop button has been held down. */
-    private int dropHeldTicks = 0;
-
-    /** True once the hold-drop has fired this press so we don't repeat it. */
-    private boolean dropHoldFired = false;
-
-    /**
-     * True when the B button was released after closing a GUI screen, and the button has not
-     * yet been physically released. Prevents the drop-item logic from firing on the first
-     * "no-GUI" tick following a GUI close.
-     */
-    private boolean dropBlockedByGui = false;
 
     /**
      * Tracks whether the sneak key is currently toggled on (only meaningful when
@@ -113,12 +93,9 @@ public class ControllerTickHandler {
     /** Two-threshold evaluation of stick directions, so a stick resting near a threshold cannot oscillate. */
     private final StickHysteresis stickHysteresis = new StickHysteresis();
 
-    /** Evaluates a stick-direction action with hysteresis to eliminate micro-jitter near center. */
+    /** Evaluates a direction with hysteresis for axis bindings, falling back to the normal mapping. */
     private boolean withHysteresis(ControllerAction action, ControllerState state, ControllerMapping mapping) {
-        // Bypass the stateless isActive() so the two different thresholds (on vs. off) can be used.
-        ControllerButton btn = mapping.getButton(action);
-        if (btn == null || !btn.isAxis()) return false;
-        return stickHysteresis.update(action, StickHysteresis.axisValue(btn, state));
+        return stickHysteresis.isActive(action, mapping, state);
     }
 
     /**
@@ -192,6 +169,16 @@ public class ControllerTickHandler {
     private static final int NAV_RIGHT_IDX = ControllerAction.GUI_NAV_RIGHT.ordinal();
     private static final int NAV_CONFIRM_IDX = ControllerAction.GUI_NAV_CONFIRM.ordinal();
 
+    /**
+     * Actions whose rising edge is consumed by the in-world path. While a GUI is open these are
+     * not processed, so their {@link #wasActive} entries must be advanced each GUI tick; otherwise
+     * a button pressed/released inside the screen leaves a stale edge.
+     */
+    private static final ControllerAction[] IN_WORLD_EDGE_ACTIONS = { ControllerAction.ATTACK,
+        ControllerAction.PICK_BLOCK, ControllerAction.INVENTORY, ControllerAction.HOTBAR_NEXT,
+        ControllerAction.HOTBAR_PREV, ControllerAction.CHAT, ControllerAction.COMMAND, ControllerAction.PAUSE,
+        ControllerAction.SNEAK };
+
     /** Whether D-pad discrete navigation currently owns the GUI (see {@link DpadNavState}). */
     private final DpadNavState dpadNav = new DpadNavState();
 
@@ -222,14 +209,14 @@ public class ControllerTickHandler {
         Minecraft mc = Minecraft.getMinecraft();
 
         ControllerManager manager = ControllerManager.getInstance();
-        // Poll hardware every game tick regardless of focus. Keeping edge state in sync while
-        // unfocused prevents a button pressed during an alt-tab from firing the moment the
-        // window regains focus.
+        // Focus controls only the hot-plug scan rate (1 s focused, 30 s unfocused); an active
+        // driver is still polled every tick so edge state stays in sync across alt-tabs.
+        boolean displayActive = Display.isActive();
+        manager.setFocused(displayActive);
         manager.tick();
         ControllerState state = manager.getState();
         ControllerMapping mapping = Config.controllerMapping;
 
-        boolean displayActive = Display.isActive();
         boolean connected = manager.isActive();
 
         if (!displayActive || !connected) {
@@ -265,10 +252,10 @@ public class ControllerTickHandler {
             // Activation: any D-pad ↑/↓/←/→ physically pressed (not rising edge — the rising edge is
             // preserved for the actual focus movement below).
             // Deactivation: left-stick movement past the threshold, or OS mouse movement.
-            boolean anyDpadPressed = mapping.isActive(ControllerAction.GUI_NAV_UP, state, Config.triggerThreshold)
-                || mapping.isActive(ControllerAction.GUI_NAV_DOWN, state, Config.triggerThreshold)
-                || mapping.isActive(ControllerAction.GUI_NAV_LEFT, state, Config.triggerThreshold)
-                || mapping.isActive(ControllerAction.GUI_NAV_RIGHT, state, Config.triggerThreshold);
+            boolean anyDpadPressed = mapping.isActive(ControllerAction.GUI_NAV_UP, state)
+                || mapping.isActive(ControllerAction.GUI_NAV_DOWN, state)
+                || mapping.isActive(ControllerAction.GUI_NAV_LEFT, state)
+                || mapping.isActive(ControllerAction.GUI_NAV_RIGHT, state);
 
             boolean navActive = dpadNav.update(
                 Config.dpadNavigation,
@@ -316,8 +303,7 @@ public class ControllerTickHandler {
                 if (isNavRisingEdge(NAV_CONFIRM_IDX, state, mapping)) {
                     activateFocused(0);
                 }
-                if (mapping.isActive(ControllerAction.GUI_RIGHT_CLICK, state, Config.triggerThreshold)
-                    && !wasGuiRightClick) {
+                if (mapping.isActive(ControllerAction.GUI_RIGHT_CLICK, state) && !wasGuiRightClick) {
                     activateFocused(1);
                 }
 
@@ -339,14 +325,14 @@ public class ControllerTickHandler {
             } else {
                 // Advance the edge state so the press neither repeats nor falls through to the
                 // cursor on the release tick.
-                wasGuiLeftClick = mapping.isActive(ControllerAction.GUI_LEFT_CLICK, state, Config.triggerThreshold);
+                wasGuiLeftClick = mapping.isActive(ControllerAction.GUI_LEFT_CLICK, state);
             }
             suppressGuiLeftClick = false;
 
             if (!suppressGuiRightClick) {
                 handleGuiClick(ControllerAction.GUI_RIGHT_CLICK, 1, state, mapping, mc);
             } else {
-                wasGuiRightClick = mapping.isActive(ControllerAction.GUI_RIGHT_CLICK, state, Config.triggerThreshold);
+                wasGuiRightClick = mapping.isActive(ControllerAction.GUI_RIGHT_CLICK, state);
             }
             suppressGuiRightClick = false;
 
@@ -359,13 +345,12 @@ public class ControllerTickHandler {
             }
 
             // B / Circle: inject an Escape key press to back out of any screen.
-            // Using handleKeyboardInput with Escape (keycode 1) is universal — it works for
-            // inventory, pause menu, main-menu submenus, chat, etc., without needing a player.
+            // GuiKeyHelper dispatches keyTyped(Escape) directly, which works for inventory, pause
+            // menu, main-menu submenus, chat, etc. without needing a player.
             int bIdx = ControllerAction.CLOSE_GUI.ordinal();
-            boolean bActive = mapping.isActive(ControllerAction.CLOSE_GUI, state, Config.triggerThreshold)
-                || mapping.isActive(ControllerAction.DROP_ITEM, state, Config.triggerThreshold);
+            boolean bActive = mapping.isActive(ControllerAction.CLOSE_GUI, state)
+                || mapping.isActive(ControllerAction.DROP_ITEM, state);
             if (bActive && !wasActive[bIdx]) {
-                mc.currentScreen.handleKeyboardInput();
                 // Synthesize Escape: set it down, call keyTyped, then clear it.
                 // GuiScreen.keyTyped with keyCode 1 (Escape) calls mc.displayGuiScreen(null)
                 // or goes back to the parent screen — same as pressing Esc on the keyboard.
@@ -376,10 +361,10 @@ public class ControllerTickHandler {
             // Also consume DROP_ITEM edge so it doesn't fire after screen closes.
             wasActive[ControllerAction.DROP_ITEM.ordinal()] = bActive;
 
-            // Consume in-world action edges so they don't fire on GUI close.
-            consumeEdge(ControllerAction.CHAT, state, mapping);
-            consumeEdge(ControllerAction.COMMAND, state, mapping);
-            consumeEdge(ControllerAction.PAUSE, state, mapping);
+            // Follow the in-world edge state through the GUI. Without this a button that was
+            // pressed or released inside the screen leaves wasActive stale: the first press after
+            // closing can be swallowed, or a held button can fire an unwanted edge.
+            syncInWorldEdges(state, mapping);
 
             // Snapshot every button that is currently held. When the GUI closes next tick,
             // each of these buttons will be blocked from triggering in-world actions until
@@ -441,8 +426,7 @@ public class ControllerTickHandler {
         // --- Jump ---
         driveKey(
             mc.gameSettings.keyBindJump,
-            mapping.isActive(ControllerAction.JUMP, state, Config.triggerThreshold)
-                && !isActionBlocked(ControllerAction.JUMP, mapping));
+            mapping.isActive(ControllerAction.JUMP, state) && !isActionBlocked(ControllerAction.JUMP, mapping));
 
         // --- Sneak ---
         // Toggle mode: rising edge flips sneakToggled; the key is held down/up based on the flag.
@@ -452,8 +436,7 @@ public class ControllerTickHandler {
         // --- Sprint ---
         driveKey(
             mc.gameSettings.keyBindSprint,
-            mapping.isActive(ControllerAction.SPRINT, state, Config.triggerThreshold)
-                && !isActionBlocked(ControllerAction.SPRINT, mapping));
+            mapping.isActive(ControllerAction.SPRINT, state) && !isActionBlocked(ControllerAction.SPRINT, mapping));
 
         // --- Attack (hold) ---
         // Two separate mechanisms for the two attack modes Minecraft uses:
@@ -468,7 +451,7 @@ public class ControllerTickHandler {
         // matching how mouse clicks work. Calling onTick every held tick would make creative
         // insta-break (which destroys a block per click attempt) fire 20 times per second.
         int attackIdx = ControllerAction.ATTACK.ordinal();
-        boolean attacking = mapping.isActive(ControllerAction.ATTACK, state, Config.triggerThreshold)
+        boolean attacking = mapping.isActive(ControllerAction.ATTACK, state)
             && !isActionBlocked(ControllerAction.ATTACK, mapping);
         boolean attackJustPressed = attacking && !wasActive[attackIdx];
         driveKey(mc.gameSettings.keyBindAttack, attacking);
@@ -482,29 +465,24 @@ public class ControllerTickHandler {
         // --- Use item / place (hold) ---
         driveKey(
             mc.gameSettings.keyBindUseItem,
-            mapping.isActive(ControllerAction.USE_ITEM, state, Config.triggerThreshold)
-                && !isActionBlocked(ControllerAction.USE_ITEM, mapping));
+            mapping.isActive(ControllerAction.USE_ITEM, state) && !isActionBlocked(ControllerAction.USE_ITEM, mapping));
 
-        // --- Pick block ---
-        driveKey(
-            mc.gameSettings.keyBindPickBlock,
-            mapping.isActive(ControllerAction.PICK_BLOCK, state, Config.triggerThreshold)
-                && !isActionBlocked(ControllerAction.PICK_BLOCK, mapping));
+        // --- Pick block (one-shot) ---
+        // Vanilla reads keyBindPickBlock.isPressed(), i.e. the KeyBinding press counter, not the
+        // held state. driveKey() only sets `pressed`, so pick block never fired; use the same
+        // edge helper as the inventory key.
+        handleEdgeTrigger(ControllerAction.PICK_BLOCK, state, mapping, mc.gameSettings.keyBindPickBlock);
 
         // --- B button: drop item (no GUI open) ---
-        handleBButton(ControllerAction.DROP_ITEM, ControllerAction.CLOSE_GUI, state, mapping, mc);
+        handleBButton(ControllerAction.DROP_ITEM, state, mapping, mc);
 
-        // --- Inventory (edge-triggered) ---
+        // --- Inventory, chat, command, pause and hotbar are all one-shot edges ---
         handleEdgeTrigger(ControllerAction.INVENTORY, state, mapping, mc.gameSettings.keyBindInventory);
-
-        // --- Chat / Command / Pause (edge-triggered) ---
-        handleChat(ControllerAction.CHAT, state, mapping, mc);
-        handleCommand(ControllerAction.COMMAND, state, mapping, mc);
-        handlePause(ControllerAction.PAUSE, state, mapping, mc);
-
-        // --- Hotbar (edge-triggered, bumpers) ---
-        handleHotbarNext(ControllerAction.HOTBAR_NEXT, state, mapping, mc);
-        handleHotbarPrev(ControllerAction.HOTBAR_PREV, state, mapping, mc);
+        handleEdge(ControllerAction.CHAT, state, mapping, () -> mc.displayGuiScreen(new GuiChat("")));
+        handleEdge(ControllerAction.COMMAND, state, mapping, () -> mc.displayGuiScreen(new GuiChat("/")));
+        handleEdge(ControllerAction.PAUSE, state, mapping, () -> mc.displayGuiScreen(new GuiIngameMenu()));
+        handleEdge(ControllerAction.HOTBAR_NEXT, state, mapping, () -> mc.thePlayer.inventory.changeCurrentItem(-1));
+        handleEdge(ControllerAction.HOTBAR_PREV, state, mapping, () -> mc.thePlayer.inventory.changeCurrentItem(1));
     }
 
     // -------------------------------------------------------------------------
@@ -524,7 +502,12 @@ public class ControllerTickHandler {
         Minecraft mc = Minecraft.getMinecraft();
 
         ControllerManager manager = ControllerManager.getInstance();
-        if (!manager.isActive()) return;
+        if (!manager.isActive()) {
+            // Do not carry a stale frame timestamp across a disconnect/reconnect: the first frame
+            // after activation would otherwise see a >0.1 s delta and jump the camera/cursor.
+            lastFrameNanos = 0L;
+            return;
+        }
 
         // Poll fresh controller state each render frame so the camera and cursor never run on
         // staled game-tick data (polled at 20 Hz). For the camera this eliminates micro-stutter
@@ -584,7 +567,11 @@ public class ControllerTickHandler {
     private void releaseAllControllerKeys() {
         if (heldKeys.isEmpty()) return;
         for (int code : heldKeys.claimed()) {
-            KeyBinding.setKeyBindState(code, false);
+            // The controller only owns keys it pressed; a key the keyboard is holding must stay
+            // pressed when the controller disconnects or the window loses focus.
+            if (!KeyboardHelper.isPhysicallyDown(code)) {
+                KeyBinding.setKeyBindState(code, false);
+            }
         }
         heldKeys.clear();
         // Also cancel sneak toggle so the player doesn't remain stuck sneaking.
@@ -596,9 +583,9 @@ public class ControllerTickHandler {
      *
      * <ul>
      * <li>When {@code active} is true the controller claims the key: {@code setKeyBindState}
-     * is called with {@code true} and the key code is recorded in {@link #controllerHeldKeys}.</li>
+     * is called with {@code true} and the key code is recorded in {@code heldKeys}.</li>
      * <li>When {@code active} is false the controller only releases the key if it was the
-     * controller itself that last pressed it (i.e. the key is in {@link #controllerHeldKeys}).
+     * controller itself that last pressed it (i.e. the key is in {@code heldKeys}).
      * If the key is not in the set — meaning the keyboard is driving it — we leave it alone.</li>
      * </ul>
      */
@@ -628,7 +615,7 @@ public class ControllerTickHandler {
      */
     private void handleSneak(ControllerAction action, ControllerState state, ControllerMapping mapping, Minecraft mc) {
         int idx = action.ordinal();
-        boolean active = mapping.isActive(action, state, Config.triggerThreshold) && !isActionBlocked(action, mapping);
+        boolean active = mapping.isActive(action, state) && !isActionBlocked(action, mapping);
         boolean justPressed = active && !wasActive[idx];
 
         if (Config.sneakToggle) {
@@ -639,14 +626,15 @@ public class ControllerTickHandler {
             // If the keyboard sneak key is physically pressed by the player, treat that as
             // intent to take over sneak from the controller. Clear the toggle and release
             // the controller's claim on the key so the keyboard drives it cleanly.
-            // We intentionally do NOT guard with !controllerHeldKeys.contains here — the
+            // We intentionally do NOT guard with heldKeys.isClaimed(...) here — the
             // controller holding the key via driveKey does not mean the keyboard isn't also
             // being pressed by the player.
             int sneakKeyCode = mc.gameSettings.keyBindSneak.getKeyCode();
             if (sneakKeyCode > 0 && KeyboardHelper.isPhysicallyDown(sneakKeyCode) && sneakToggled) {
                 sneakToggled = false;
                 heldKeys.release(sneakKeyCode);
-                KeyBinding.setKeyBindState(sneakKeyCode, false);
+                // Do NOT set the key state to false here: the keyboard is physically holding it.
+                // Clearing it would stop sneak until the player releases and presses the key again.
             }
 
             driveKey(mc.gameSettings.keyBindSneak, sneakToggled);
@@ -659,18 +647,40 @@ public class ControllerTickHandler {
 
     private void handleEdgeTrigger(ControllerAction action, ControllerState state, ControllerMapping mapping,
         KeyBinding binding) {
+        handleEdge(action, state, mapping, () -> KeyBinding.onTick(binding.getKeyCode()));
+    }
+
+    /**
+     * Runs a one-shot effect on the rising edge of an action, keeping {@link #wasActive} current.
+     *
+     * <p>
+     * This is the common implementation for inventory, pick block, chat, command, pause and the
+     * hotbar buttons. Keeping it in one place is what makes the GUI-open edge sync in
+     * {@link #syncInWorldEdges} consistent with the in-world handlers.
+     * </p>
+     */
+    void handleEdge(ControllerAction action, ControllerState state, ControllerMapping mapping, Runnable effect) {
         int idx = action.ordinal();
-        boolean active = mapping.isActive(action, state, Config.triggerThreshold) && !isActionBlocked(action, mapping);
+        boolean active = mapping.isActive(action, state) && !isActionBlocked(action, mapping);
         if (active && !wasActive[idx]) {
-            KeyBinding.onTick(binding.getKeyCode());
+            effect.run();
         }
         wasActive[idx] = active;
     }
 
-    /** Advances wasActive without performing any action — used to keep edge-trigger state clean. */
-    private void consumeEdge(ControllerAction action, ControllerState state, ControllerMapping mapping) {
-        int idx = action.ordinal();
-        wasActive[idx] = mapping.isActive(action, state, Config.triggerThreshold);
+    /**
+     * Advances the edge state for actions handled only in the in-world path, without touching the
+     * GUI/navigation/drop state. Called while a screen is open.
+     */
+    void syncInWorldEdges(ControllerState state, ControllerMapping mapping) {
+        for (ControllerAction action : IN_WORLD_EDGE_ACTIONS) {
+            wasActive[action.ordinal()] = mapping.isActive(action, state);
+        }
+    }
+
+    /** Test-only: whether the given action was active on the previous processed tick. */
+    boolean wasActiveForTest(ControllerAction action) {
+        return wasActive[action.ordinal()];
     }
 
     /**
@@ -697,11 +707,11 @@ public class ControllerTickHandler {
      */
     private void syncEdges(ControllerState state, ControllerMapping mapping) {
         for (ControllerAction action : ControllerAction.values()) {
-            wasActive[action.ordinal()] = mapping.isActive(action, state, Config.triggerThreshold);
+            wasActive[action.ordinal()] = mapping.isActive(action, state);
         }
-        wasGuiLeftClick = mapping.isActive(ControllerAction.GUI_LEFT_CLICK, state, Config.triggerThreshold);
-        wasGuiRightClick = mapping.isActive(ControllerAction.GUI_RIGHT_CLICK, state, Config.triggerThreshold);
-        wasGuiShiftClick = mapping.isActive(ControllerAction.GUI_SHIFT_CLICK, state, Config.triggerThreshold);
+        wasGuiLeftClick = mapping.isActive(ControllerAction.GUI_LEFT_CLICK, state);
+        wasGuiRightClick = mapping.isActive(ControllerAction.GUI_RIGHT_CLICK, state);
+        wasGuiShiftClick = mapping.isActive(ControllerAction.GUI_SHIFT_CLICK, state);
         dropTapHold.reset();
         guiShiftToggled = false;
         suppressGuiLeftClick = false;
@@ -721,7 +731,7 @@ public class ControllerTickHandler {
      * <ul>
      * <li>{@link Config#dropEntireStack} = false (default): drop one item on tap (release).</li>
      * <li>{@link Config#dropEntireStack} = true: drop one item on tap, or drop the entire
-     * stack after the button is held for {@value #DROP_HOLD_TICKS} ticks. Nothing drops on
+     * stack after the button is held for 10 ticks (0.5 s). Nothing drops on
      * the initial press — we wait to see whether it's a tap or a hold.</li>
      * </ul>
      *
@@ -729,13 +739,12 @@ public class ControllerTickHandler {
      * The {@link DropTapHold} state machine ensures that if B was pressed while a GUI was open
      * (causing it to close), no item is dropped on that same press even after the GUI closes.
      */
-    private void handleBButton(ControllerAction dropAction, ControllerAction closeAction, ControllerState state,
-        ControllerMapping mapping, Minecraft mc) {
+    private void handleBButton(ControllerAction dropAction, ControllerState state, ControllerMapping mapping,
+        Minecraft mc) {
 
-        boolean active = (mapping.isActive(dropAction, state, Config.triggerThreshold)
-            && !isActionBlocked(dropAction, mapping))
-            || (mapping.isActive(closeAction, state, Config.triggerThreshold)
-                && !isActionBlocked(closeAction, mapping));
+        // Only the drop binding may drop in-world. CLOSE_GUI is handled by the GUI path; treating it
+        // as a drop trigger meant remapping CLOSE_GUI to another button caused unwanted drops.
+        boolean active = mapping.isActive(dropAction, state) && !isActionBlocked(dropAction, mapping);
 
         // Tap-versus-hold bookkeeping lives in DropTapHold so it can be unit tested.
         switch (dropTapHold.update(active, Config.dropEntireStack)) {
@@ -743,54 +752,6 @@ public class ControllerTickHandler {
             case DROP_STACK -> mc.thePlayer.dropOneItem(true);
             case NONE -> {}
         }
-    }
-
-    private void handleHotbarNext(ControllerAction action, ControllerState state, ControllerMapping mapping,
-        Minecraft mc) {
-        int idx = action.ordinal();
-        boolean active = mapping.isActive(action, state, Config.triggerThreshold) && !isActionBlocked(action, mapping);
-        if (active && !wasActive[idx]) {
-            mc.thePlayer.inventory.changeCurrentItem(-1);
-        }
-        wasActive[idx] = active;
-    }
-
-    private void handleHotbarPrev(ControllerAction action, ControllerState state, ControllerMapping mapping,
-        Minecraft mc) {
-        int idx = action.ordinal();
-        boolean active = mapping.isActive(action, state, Config.triggerThreshold) && !isActionBlocked(action, mapping);
-        if (active && !wasActive[idx]) {
-            mc.thePlayer.inventory.changeCurrentItem(1);
-        }
-        wasActive[idx] = active;
-    }
-
-    private void handlePause(ControllerAction action, ControllerState state, ControllerMapping mapping, Minecraft mc) {
-        int idx = action.ordinal();
-        boolean active = mapping.isActive(action, state, Config.triggerThreshold) && !isActionBlocked(action, mapping);
-        if (active && !wasActive[idx]) {
-            mc.displayGuiScreen(new GuiIngameMenu());
-        }
-        wasActive[idx] = active;
-    }
-
-    private void handleChat(ControllerAction action, ControllerState state, ControllerMapping mapping, Minecraft mc) {
-        int idx = action.ordinal();
-        boolean active = mapping.isActive(action, state, Config.triggerThreshold) && !isActionBlocked(action, mapping);
-        if (active && !wasActive[idx]) {
-            mc.displayGuiScreen(new GuiChat(""));
-        }
-        wasActive[idx] = active;
-    }
-
-    private void handleCommand(ControllerAction action, ControllerState state, ControllerMapping mapping,
-        Minecraft mc) {
-        int idx = action.ordinal();
-        boolean active = mapping.isActive(action, state, Config.triggerThreshold) && !isActionBlocked(action, mapping);
-        if (active && !wasActive[idx]) {
-            mc.displayGuiScreen(new GuiChat("/"));
-        }
-        wasActive[idx] = active;
     }
 
     /**
@@ -856,7 +817,7 @@ public class ControllerTickHandler {
     private void handleGuiClick(ControllerAction action, int mouseButton, ControllerState state,
         ControllerMapping mapping, Minecraft mc) {
 
-        boolean active = mapping.isActive(action, state, Config.triggerThreshold);
+        boolean active = mapping.isActive(action, state);
         boolean wasClick = action == ControllerAction.GUI_LEFT_CLICK ? wasGuiLeftClick : wasGuiRightClick;
         boolean justPressed = active && !wasClick;
         boolean justReleased = !active && wasClick;
@@ -932,7 +893,7 @@ public class ControllerTickHandler {
      */
     private void handleGuiShiftClick(ControllerState state, ControllerMapping mapping, Minecraft mc) {
         int idx = ControllerAction.GUI_SHIFT_CLICK.ordinal();
-        boolean active = mapping.isActive(ControllerAction.GUI_SHIFT_CLICK, state, Config.triggerThreshold);
+        boolean active = mapping.isActive(ControllerAction.GUI_SHIFT_CLICK, state);
         boolean justPressed = active && !wasGuiShiftClick;
         if (justPressed) {
             guiShiftToggled = !guiShiftToggled;
@@ -946,7 +907,7 @@ public class ControllerTickHandler {
      * {@link #wasGuiShiftClick} clean so rising edges don't carry over into a newly opened GUI.
      */
     private void consumeGuiClick(ControllerAction action, ControllerState state, ControllerMapping mapping) {
-        boolean active = mapping.isActive(action, state, Config.triggerThreshold);
+        boolean active = mapping.isActive(action, state);
         if (action == ControllerAction.GUI_LEFT_CLICK) {
             wasGuiLeftClick = active;
         } else if (action == ControllerAction.GUI_RIGHT_CLICK) {
@@ -965,7 +926,7 @@ public class ControllerTickHandler {
      * @return true when the action's button is currently held
      */
     private boolean isNavHeld(int actionIdx, ControllerState state, ControllerMapping mapping) {
-        return mapping.isActive(ControllerAction.values()[actionIdx], state, Config.triggerThreshold);
+        return mapping.isActive(ControllerAction.values()[actionIdx], state);
     }
 
     /**
@@ -976,7 +937,7 @@ public class ControllerTickHandler {
      * @return true on the first tick the action becomes active
      */
     private boolean isNavRisingEdge(int actionIdx, ControllerState state, ControllerMapping mapping) {
-        boolean active = mapping.isActive(ControllerAction.values()[actionIdx], state, Config.triggerThreshold);
+        boolean active = mapping.isActive(ControllerAction.values()[actionIdx], state);
         boolean rising = active && !wasActive[actionIdx];
         wasActive[actionIdx] = active;
         return rising;
@@ -988,11 +949,11 @@ public class ControllerTickHandler {
      * edges clean so they don't fire if the user switches dpadNavigation on mid-session.
      */
     private void consumeNavEdges(ControllerState state, ControllerMapping mapping) {
-        wasActive[NAV_UP_IDX] = mapping.isActive(ControllerAction.GUI_NAV_UP, state, Config.triggerThreshold);
-        wasActive[NAV_DOWN_IDX] = mapping.isActive(ControllerAction.GUI_NAV_DOWN, state, Config.triggerThreshold);
-        wasActive[NAV_LEFT_IDX] = mapping.isActive(ControllerAction.GUI_NAV_LEFT, state, Config.triggerThreshold);
-        wasActive[NAV_RIGHT_IDX] = mapping.isActive(ControllerAction.GUI_NAV_RIGHT, state, Config.triggerThreshold);
-        wasActive[NAV_CONFIRM_IDX] = mapping.isActive(ControllerAction.GUI_NAV_CONFIRM, state, Config.triggerThreshold);
+        wasActive[NAV_UP_IDX] = mapping.isActive(ControllerAction.GUI_NAV_UP, state);
+        wasActive[NAV_DOWN_IDX] = mapping.isActive(ControllerAction.GUI_NAV_DOWN, state);
+        wasActive[NAV_LEFT_IDX] = mapping.isActive(ControllerAction.GUI_NAV_LEFT, state);
+        wasActive[NAV_RIGHT_IDX] = mapping.isActive(ControllerAction.GUI_NAV_RIGHT, state);
+        wasActive[NAV_CONFIRM_IDX] = mapping.isActive(ControllerAction.GUI_NAV_CONFIRM, state);
         // Drop any pending auto-repeat so re-entering navigation starts from a fresh press.
         navRepeat.clear();
     }

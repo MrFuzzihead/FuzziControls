@@ -15,7 +15,7 @@ import cpw.mods.fml.common.event.FMLPreInitializationEvent;
     name = "FuzziControls",
     acceptedMinecraftVersions = "[1.7.10]",
     acceptableRemoteVersions = "*",
-    dependencies = "after:lwjgl3ify")
+    dependencies = "required-after:lwjgl3ify")
 public class FuzziControls {
 
     public static final String MODID = "fuzzicontrols";

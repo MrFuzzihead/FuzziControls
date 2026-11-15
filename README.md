@@ -10,7 +10,7 @@ FuzziControls brings modern, console-quality gamepad support to the classic Mine
 
 - 🎮 **XInput support out of the box** — any Xbox or XInput-compatible controller works immediately on Windows with no extra software
 - 🎯 **DualSense (PS5) support** — native HID support for PlayStation 5 controllers, detected and prioritized automatically
-- 🔌 **Hot-plug** — controllers can be connected or reconnected at any time while the game is running; FuzziControls detects them within seconds
+- 🔌 **Hot-plug** — connect or reconnect a controller at any time. An active controller dropping is noticed within one tick; with no controller, probing runs every second while the game window is focused, backs off to 30 s when unfocused, and probes immediately when focus returns.
 - 🖱️ **Full GUI / inventory navigation** — the left stick drives a virtual cursor across every screen (inventory, crafting, chest, pause menu, main menu, and every mod GUI), with no per-screen code required
 - ⚡ **Smooth camera** — right-stick camera rotation runs every rendered frame for butter-smooth looking with configurable sensitivity
 - 📝 **Fully configurable** — every button binding, dead zone, trigger threshold, look sensitivity, cursor speed, sneak mode, and drop behavior is exposed in `config/fuzzicontrols.cfg`
@@ -75,7 +75,7 @@ All options live in `config/fuzzicontrols.cfg`:
 
 | Option | Default | Description |
 |---|---|---|
-| `driver` | `auto` | Force `xinput`, `dualsense`, or let the mod choose |
+| `driver` | `auto` | Force `xinput`, `dualsense`, `none` (disable all controller polling), or let the mod choose |
 | `xInputSlot` | `0` | Controller index (0–3) for XInput |
 | `stickDeadZone` | `0.15` | Stick dead-zone radius (0.0–0.99) |
 | `triggerThreshold` | `0.2` | Minimum trigger value to register as pressed (0.0–0.99) |
@@ -100,8 +100,10 @@ by a mixin at class load, so **enabling** it needs a restart (disabling it is im
 ## 🚀 Installation
 
 1. Install [Minecraft Forge 1.7.10](https://files.minecraftforge.net/).
-2. Drop the `fuzzicontrols-*.jar` into your `mods/` folder.
-3. Launch the game, plug in your controller, and play.
+2. Install [lwjgl3ify](https://github.com/GTNewHorizons/lwjgl3ify) — **required**, and the reason the mod
+   runs on Java 17+ rather than Java 8.
+3. Drop the `fuzzicontrols-*.jar` into your `mods/` folder.
+4. Launch the game, plug in your controller, and play.
 
 > FuzziControls is **client-side only**. Installing it on a server has no effect.
 
@@ -117,17 +119,25 @@ by a mixin at class load, so **enabling** it needs a restart (disabling it is im
 ## 🧪 Testing
 
 ```bash
-./gradlew test                                        # unit tests
-./gradlew spotlessCheck checkstyleMain checkstyleTest  # style + static analysis
+./gradlew test                            # unit tests (JUnit 4 + Mockito 5)
+./gradlew jacocoTestReport                # HTML/XML coverage report (build/reports/jacoco/test/html)
+./gradlew jacocoTestCoverageVerification  # enforces the configured coverage floor
+./gradlew check                           # tests + coverage floor + spotless + checkstyle
 ```
 
-The parts that cannot run in a plain JVM are covered by an opt-in client harness. It boots at the
-main menu (no world needed), verifies that every mixin was applied, then drives the real navigation
-stack the same way the D-pad confirm does: focus the **Options…** button and activate it, focus **Video
-Settings…** and activate it, step a real slider, navigate the options list, check the `GuiContainer`
-slot path (off-panel slots filtered, click target at the slot centre), and render the focus border for
-a couple of frames. It logs one `PASS`/`FAIL` line per check, prints a summary and exits with the
-failure count as its exit code:
+The unit suite uses JUnit 4.13.2 and Mockito 5 (inline mock maker; Byte Buddy 1.18 for Java 25
+class files). `addon.gradle.kts` wires JaCoCo and a line/branch coverage floor; the report analyses
+the same downgraded classes the test JVM runs, so JaCoCo does not emit "classes do not match" warnings.
+
+Two layers cover what a plain JVM cannot:
+
+**Client self-test** (`FUZZICONTROLS_SELFTEST=1`). It boots at the main menu (no world needed),
+verifies that every mixin was applied, then drives the real navigation stack the same way the D-pad
+confirm does: focus the **Options…** button and activate it, focus **Video Settings…** and activate
+it, step a real slider, navigate the options list, check the `GuiContainer` slot path (off-panel slots
+filtered, click target at the slot centre), and render the focus border for a couple of frames. It
+logs one `PASS`/`FAIL` line per check, prints a summary and exits with the failure count as its exit
+code:
 
 ```bash
 # Linux/macOS
@@ -136,8 +146,20 @@ FUZZICONTROLS_SELFTEST=1 ./gradlew runClient25
 $env:FUZZICONTROLS_SELFTEST=1; ./gradlew runClient25
 ```
 
-CI runs the same harness headless (xvfb + llvmpipe) in the `client-smoke-test-java25` job, so a broken
-mixin refmap or a failed injection fails the build instead of only showing up in game.
+**Game-test mod** (`src/gameTest/java`, a separate `@Mod` that is never shipped). It asserts the live
+integration points and exits the JVM with the assertion result:
+
+```bash
+./gradlew gameTestServer   # dedicated server: config load + default binding table (no display needed)
+./gradlew gameTestClient   # client: mixins, config, manager tick, real main-menu focus
+```
+
+Both write `run/<side>/gametest-report.txt` with `ok`/`FAIL` lines, a `SUMMARY <checks> <failures>`
+line, and `FUZZICONTROLS_GAMETEST_OK` / `FUZZICONTROLS_GAMETEST_FAILED`. The server run needs
+`run/server/eula.txt`; the client run needs a display (use `xvfb-run` on Linux). CI runs the server
+game test as its own job and the client game test headless in `client-smoke-test-java25`, so a broken
+mixin refmap, a config regression, or a controller-manager crash fails the build instead of only
+showing up in game.
 
 ---
 

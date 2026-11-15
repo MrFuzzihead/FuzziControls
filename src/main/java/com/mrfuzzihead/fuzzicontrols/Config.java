@@ -1,6 +1,7 @@
 package com.mrfuzzihead.fuzzicontrols;
 
 import java.io.File;
+import java.util.Locale;
 
 import net.minecraftforge.common.config.Configuration;
 
@@ -17,8 +18,8 @@ public class Config {
 
     // ---- Controller settings ----
     /**
-     * Which driver to use: "auto" (default), "xinput", or "dualsense".
-     * "auto" tries DualSense first, then XInput.
+     * Which driver to use: "auto" (default), "xinput", "dualsense", or "none".
+     * "auto" tries DualSense first, then XInput. "none" disables all controller probing.
      */
     public static String controllerDriver = "auto";
 
@@ -121,7 +122,7 @@ public class Config {
             "driver",
             CAT_CONTROLLER,
             controllerDriver,
-            "Controller driver to use: auto | xinput | dualsense");
+            "Controller driver to use: auto | xinput | dualsense | none");
 
         xInputControllerSlot = configuration.getInt(
             "xInputSlot",
@@ -227,8 +228,9 @@ public class Config {
                 CAT_BINDINGS,
                 defaultName,
                 "Button bound to " + action.name() + ". Valid values: " + buttonNames());
+            stored = stored == null ? "" : stored.trim();
             if ("NONE".equalsIgnoreCase(stored)) {
-                // An explicit NONE value means the user wants this action unbound.
+                // An explicit NONE value (including surrounding whitespace) means the action is unbound.
                 controllerMapping.bind(action, null);
             } else {
                 ControllerButton bound = parseButton(stored, defaultBtn);
@@ -241,6 +243,20 @@ public class Config {
         if (configuration.hasChanged()) {
             configuration.save();
         }
+    }
+
+    /**
+     * Returns true when the configuration was already loaded from the given file (same absolute
+     * path). The early mixin loader needs the config before Forge's pre-init; the proxy can use
+     * this to avoid parsing the same file twice.
+     *
+     * @param configFile candidate config file
+     * @return true when {@link #synchronizeConfiguration(File)} has already read that file
+     */
+    public static boolean isLoadedFrom(File configFile) {
+        if (configurationFile == null || configFile == null) return false;
+        return configurationFile.getAbsoluteFile()
+            .equals(configFile.getAbsoluteFile());
     }
 
     /**
@@ -277,9 +293,13 @@ public class Config {
     // ---- Helpers ----
 
     private static ControllerButton parseButton(String name, ControllerButton fallback) {
-        if (name == null || name.isEmpty() || "NONE".equalsIgnoreCase(name)) return fallback;
+        if (name == null) return fallback;
+        String trimmed = name.trim();
+        // An explicit NONE is handled by synchronizeConfiguration(); empty/whitespace means the
+        // user cleared the value, so keep the documented default rather than throwing.
+        if (trimmed.isEmpty() || "NONE".equalsIgnoreCase(trimmed)) return fallback;
         try {
-            return ControllerButton.valueOf(name.toUpperCase());
+            return ControllerButton.valueOf(trimmed.toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException e) {
             FuzziControls.LOG.warn("[FuzziControls] Unknown button '{}' in config; using default.", name);
             return fallback;
