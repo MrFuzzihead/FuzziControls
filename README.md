@@ -10,7 +10,7 @@ FuzziControls brings modern, console-quality gamepad support to the classic Mine
 
 - 🎮 **XInput support out of the box** — any Xbox or XInput-compatible controller works immediately on Windows with no extra software
 - 🎯 **DualSense (PS5) support** — native HID support for PlayStation 5 controllers, detected and prioritized automatically
-- 🔌 **Hot-plug** — controllers can be connected or reconnected at any time while the game is running; FuzziControls detects them within seconds
+- 🔌 **Hot-plug** — connect or reconnect a controller at any time. An active controller dropping is noticed within one tick; with no controller, probing starts at 3 s and backs off to 30 s after a long idle period (see the hot-plug follow-up in `docs/REFACTOR_PLAN.md`).
 - 🖱️ **Full GUI / inventory navigation** — the left stick drives a virtual cursor across every screen (inventory, crafting, chest, pause menu, main menu, and every mod GUI), with no per-screen code required
 - ⚡ **Smooth camera** — right-stick camera rotation runs every rendered frame for butter-smooth looking with configurable sensitivity
 - 📝 **Fully configurable** — every button binding, dead zone, trigger threshold, look sensitivity, cursor speed, sneak mode, and drop behavior is exposed in `config/fuzzicontrols.cfg`

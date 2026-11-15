@@ -113,12 +113,9 @@ public class ControllerTickHandler {
     /** Two-threshold evaluation of stick directions, so a stick resting near a threshold cannot oscillate. */
     private final StickHysteresis stickHysteresis = new StickHysteresis();
 
-    /** Evaluates a stick-direction action with hysteresis to eliminate micro-jitter near center. */
+    /** Evaluates a direction with hysteresis for axis bindings, falling back to the normal mapping. */
     private boolean withHysteresis(ControllerAction action, ControllerState state, ControllerMapping mapping) {
-        // Bypass the stateless isActive() so the two different thresholds (on vs. off) can be used.
-        ControllerButton btn = mapping.getButton(action);
-        if (btn == null || !btn.isAxis()) return false;
-        return stickHysteresis.update(action, StickHysteresis.axisValue(btn, state));
+        return stickHysteresis.isActive(action, mapping, state, Config.triggerThreshold);
     }
 
     /**
@@ -485,14 +482,14 @@ public class ControllerTickHandler {
             mapping.isActive(ControllerAction.USE_ITEM, state, Config.triggerThreshold)
                 && !isActionBlocked(ControllerAction.USE_ITEM, mapping));
 
-        // --- Pick block ---
-        driveKey(
-            mc.gameSettings.keyBindPickBlock,
-            mapping.isActive(ControllerAction.PICK_BLOCK, state, Config.triggerThreshold)
-                && !isActionBlocked(ControllerAction.PICK_BLOCK, mapping));
+        // --- Pick block (one-shot) ---
+        // Vanilla reads keyBindPickBlock.isPressed(), i.e. the KeyBinding press counter, not the
+        // held state. driveKey() only sets `pressed`, so pick block never fired; use the same
+        // edge helper as the inventory key.
+        handleEdgeTrigger(ControllerAction.PICK_BLOCK, state, mapping, mc.gameSettings.keyBindPickBlock);
 
         // --- B button: drop item (no GUI open) ---
-        handleBButton(ControllerAction.DROP_ITEM, ControllerAction.CLOSE_GUI, state, mapping, mc);
+        handleBButton(ControllerAction.DROP_ITEM, state, mapping, mc);
 
         // --- Inventory (edge-triggered) ---
         handleEdgeTrigger(ControllerAction.INVENTORY, state, mapping, mc.gameSettings.keyBindInventory);
@@ -589,7 +586,11 @@ public class ControllerTickHandler {
     private void releaseAllControllerKeys() {
         if (heldKeys.isEmpty()) return;
         for (int code : heldKeys.claimed()) {
-            KeyBinding.setKeyBindState(code, false);
+            // The controller only owns keys it pressed; a key the keyboard is holding must stay
+            // pressed when the controller disconnects or the window loses focus.
+            if (!KeyboardHelper.isPhysicallyDown(code)) {
+                KeyBinding.setKeyBindState(code, false);
+            }
         }
         heldKeys.clear();
         // Also cancel sneak toggle so the player doesn't remain stuck sneaking.
@@ -651,7 +652,8 @@ public class ControllerTickHandler {
             if (sneakKeyCode > 0 && KeyboardHelper.isPhysicallyDown(sneakKeyCode) && sneakToggled) {
                 sneakToggled = false;
                 heldKeys.release(sneakKeyCode);
-                KeyBinding.setKeyBindState(sneakKeyCode, false);
+                // Do NOT set the key state to false here: the keyboard is physically holding it.
+                // Clearing it would stop sneak until the player releases and presses the key again.
             }
 
             driveKey(mc.gameSettings.keyBindSneak, sneakToggled);
@@ -734,13 +736,13 @@ public class ControllerTickHandler {
      * The {@link DropTapHold} state machine ensures that if B was pressed while a GUI was open
      * (causing it to close), no item is dropped on that same press even after the GUI closes.
      */
-    private void handleBButton(ControllerAction dropAction, ControllerAction closeAction, ControllerState state,
-        ControllerMapping mapping, Minecraft mc) {
+    private void handleBButton(ControllerAction dropAction, ControllerState state, ControllerMapping mapping,
+        Minecraft mc) {
 
-        boolean active = (mapping.isActive(dropAction, state, Config.triggerThreshold)
-            && !isActionBlocked(dropAction, mapping))
-            || (mapping.isActive(closeAction, state, Config.triggerThreshold)
-                && !isActionBlocked(closeAction, mapping));
+        // Only the drop binding may drop in-world. CLOSE_GUI is handled by the GUI path; treating it
+        // as a drop trigger meant remapping CLOSE_GUI to another button caused unwanted drops.
+        boolean active = mapping.isActive(dropAction, state, Config.triggerThreshold)
+            && !isActionBlocked(dropAction, mapping);
 
         // Tap-versus-hold bookkeeping lives in DropTapHold so it can be unit tested.
         switch (dropTapHold.update(active, Config.dropEntireStack)) {

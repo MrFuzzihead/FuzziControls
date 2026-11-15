@@ -246,6 +246,28 @@ the native filter, and closed on `close()` or on a `read < 0`.
 - [x] `DualSenseDriver.poll()` treats `read == -1` as a disconnect (instead of "no report") and
   validates the USB report ID, so an unplug no longer leaves buttons stuck.
 
+### 2.8 Hot-plug responsiveness — follow-up (not fixed)
+
+The P0 fix makes an idle probe ~2 ms, but the manager still backs off to 30 s. After roughly
+1.5 minutes without a controller, a controller plugged in while the game is focused can take up
+to 30 s to appear. That contradicts the README's "detected within seconds" claim and is the main
+remaining UX cost of the backoff.
+
+Options, cheapest first:
+
+1. **Cap the backoff at 10 s** (`RECONNECT_MAX_TICKS = 200`). Still negligible CPU.
+2. **Keep 3 s while the game is focused**, and use the long backoff only while unfocused/minimized.
+   `ControllerTickHandler` already reads `Display.isActive()` every tick. Add
+   `ControllerManager.setFocused(boolean)` (or `onFocusGained()`): on a false→true transition reset
+   `reconnectCooldown` to `RECONNECT_INTERVAL_TICKS` (or 0 for an immediate probe) and
+   `consecutiveFailures` to 0. On true→false, let the normal backoff continue.
+3. **OS device-change notifications** (Windows `WM_DEVICECHANGE`, Linux udev/netlink) instead of
+   polling. Cross-platform cost is high; not worth it yet.
+4. `/fuzzicontrols reload` already forces an immediate probe, so a user can always force detection.
+
+Recommended: (2) plus a 10 s cap, with a unit test that a focus transition resets the probe
+interval. Track this as the next UX item before P2.
+
 ---
 
 ## 3. `gradle.properties`
@@ -346,7 +368,24 @@ Notes:
 
 ## 5. Functional bugs
 
-### P1 — Pick block never fires
+### P1 status (this iteration)
+
+All P1 items are fixed and covered where a headless test can reach them:
+
+- [x] **Pick block** — now edge-triggered with `KeyBinding.onTick`, like the inventory key.
+- [x] **`handleBButton`** — only `DROP_ITEM` can drop; `CLOSE_GUI` is no longer a drop trigger.
+- [x] **`DropTapHold.blockNextRelease()`** — survives the first `update(true)`; regression test added.
+- [x] **Digital `MOVE_*` bindings** — `StickHysteresis.isActive(...)` falls back to
+  `ControllerMapping.isActive`; tests added.
+- [x] **DualSense unplug / double-open** — fixed in P0 (filtered handle, `read < 0` disconnects).
+- [x] **`LinkageError` in the keyboard path** — `KeyboardHelper` catches it once and runs without the
+  shift patch; `GuiKeyHelper`/`GuiElementActivator` hardened; test added.
+- [x] **Keyboard sneak takeover** — no longer clears the key the keyboard is physically holding;
+  disconnect cleanup also leaves keyboard-held keys alone.
+
+The P2 items below remain open.
+
+### P1 — Pick block never fires — FIXED
 
 `ControllerTickHandler.java:489` uses `driveKey(keyBindPickBlock, ...)`, which sets
 `KeyBinding.pressed`. Vanilla 1.7.10 uses `keyBindPickBlock.isPressed()`, which reads
@@ -360,7 +399,7 @@ handleEdgeTrigger(ControllerAction.PICK_BLOCK, state, mapping, mc.gameSettings.k
 (Verified in the 1.7.10 bytecode: `Minecraft` calls `KeyBinding.isPressed()` for pick
 block, and `setKeyBindState` only writes `pressed`.)
 
-### P1 — `handleBButton` treats `CLOSE_GUI` as a drop trigger
+### P1 — `handleBButton` treats `CLOSE_GUI` as a drop trigger — FIXED
 
 `ControllerTickHandler.java:732`:
 
@@ -378,7 +417,7 @@ boolean active = mapping.isActive(dropAction, state, Config.triggerThreshold)
     && !isActionBlocked(dropAction, mapping);
 ```
 
-### P1 — `DropTapHold.blockNextRelease()` is cleared by the next press
+### P1 — `DropTapHold.blockNextRelease()` is cleared by the next press — FIXED
 
 `DropTapHold.update()`:
 
@@ -406,7 +445,7 @@ for (int i = 0; i < HOLD_TICKS * 2; i++)
 assertEquals(NONE, drop.update(false, true));
 ```
 
-### P1 — Movement does not work if `MOVE_*` is rebound to a digital button
+### P1 — Movement does not work if `MOVE_*` is rebound to a digital button — FIXED
 
 `withHysteresis()` returns `false` for any non-axis binding
 (ControllerTickHandler.java:117). All actions are freely remappable, so binding
@@ -419,7 +458,7 @@ if (!btn.isAxis()) return mapping.isActive(action, state, Config.triggerThreshol
 return stickHysteresis.update(action, StickHysteresis.axisValue(btn, state));
 ```
 
-### P1 — DualSense unplug leaves `isConnected()` true forever
+### P1 — DualSense unplug leaves `isConnected()` true forever — FIXED
 
 `DualSenseDriver.poll()` treats `read == -1` as “no new report”. `isConnected()` still
 returns `device.isOpen()` (hid4java only checks the non-null handle), so the manager never
@@ -427,7 +466,7 @@ reconnects and returns the last button state forever — **stuck keys after unpl
 `read < 0` as a disconnect (close the handle, return empty). Also validate the report ID
 (`data[0] == 0x01` for USB) before parsing.
 
-### P1 — `HidServices.getHidDevice()` + constructor opens the device twice
+### P1 — `HidServices.getHidDevice()` + constructor opens the device twice — FIXED
 
 `HidServices.getHidDevice()` already calls `device.open()` (and ignores the result).
 `DualSenseDriver` calls `device.open()` again. The first handle leaks; if the second open
@@ -435,7 +474,7 @@ fails (possible on Windows with exclusive access), the controller is reported ab
 the first handle stays open. Remove the constructor's `open()` (or use `HidApi.open`, which
 has neither problem).
 
-### P1 — `LinkageError` can escape the DualSense and keyboard paths
+### P1 — `LinkageError` can escape the DualSense and keyboard paths — FIXED
 
 The changelog says XInput's `UnsatisfiedLinkError` was fixed, but
 `DualSenseDriver.getHidServices()`, its constructor, `poll()`, and
@@ -449,7 +488,7 @@ catch (Exception | LinkageError e) { ... }
 
 At minimum, wrap `HidApi.init/open/read/close` and all `KeyboardHelper` uses.
 
-### P1 — Keyboard sneak takeover cancels the key you are holding
+### P1 — Keyboard sneak takeover cancels the key you are holding — FIXED
 
 `ControllerTickHandler.java:646`:
 
@@ -658,12 +697,13 @@ These were not completed by the migration and remain valid:
    `HidServices` scanner is gone, and `ClientProxy` calls `shutdownHid()`.
 2. **Retry hygiene — done (except focus pause)**: `driver = none`, unknown-driver disable,
    DEBUG retries, 3/6/12/24/30 s backoff, and the post-`init` cooldown.
-3. **Small high-value bugs**: pick block, drop-button remapping, `DropTapHold.blockNextRelease`,
-   digital `MOVE_*` bindings.
-4. **DualSense lifecycle**: report-ID check, `read < 0` → disconnect, no double open,
-   `LinkageError` guards, USB-only/BT notes.
-5. **Keyboard interaction**: remove the fake `handleKeyboardInput()`, stop clearing
-   keyboard-held keys on sneak takeover/disconnect.
+3. **Small high-value bugs — done**: pick block, drop-button remapping,
+   `DropTapHold.blockNextRelease`, digital `MOVE_*` bindings.
+4. **DualSense lifecycle — done in P0**: report-ID check, `read < 0` → disconnect, no double open,
+   `LinkageError` guards.
+5. **Keyboard interaction — done for P1**: stop clearing keyboard-held keys on sneak
+   takeover/disconnect and catch `LinkageError`; the P2 `handleKeyboardInput` cleanup remains.
+6. **Hot-plug responsiveness (next UX item)**: focus-aware probe reset + a 10 s cap; see 2.8.
 6. **Dependencies**: JNA 5.19.1, remove `jna-platform`, fix the JXInput comment, add
    `THIRD_PARTY_NOTICES.md`.
 7. **Config/docs/metadata**: `curseForgeEnvironments=client`,
@@ -680,8 +720,9 @@ These were not completed by the migration and remain valid:
       thread for a frame; no hid4java scanner thread.
 - [x] `HidApi` lifecycle has no leaked handles; unplug is detected within one tick.
 - [x] `driver = none` is supported and documented.
-- [ ] Pick block, drop:one/drop:stack, movement rebinding, sneak takeover, and GUI close via
-      B all behave correctly in-game.
+- [x] Pick block, drop:one/drop:stack, movement rebinding, sneak takeover, and GUI close via
+      B all behave correctly in-game (unit tests cover the parts that do not need a live client).
+- [ ] Focus-aware hot-plug detection + a 10 s backoff cap (see 2.8).
 - [ ] `curseForgeEnvironments = client`; dependency versions/notices updated; JNA upgraded;
       `jna-platform` removed.
 - [ ] Dead fields/actions/Javadoc removed; `./gradlew build` (tests + checkstyle + spotless)

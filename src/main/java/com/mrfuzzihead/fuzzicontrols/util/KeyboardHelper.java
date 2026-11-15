@@ -19,10 +19,15 @@ import cpw.mods.fml.relauncher.SideOnly;
  * there (and restore it in a {@code finally}) to synthesise the held key.
  *
  * <p>
- * If the scancode translation fails the action runs without shift patching.
+ * If the scancode translation fails, or lwjgl3ify is absent (a {@link LinkageError}, not an
+ * {@link Exception}), the action runs without shift patching. The failure is logged once rather
+ * than on every shift-click.
  */
 @SideOnly(Side.CLIENT)
 public final class KeyboardHelper {
+
+    /** Set after the first lwjgl3ify failure so the warning and the failed path are not repeated. */
+    private static boolean patchUnavailable;
 
     private KeyboardHelper() {}
 
@@ -35,23 +40,39 @@ public final class KeyboardHelper {
      * @param action  code to run while the key appears held
      */
     public static void withKeyHeld(int keyCode, Runnable action) {
-        if (keyCode < 0) {
+        if (keyCode < 0 || patchUnavailable) {
             action.run();
             return;
         }
+
         final int idx;
+        final ByteBuffer array;
         try {
             idx = org.lwjglx.input.KeyCodes.lwjglToSdlScancode(keyCode);
+            array = org.lwjglx.input.Keyboard.sdlKeyPressedArray;
+        } catch (LinkageError e) {
+            // A missing org.lwjglx class is a LinkageError (NoClassDefFoundError, NoSuchMethodError,
+            // ...), which the old catch (Exception) never saw; it escaped into the client tick / GUI
+            // click path. This is permanent for the JVM, so stop retrying and stop logging.
+            patchUnavailable = true;
+            FuzziControls.LOG.warn(
+                "[FuzziControls] KeyboardHelper: lwjgl3ify key state is unavailable ({}). "
+                    + "Shift-click will run without the key patch.",
+                e.toString());
+            action.run();
+            return;
         } catch (Exception e) {
+            // An unknown key code is not fatal; run without the patch but keep trying other keys.
             FuzziControls.LOG.warn("[FuzziControls] KeyboardHelper: unknown key code; ignoring shift.", e);
             action.run();
             return;
         }
-        final ByteBuffer array = org.lwjglx.input.Keyboard.sdlKeyPressedArray;
+
         if (array == null || idx <= 0 || idx >= array.limit()) {
             action.run();
             return;
         }
+
         final byte original = array.get(idx);
         array.put(idx, (byte) 1);
         try {
@@ -71,7 +92,7 @@ public final class KeyboardHelper {
     public static boolean isPhysicallyDown(int keyCode) {
         try {
             return org.lwjglx.input.Keyboard.isKeyDown(keyCode);
-        } catch (Exception e) {
+        } catch (Exception | LinkageError e) {
             return false;
         }
     }

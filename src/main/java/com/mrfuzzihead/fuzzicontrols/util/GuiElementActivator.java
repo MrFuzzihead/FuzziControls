@@ -79,7 +79,7 @@ public final class GuiElementActivator {
                 accessors.callMouseClicked(guiX, guiY, mouseButton);
                 accessors.callMouseMovedOrUp(guiX, guiY, mouseButton);
             }
-        } catch (Exception ignored) {
+        } catch (Exception | LinkageError ignored) {
             // A screen that rejects synthetic clicks must not break input handling.
         }
         return true;
