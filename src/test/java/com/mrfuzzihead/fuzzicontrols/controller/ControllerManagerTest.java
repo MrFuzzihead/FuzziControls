@@ -177,6 +177,8 @@ public class ControllerManagerTest {
 
         assertFalse(manager.isActive());
         assertEquals("None", manager.getActiveDriverName());
+        assertEquals("", manager.getActiveDeviceName());
+        assertEquals("", manager.getActiveTransportName());
         assertTrue(ds.closed);
         assertTrue(xi.closed);
     }
