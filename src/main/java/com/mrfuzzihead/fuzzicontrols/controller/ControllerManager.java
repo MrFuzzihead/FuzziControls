@@ -18,10 +18,12 @@ import com.mrfuzzihead.fuzzicontrols.FuzziControls;
  * </ol>
  *
  * <p>
- * <b>Hot-plug:</b> When no driver is active (or the active driver disconnects), the manager
- * retries initialization every {@value #RECONNECT_INTERVAL_TICKS} game ticks
- * (~{@value #RECONNECT_INTERVAL_SECONDS} seconds) and then backs off up to
- * {@value #RECONNECT_MAX_TICKS} ticks so an idle machine is not probed aggressively.
+ * <b>Hot-plug:</b> While the game window is focused, the manager probes for a controller every
+ * {@value #FOCUSED_RECONNECT_TICKS} ticks (~{@value #FOCUSED_RECONNECT_SECONDS} second), so a
+ * controller plugged in during play is usable almost immediately. While the window is unfocused or
+ * minimized it probes only every {@value #UNFOCUSED_RECONNECT_TICKS} ticks
+ * (~{@value #UNFOCUSED_RECONNECT_SECONDS} seconds); returning focus triggers an immediate probe.
+ * The active driver's disconnect is detected on the next client tick.
  *
  * <p>
  * <b>Disabling:</b> set {@code driver = none} in the config to stop all controller probing
@@ -32,17 +34,20 @@ import com.mrfuzzihead.fuzzicontrols.FuzziControls;
  * hid4java's {@code HidServices.getHidDevice(vid, pid, ...)}, which enumerates every HID device in
  * the system (~500 ms on a typical Windows machine) and also left hid4java's 500 ms scanner thread
  * running. The driver now opens with hidapi's native VID/PID filter instead (~2 ms idle, ~14 ms
- * when a controller is present), so a probe no longer blocks a frame. The XInput probe is ~20 µs.
+ * when a controller is present), so the 1 Hz focused probe costs roughly 0.2% of one core and no
+ * longer blocks a frame. The XInput probe is ~20 µs.
  */
 public class ControllerManager {
 
-    /** How many game ticks between the first reconnection attempts (20 ticks = 1 s). */
-    private static final int RECONNECT_INTERVAL_TICKS = 60; // 3 seconds
+    /** Probe interval while the game window is focused (20 ticks = 1 s). */
+    private static final int FOCUSED_RECONNECT_TICKS = 20;
 
-    /** Upper bound for the reconnect back-off (30 seconds). */
-    private static final int RECONNECT_MAX_TICKS = 600;
+    /** Probe interval while the game window is unfocused/minimized (600 ticks = 30 s). */
+    private static final int UNFOCUSED_RECONNECT_TICKS = 600;
 
-    private static final int RECONNECT_INTERVAL_SECONDS = RECONNECT_INTERVAL_TICKS / 20;
+    private static final int FOCUSED_RECONNECT_SECONDS = FOCUSED_RECONNECT_TICKS / 20;
+
+    private static final int UNFOCUSED_RECONNECT_SECONDS = UNFOCUSED_RECONNECT_TICKS / 20;
 
     private IControllerDriver activeDriver;
     private ControllerState lastState = ControllerState.empty();
@@ -53,8 +58,8 @@ public class ControllerManager {
     /** Counts down to the next reconnection attempt. */
     private int reconnectCooldown = 0;
 
-    /** Consecutive failed reconnect probes, used to grow {@link #reconnectCooldown}. */
-    private int consecutiveFailures = 0;
+    /** Whether the game window currently has focus; controls the hot-plug probe interval. */
+    private boolean focused = true;
 
     /** True for {@code driver = none} (or an unknown value): no driver is created or polled. */
     private boolean driverDisabled = false;
@@ -122,7 +127,6 @@ public class ControllerManager {
         }
         lastState = ControllerState.empty();
         reconnectCooldown = 0;
-        consecutiveFailures = 0;
         driverDisabled = false;
 
         String requested = Config.controllerDriver;
@@ -157,11 +161,11 @@ public class ControllerManager {
 
         lastConnected = false;
         // init() already paid for one probe; do not repeat it on the very next tick.
-        reconnectCooldown = RECONNECT_INTERVAL_TICKS;
+        reconnectCooldown = focused ? FOCUSED_RECONNECT_TICKS : UNFOCUSED_RECONNECT_TICKS;
         FuzziControls.LOG.info(
-            "[FuzziControls] No controller detected; first retry in {}s (backing off to {}s).",
-            RECONNECT_INTERVAL_SECONDS,
-            RECONNECT_MAX_TICKS / 20);
+            "[FuzziControls] No controller detected; probing every {}s while focused ({}s when unfocused).",
+            FOCUSED_RECONNECT_SECONDS,
+            UNFOCUSED_RECONNECT_SECONDS);
     }
 
     private static boolean isKnownDriver(String pref) {
@@ -203,8 +207,10 @@ public class ControllerManager {
 
     /**
      * Polls the active driver and updates {@link #lastState}.
-     * Also handles hot-plug: if no driver is active or the active driver disconnects,
-     * re-initialization is attempted (with back-off) while no controller is present.
+     * Also handles hot-plug: while no driver is active the manager probes every
+     * {@value #FOCUSED_RECONNECT_TICKS} ticks when the window is focused and every
+     * {@value #UNFOCUSED_RECONNECT_TICKS} ticks when it is not. A disconnect is detected and
+     * retried immediately.
      * Must be called from the client tick thread.
      */
     public void tick() {
@@ -222,26 +228,27 @@ public class ControllerManager {
             lastState = ControllerState.empty();
             lastConnected = false;
             reconnectCooldown = 0;
-            consecutiveFailures = 0;
         }
 
         if (activeDriver == null) {
             if (reconnectCooldown > 0) {
                 reconnectCooldown--;
-                lastState = ControllerState.empty();
-                lastConnected = false;
-                return;
+                // Probe on the tick the countdown reaches zero, so a 20-tick interval is 1 s
+                // rather than 1 s plus one tick.
+                if (reconnectCooldown > 0) {
+                    lastState = ControllerState.empty();
+                    lastConnected = false;
+                    return;
+                }
             }
 
             if (!tryReconnect()) {
-                consecutiveFailures++;
-                reconnectCooldown = nextReconnectCooldown(consecutiveFailures);
+                reconnectCooldown = focused ? FOCUSED_RECONNECT_TICKS : UNFOCUSED_RECONNECT_TICKS;
                 lastState = ControllerState.empty();
                 lastConnected = false;
                 return;
             }
 
-            consecutiveFailures = 0;
             reconnectCooldown = 0;
         }
 
@@ -256,21 +263,31 @@ public class ControllerManager {
             lastState = ControllerState.empty();
             lastConnected = false;
             reconnectCooldown = 0;
-            consecutiveFailures = 0;
         }
     }
 
     /**
-     * Back-off schedule after consecutive failed probes: 3 s, 6 s, 12 s, 24 s, then 30 s.
+     * Updates the hot-plug probe schedule when the game window gains or loses focus.
      *
-     * @param failures number of consecutive failures (1 for the first)
-     * @return ticks until the next probe
+     * <p>
+     * A focus gain triggers an immediate probe (cooldown 0) so a controller plugged in while the
+     * player was alt-tabbed is picked up on the next tick. A focus loss while no controller is
+     * active defers probing to the unfocused interval instead of leaving a 1 Hz scan running in
+     * the background.
+     * </p>
+     *
+     * @param focused true when the game window is active
      */
-    static int nextReconnectCooldown(int failures) {
-        // failures=1 -> 60, 2 -> 120, 3 -> 240, 4 -> 480, 5+ -> 600
-        int shift = Math.max(0, Math.min(failures - 1, 4));
-        long ticks = (long) RECONNECT_INTERVAL_TICKS << shift;
-        return (int) Math.min(RECONNECT_MAX_TICKS, ticks);
+    public void setFocused(boolean focused) {
+        if (this.focused == focused) return;
+        this.focused = focused;
+        if (driverDisabled) return;
+
+        if (focused) {
+            reconnectCooldown = 0;
+        } else if (activeDriver == null) {
+            reconnectCooldown = UNFOCUSED_RECONNECT_TICKS;
+        }
     }
 
     /**
@@ -306,7 +323,6 @@ public class ControllerManager {
                 lastState = ControllerState.empty();
                 lastConnected = false;
                 reconnectCooldown = 0;
-                consecutiveFailures = 0;
             }
         }
         return lastState;

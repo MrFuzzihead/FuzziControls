@@ -383,7 +383,7 @@ public class ControllerManagerTest {
     }
 
     @Test
-    public void failedReconnectBacksOffForTheConfiguredInterval() {
+    public void failedReconnectWaitsForTheFocusedInterval() {
         FakeDriver first = new FakeDriver("DualSense", true);
         factory.queueDualSense(first);
 
@@ -474,14 +474,47 @@ public class ControllerManagerTest {
     }
 
     @Test
-    public void reconnectBackoffDoublesAndCapsAtThirtySeconds() {
-        assertEquals("first retry", 60, ControllerManager.nextReconnectCooldown(1));
-        assertEquals(120, ControllerManager.nextReconnectCooldown(2));
-        assertEquals(240, ControllerManager.nextReconnectCooldown(3));
-        assertEquals(480, ControllerManager.nextReconnectCooldown(4));
-        assertEquals("5 failures is the 30 s cap", 600, ControllerManager.nextReconnectCooldown(5));
-        assertEquals("the cap is stable", 600, ControllerManager.nextReconnectCooldown(50));
-        assertEquals("defensive zero case", 60, ControllerManager.nextReconnectCooldown(0));
+    public void focusedProbingRepeatsEverySecond() {
+        manager.init(); // init() performs one probe
+        int afterInit = factory.dualSenseRequests + factory.xInputRequests;
+
+        for (int tick = 0; tick < 20; tick++) {
+            manager.tick();
+        }
+
+        assertTrue(
+            "A focused window must probe again after one second",
+            factory.dualSenseRequests + factory.xInputRequests > afterInit);
+    }
+
+    @Test
+    public void unfocusedProbingIsThrottledToThirtySeconds() {
+        manager.setFocused(false);
+        manager.init(); // init() performs one probe
+        int afterInit = factory.dualSenseRequests + factory.xInputRequests;
+
+        for (int tick = 0; tick < 200; tick++) {
+            manager.tick();
+        }
+
+        assertEquals(
+            "200 ticks (10 s) must not reach the 30 s unfocused probe",
+            afterInit,
+            factory.dualSenseRequests + factory.xInputRequests);
+    }
+
+    @Test
+    public void focusGainProbesImmediately() {
+        manager.setFocused(false);
+        manager.init();
+        int afterInit = factory.dualSenseRequests + factory.xInputRequests;
+
+        manager.setFocused(true);
+        manager.tick();
+
+        assertTrue(
+            "Returning focus must probe on the next tick",
+            factory.dualSenseRequests + factory.xInputRequests > afterInit);
     }
 
     @Test

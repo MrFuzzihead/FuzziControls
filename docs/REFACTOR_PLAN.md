@@ -31,7 +31,7 @@
 > `HidApi.read(handle, buffer, 0)` (**zero-timeout — the no-timeout overload blocks on Windows**),
 > and closes the raw handle. The hid4java `HidServices` instance is no longer created, so its
 > 500 ms scanner thread is gone. Also implemented: `driver = none` and unknown-driver disable, quiet
-> DEBUG retries, 3/6/12/24/30 s reconnect back-off, `read < 0` → disconnect (no stuck buttons),
+> DEBUG retries, focus-aware 1 s/30 s hot-plug probing, `read < 0` → disconnect (no stuck buttons),
 > `pollFresh` failure closes the handle, and the stale `lastFrameNanos` reset. The measurements
 > below are retained as the investigation record.
 
@@ -233,9 +233,8 @@ the native filter, and closed on `close()` or on a `read < 0`.
   are INFO. The twice-per-3-seconds INFO pair is gone.
 - [x] `init()` sets `reconnectCooldown` after a failed probe, so `init()` + the next tick do not
   probe twice.
-- [x] Reconnect back-off: 3 s → 6 s → 12 s → 24 s → 30 s; reset on success. Probes still run
-  while unfocused, but an idle probe is ~2 ms, so this is no longer measurable; skipping while
-  unfocused remains an optional follow-up.
+- [x] Hot-plug probing is focus-aware: 1 s while focused, 30 s while unfocused/minimized,
+  immediate on focus gain; see 2.8.
 - [ ] Move the probe off the client thread. Not needed at ~2 ms; the one-time `HidApi.init`
   (~132 ms) still happens at startup on the client thread. Revisit only if a slow HID stack is
   reported.
@@ -246,27 +245,32 @@ the native filter, and closed on `close()` or on a `read < 0`.
 - [x] `DualSenseDriver.poll()` treats `read == -1` as a disconnect (instead of "no report") and
   validates the USB report ID, so an unplug no longer leaves buttons stuck.
 
-### 2.8 Hot-plug responsiveness — follow-up (not fixed)
+### 2.8 Hot-plug responsiveness — fixed (focus-aware probing)
 
-The P0 fix makes an idle probe ~2 ms, but the manager still backs off to 30 s. After roughly
-1.5 minutes without a controller, a controller plugged in while the game is focused can take up
-to 30 s to appear. That contradicts the README's "detected within seconds" claim and is the main
-remaining UX cost of the backoff.
+The old 3/6/12/24/30 s backoff meant a controller plugged in while the game was focused could take
+up to 30 s to appear. The manager is now focus-aware:
 
-Options, cheapest first:
+- **Focused:** probe every 20 ticks (1 s). With the filtered `HidApi.open` probe (~2 ms idle) this
+  costs roughly **0.2% of one core** and never blocks a frame.
+- **Unfocused/minimized:** probe every 600 ticks (30 s), so an alt-tabbed game does not keep
+  scanning for hardware.
+- **Focus gained:** `ControllerManager.setFocused(true)` sets the cooldown to zero, so the next
+  client tick probes immediately. Plug in a controller while alt-tabbed, return to the game, and it
+  is available on the next tick.
+- **Active controller unplugged:** detected on the next client tick; an immediate reconnect probe
+  runs, then the normal focused/unfocused interval resumes.
+- `/fuzzicontrols reload` still forces an immediate probe.
 
-1. **Cap the backoff at 10 s** (`RECONNECT_MAX_TICKS = 200`). Still negligible CPU.
-2. **Keep 3 s while the game is focused**, and use the long backoff only while unfocused/minimized.
-   `ControllerTickHandler` already reads `Display.isActive()` every tick. Add
-   `ControllerManager.setFocused(boolean)` (or `onFocusGained()`): on a false→true transition reset
-   `reconnectCooldown` to `RECONNECT_INTERVAL_TICKS` (or 0 for an immediate probe) and
-   `consecutiveFailures` to 0. On true→false, let the normal backoff continue.
-3. **OS device-change notifications** (Windows `WM_DEVICECHANGE`, Linux udev/netlink) instead of
-   polling. Cross-platform cost is high; not worth it yet.
-4. `/fuzzicontrols reload` already forces an immediate probe, so a user can always force detection.
+Options considered and not needed right now:
 
-Recommended: (2) plus a 10 s cap, with a unit test that a focus transition resets the probe
-interval. Track this as the next UX item before P2.
+1. A background probe thread would remove even the ~2 ms probe from the client thread; the measured
+   cost is already negligible, and thread hand-off adds lifecycle complexity. Revisit only if a slow
+   HID stack is reported.
+2. OS device-change notifications (Windows `WM_DEVICECHANGE`, Linux udev/netlink) would be truly
+   event-driven but are per-platform and much more code; not worth it yet.
+
+Unit tests cover the 1 s focused cadence, the 30 s unfocused throttle, the immediate focus-gain
+probe, and the no-controller/`none` paths.
 
 ---
 
@@ -655,7 +659,7 @@ returns.
   verification. The report analyses the **downgraded** main classes the test JVM actually loads
   (`build/tmp/downgradeMainClasses/main`), not `build/classes/java/main`, and excludes
   `META-INF/versions/**` so JaCoCo does not see duplicate class names. Current baseline:
-  **55.3% line / 53.8% branch**.
+  **55.3% line / 54.0% branch**.
 - **`gameTest` source set** with a never-shipped `@Mod` (`src/gameTest/java`), a common/server
   checker and a client checker. `./gradlew gameTestServer` runs
   `runServer25` with the test mod on the classpath; `./gradlew gameTestClient` does the same for
@@ -669,9 +673,9 @@ returns.
 - **CI**: a dedicated `game-test-server-java25` job asserts the server report; the existing
   `client-smoke-test-java25` job runs `gameTestClient` headless after the client self-test and
   asserts the client report. Both upload logs/reports.
-- **Additional coverage in the cleanup batch**: reconnect back-off schedule
-  (`nextReconnectCooldown`), shared `ControllerState.EMPTY`, `Config.isLoadedFrom`, padded
-  binding names/`NONE`, and the no-lwjgl3ify fallback paths for mouse/key injection.
+- **Additional coverage in the cleanup batch**: focus-aware probe cadence, shared
+  `ControllerState.EMPTY`, `Config.isLoadedFrom`, padded binding names/`NONE`, the no-lwjgl3ify
+  fallback paths for mouse/key injection, and cached GUI bounds.
 
 - Missing tests:
   - `DropTapHold.blockNextRelease()` **before** any `update(true)`.
@@ -737,8 +741,8 @@ These were not completed by the migration and remain valid:
 
 1. **P0 stutter — done**: `DualSenseDriver` uses `HidApi.open/read(..., 0)/close`, the
    `HidServices` scanner is gone, and `ClientProxy` calls `shutdownHid()`.
-2. **Retry hygiene — done (except focus pause)**: `driver = none`, unknown-driver disable,
-   DEBUG retries, 3/6/12/24/30 s backoff, and the post-`init` cooldown.
+2. **Retry hygiene — done**: `driver = none`, unknown-driver disable, DEBUG retries, and
+   focus-aware 1 s/30 s hot-plug probing with an immediate focus-gain probe.
 3. **Small high-value bugs — done**: pick block, drop-button remapping,
    `DropTapHold.blockNextRelease`, digital `MOVE_*` bindings.
 4. **DualSense lifecycle — done in P0**: report-ID check, `read < 0` → disconnect, no double open,
@@ -747,7 +751,7 @@ These were not completed by the migration and remain valid:
    `LinkageError` guarded, and the P2 `handleKeyboardInput` duplicate removed.
 6. **P2 correctness — done**: GUI-open edge sync, mouse-flag restore, config parsing, literal chat
    messages, `MixinSelfTest` noise, dead fields/Javadoc.
-7. **Hot-plug responsiveness (next UX item)**: focus-aware probe reset + a 10 s cap; see 2.8.
+7. **Hot-plug responsiveness — done**: focus-aware 1 s/30 s probing and an immediate probe on focus gain; see 2.8.
 8. **Dependencies**: upgrade JNA to 5.19.1, fix the JXInput comment, add
    `THIRD_PARTY_NOTICES.md` (`jna-platform` is already removed).
 9. **Config/docs/metadata — partly done**: `required-after:lwjgl3ify`, README install, and
@@ -768,7 +772,7 @@ These were not completed by the migration and remain valid:
 - [x] `driver = none` is supported and documented.
 - [x] Pick block, drop:one/drop:stack, movement rebinding, sneak takeover, and GUI close via
       B all behave correctly in-game (unit tests cover the parts that do not need a live client).
-- [ ] Focus-aware hot-plug detection + a 10 s backoff cap (see 2.8).
+- [x] Focus-aware hot-plug detection: 1 s focused, 30 s unfocused, immediate on focus gain (see 2.8).
 - [x] `curseForgeEnvironments = client`; `jna-platform` removed.
 - [ ] JNA upgraded to 5.19.1 and third-party notices added.
 - [x] P2 correctness fixes (keyboard input, GUI edge sync, mouse flags, config parsing, chat

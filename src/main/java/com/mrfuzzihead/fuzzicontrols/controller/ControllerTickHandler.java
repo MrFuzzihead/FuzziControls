@@ -209,14 +209,14 @@ public class ControllerTickHandler {
         Minecraft mc = Minecraft.getMinecraft();
 
         ControllerManager manager = ControllerManager.getInstance();
-        // Poll hardware every game tick regardless of focus. Keeping edge state in sync while
-        // unfocused prevents a button pressed during an alt-tab from firing the moment the
-        // window regains focus.
+        // Focus controls only the hot-plug scan rate (1 s focused, 30 s unfocused); an active
+        // driver is still polled every tick so edge state stays in sync across alt-tabs.
+        boolean displayActive = Display.isActive();
+        manager.setFocused(displayActive);
         manager.tick();
         ControllerState state = manager.getState();
         ControllerMapping mapping = Config.controllerMapping;
 
-        boolean displayActive = Display.isActive();
         boolean connected = manager.isActive();
 
         if (!displayActive || !connected) {
