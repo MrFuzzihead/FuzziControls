@@ -121,6 +121,9 @@ public class DualSenseDriver implements IControllerDriver {
     /** Whether we have already retried the enhanced-mode feature report after a simple BT report. */
     private boolean enhancedModeRetried;
 
+    /** Whether the detected transport has been logged for this connection. */
+    private boolean transportLogged;
+
     /** Rate-limits the diagnostic log for an unsupported report. */
     private boolean unknownReportLogged;
 
@@ -224,6 +227,12 @@ public class DualSenseDriver implements IControllerDriver {
                     }
                 }
 
+                if (!transportLogged) {
+                    transportLogged = true;
+                    FuzziControls.LOG
+                        .info("[FuzziControls] DualSense reports are using the {} transport.", getTransportName());
+                }
+
                 fresh = DualSenseReportParser.parse(reportBuffer, read, layout, deadZone, triggerThreshold);
             }
 
@@ -257,6 +266,7 @@ public class DualSenseDriver implements IControllerDriver {
         lastReportNanos = 0L;
         connectionType = ConnectionType.UNKNOWN;
         enhancedModeRetried = false;
+        transportLogged = false;
         unknownReportLogged = false;
         crcMismatchLogged = false;
     }
