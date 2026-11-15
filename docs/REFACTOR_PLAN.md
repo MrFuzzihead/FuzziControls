@@ -1,370 +1,652 @@
-# FuzziControls — Java 25 + lwjgl3ify Refactor Plan
+# FuzziControls — Current Analysis & Refactor Plan
 
-> **Status:** Phase 0 (bug fixes) + Step 5 (input plumbing) done on `main`; build green on Java 25 + lwjgl3ify 3.0.10; **runtime smoke test passed** (JXInput/hid4java/JNA natives load on Java 25).
-> **Decision:** Migrate `main` directly to lwjgl3ify + Java 25. No long-lived migration branch.
-> **Goal:** Keep the existing "seamless console Minecraft" feel while putting the mod on a modern, more maintainable input/rendering stack and removing JNA/LWJGL2 reflection hacks.
-
----
-
-## 1. Goals and Non-Goals
-
-### Goals
-
-1. Move `main` to lwjgl3ify and target Java 25 (or the newest JDK officially supported by lwjgl3ify/RetroFuturaGradle). Use lwjgl3ify version 3.0.10:dev
-2. Replace LWJGL 2 input/mouse/keyboard/window-focus code with LWJGL 3/GLFW (directly or through lwjgl3ify's supported APIs).
-3. Remove or drastically reduce the reflection hacks in `GuiKeyHelper`, `GuiMouseHelper`, and `KeyboardHelper`.
-4. Reduce or eliminate JNA-based dependencies (JXInput) by using GLFW gamepad input where it provides better or equal behavior.
-5. Fix the input logic bugs found during codebase analysis.
-6. Keep DualSense support intact (HID report parsing), with a path to modernize/verify HID4Java on Java 25.
-7. Preserve or improve test coverage and CI.
-
-### Non-Goals
-
-- Do not redesign the default button mapping.
-- Do not implement the planned in-game remap GUI or D-pad navigation in this refactor (those remain separate plans).
-- Do not implement analog movement scaling unless it falls out of the platform-abstraction work cheaply.
+> **Status:** `main` is already on lwjgl3ify + Java 25 (`jvmDowngrader` target 17). The
+> LWJGL2 → LWJGL3 migration described in the previous version of this document is complete.
+> This document is the current codebase analysis plus the remaining work. `./gradlew test`
+> and the client self-test harness are green.
+>
+> **Scope:** periodic stutter, build/dependency correctness, functional bugs, cleanup,
+> optimizations, and features. Items still open from the previous plan are listed in
+> section 9 and are not dropped.
 
 ---
 
-## 2. Current Architecture Summary
+## 1. Status snapshot
 
-| Area                   | File(s)                                                                                                                  | Notes                                        |
-|------------------------|--------------------------------------------------------------------------------------------------------------------------|----------------------------------------------|
-| Mod entry              | `FuzziControls.java`                                                                                                     | `@Mod`, `@SidedProxy`                        |
-| Config                 | `Config.java`                                                                                                            | Forge `Configuration`                        |
-| Controller abstraction | `IControllerDriver`, `ControllerManager`, `ControllerState`, `ControllerMapping`, `ControllerAction`, `ControllerButton` | Good seam already                            |
-| Backends               | `XInputDriver.java`, `DualSenseDriver.java`                                                                              | JXInput/hid4java                             |
-| Gameplay/tick          | `ControllerTickHandler.java`                                                                                             | Polls 20 Hz, renders camera/cursor per frame |
-| GUI input hacks        | `GuiKeyHelper.java`, `GuiMouseHelper.java`, `KeyboardHelper.java`                                                        | Reflectively poke LWJGL 2 internals          |
-| Build                  | `build.gradle.kts`, `gradle.properties`, `dependencies.gradle`, `settings.gradle.kts`                                    | GTNH convention, Jabel, shade deps           |
-
----
-
-## 3. Bugs to Fix During the Refactor
-
-These were found during analysis and should be fixed as part of the migration so they are covered by the new tests.
-
-### 3.1 High severity
-
-#### B1 — Trigger inputs are double-thresholded
-- `XInputDriver` and `DualSenseDriver` call `ControllerState.normaliseTrigger(...)`, then
-  `ControllerMapping.isActive` compares the already-normalized trigger value to
-  `triggerThreshold` again.
-- `XInputDriver`/`DualSenseDriver` also add digital `LEFT_TRIGGER`/`RIGHT_TRIGGER` based on the
-  already-normalized value, not the raw value.
-- **Effect:** with default `triggerThreshold = 0.2`, triggers do not activate until raw pressure is roughly `0.36`.
-- **Fix direction:**
-  - Keep `ControllerState` analog fields as normalized analog values.
-  - Change `ControllerMapping.isActive` for triggers to `state.leftTrigger() > 0f` /
-    `state.rightTrigger() > 0f`, or use `state.isPressed(LEFT_TRIGGER/RIGHT_TRIGGER)` if the
-    digital set is the source of truth.
-  - Emit digital trigger buttons from raw values in the drivers (`raw >= threshold`).
-  - Update `ControllerMappingTest` so it tests the real normalize→isActive flow.
-
-#### B2 — Stick axes are compared against `triggerThreshold`
-- `ControllerMapping.isActive` uses `state.leftStickY() < -triggerThreshold`, etc.
-- The driver already applies `stickDeadZone`, so movement activates at around
-  `deadZone + (1 - deadZone) * triggerThreshold` instead of just past the deadzone.
-- **Fix direction:**
-  - Introduce a dedicated stick-action threshold if needed, otherwise compare normalized stick
-    directions against `> 0f` / `< 0f`.
-  - Do not reuse `triggerThreshold` for sticks.
-  - Update config docs and `BUTTON_BINDINGS.md`.
-
-#### B3 — `DualSenseDriver.poll()` can crash the client tick on unplug
-- `DualSenseDriver.poll()` is not wrapped in try/catch, and `ControllerManager.tick()` also
-  does not guard its `activeDriver.poll()` call.
-- An unplug between `isConnected()` and `device.read(...)` can throw.
-- **Fix direction:**
-  - Wrap driver reads and `ControllerManager.tick()` polling in defensive try/catch.
-  - On transient failure return the cached state (`lastState`) or `ControllerState.empty()`.
-  - Ensure `DualSenseDriver.close()` is also exception-safe.
-
-#### B4 — Focus-loss stale edge state fires actions on refocus
-- `onClientTick` returns early when `!Display.isActive()` without advancing `wasActive[]`,
-  `wasGuiLeftClick`, `wasGuiRightClick`, `wasGuiShiftClick`, or the drop state.
-- Pressing an edge-triggered button while unfocused and then refocusing can fire a false edge.
-- **Fix direction:**
-  - Resync all edge/previous-state fields without firing actions when focus is lost, when focus
-    returns, and after controller disconnect/reconnect.
-  - Clear/rebuild `buttonsHeldOnGuiClose` and `dropBlockedByGui` in the same resync path.
-
-### 3.2 Medium severity
-
-#### B5 — `Config` cannot persist "unbound"
-- `parseButton("NONE", defaultBtn)` returns the default button instead of `null`.
-- **Fix:** honor `NONE` as explicit unbind, and reset/replace `controllerMapping` before loading.
-
-#### B6 — `ControllerMapping.applyDefaults()` does not clear the map first
-- Custom bindings for actions without defaults survive a "reset".
-- **Fix:** call `actionToButton.clear()` before re-applying defaults.
-
-#### B7 — Dead code and stale docs
-- Remove unused `ControllerTickHandler.consumeAllInWorldEdges()`.
-- Remove unused `lastPartialTick`.
-- Remove dead `handleBButton` GUI branch (the top-level GUI path already returns earlier).
-- Remove unused `leftClickCounter` access transformer from `fuzzicontrols_at.cfg` (or the whole
-  AT file/`accessTransformersFile` if no longer needed).
-- Fix `CommonProxy` Javadoc (`clientSideOnly = true` claim).
-- Fix `ControllerAction` comments (PICK_BLOCK/COMMAND).
-- Align README/BUTTON_BINDINGS defaults with `Config.java`.
-
-#### B8 — No shutdown hook for `ControllerManager`
-- `shutdown()` is never called.
-- **Fix:** call it from an appropriate FML/Forge stop event.
-
-#### B9 — Tick handler registered on two buses
-- Only the FML bus fires `TickEvent.*` in 1.7.10, so `MinecraftForge.EVENT_BUS.register(...)`
-  is dead registration.
-- **Fix:** register only on `FMLCommonHandler.instance().bus()`.
-
-#### B10 — `ControllerManager.getInstance()` is not thread-safe
-- **Fix:** use an eager `static final` singleton.
-
-### 3.3 Low severity / optimization
-
-#### B11 — XInput is polled multiple times per frame
-- `XInputDriver.isConnected()` calls `device.poll()`, and `ControllerManager.isActive()` invokes
-  that from `onRenderTick` every frame in addition to the 20 Hz game-tick poll.
-- **Fix:** cache connected/polled status per tick, or reuse the last poll result.
-
-#### B12 — Hot-plug reconnect rebuilds HID services every 3 seconds
-- Auto mode without a DualSense repeatedly creates and shuts down HID4Java services.
-- **Fix:** cache the `HidServices`/driver instance across reconnect probes.
-
-#### B13 — Shade/minimize dependency risk
-- `minimizeShadowedDependencies = true` plus `transitive = false` may strip HID4Java/JXInput/JNA
-  classes or required slf4j classes used reflectively.
-- **Action:** inspect the produced shaded jar to verify HID4Java/JXInput/JNA runtime resources.
-
-#### B14 — `normaliseAxis(0, 0)` returns `-0.0f`
-- Cosmetic; tidy if touched.
+| Area | State |
+|---|---|
+| Toolchain | GTNHGradle 2.0.34, Gradle 9.7.1, JDK 25 toolchain, `jvmDowngrader` target 17 |
+| Mod runtime | Java 17+ (multi-release jar, Java 21 variant present) |
+| Input | lwjgl3ify 3.1.0 (`org.lwjglx` input injection), JXInput 1.0.1 (XInput), hid4java 0.8.0 (DualSense) |
+| GUI | lwjgl3ify input injection + mixin accessors/invokers; D-pad nav, virtual cursor, scroll |
+| Tests | JUnit 4 + client self-test harness (CI workflow exists) |
+| Known top issue | **~500 ms HID enumeration on the client thread every 3 s**, plus a 500 ms hid4java scanner thread running continuously — see section 2 |
 
 ---
 
-## 4. Build and Toolchain Migration (on `main`)
+## 2. P0 — the periodic stutter (confirmed, measured)
 
-1. **Pin the JDK/toolchain.**
-   - Set `forceToolchainVersion` (or the GTNH convention equivalent) to `25`; verify the exact
-     lwjgl3ify/RetroFuturaGradle-supported JDK version.
-   - Disable Jabel (`enableModernJavaSyntax`) if targeting modern bytecode natively; remove the
-     `@Desugar` record workaround after records are native.
+### 2.1 Measurements
 
-2. **Add lwjgl3ify.**
-   - Add the lwjgl3ify dependency (latest 3.x; cached locally at `3.0.31`) via the build config.
-   - Confirm the recommended GTNH lwjgl3ify integration:
-     - dependency configuration (`runtimeOnlyNonPublishable`, `api`, or plugin),
-     - mixin flags (`forceEnableMixins`/`usesMixins`),
-     - any required `--add-opens`/JVM args,
-     - run-client and run-server config changes.
-   - Reference the lwjgl3ify README/example buildscript before committing the exact coordinates.
+Measured with the mod's own shaded hid4java 0.8.0 / JNA code from
+`build/libs/*-dev.jar` on this machine: Windows, 35 attached HID devices, a DualSense
+connected.
 
-3. **Update dependencies.**
-   - Prefer GLFW gamepad input to replace JXInput/JNA for Xbox.
-   - Keep HID4Java only for DualSense HID parsing, updated to a Java-25-compatible version.
-   - If HID4Java/JNA must remain, test against Java 25 and add required native-access/JVM flags.
+| Operation | Measured |
+|---|---|
+| `HidManager.getHidServices(spec)` (first call) | **639 ms** |
+| `HidApi.init()` (first call) | **132 ms** |
+| `HidServices.getHidDevice(0x054C, 0x0CE6, null)` | **496–801 ms every call** |
+| `HidApi.enumerateDevices(0, 0)` (all devices) | **~500 ms** |
+| `HidApi.enumerateDevices(0x054C, 0x0CE6)` (filtered) | **~2–9 ms** |
+| `HidApi.open(0x054C, 0x0CE6, null)` | **~14 ms present, ~2 ms absent** |
+| JXInput `getDeviceFor + poll + isConnected` | **0.019 ms** |
 
-4. **CI matrix.**
-   - Update `.github/workflows` to build/test with Java 25 + lwjgl3ify.
-   - Keep a compatibility job only if the code intentionally still supports Java 8/LWJGL2; this
-     plan assumes main moves fully, so Java 8 may be dropped.
+The XInput path is cheap. The cost is the **unfiltered HID enumeration**. JNA 5.19.1
+produced identical enumeration times, so this is hidapi/Windows, not a JNA version problem.
 
----
+### 2.2 Root cause A — unfiltered HID enumeration on the client thread
 
-## 5. Code Migration Map (LWJGL2 → LWJGL3/GLFW)
+`ControllerManager` retries every 60 ticks:
 
-### 5.1 Introduce a platform abstraction first
-Create a small internal boundary so gameplay code no longer depends on `org.lwjgl.input.*`
-directly:
+```java
+// ControllerManager.java:35
+private static final int RECONNECT_INTERVAL_TICKS = 60; // 3 seconds
+...
+// ControllerManager.java:176
+tryReconnect();   // -> new DualSenseDriver() -> HidServices.getHidDevice(...)
+```
 
-- `PlatformWindow` / `PlatformCursor` / `PlatformKeyboard` wrappers for:
-  - window focus (`Display.isActive()`),
-  - cursor position/movement (`Mouse.setCursorPosition`, display size),
-  - mouse button event synthesis,
-  - key-down state (`Keyboard.isKeyDown`, `KEY_LSHIFT`, `KEY_ESCAPE`).
-- Backends:
-  - current LWJGL2 implementation for the transition period,
-  - lwjgl3ify/GLFW implementation for the final main state.
+`DualSenseDriver` calls `HidServices.getHidDevice(VID, PID, null)` (DualSenseDriver.java:77).
+That helper calls `hidDeviceManager.getAttachedHidDevices()`, which enumerates **all** HID
+devices and only then filters in Java. On this machine that is a **~500 ms block** on the
+client tick thread, every ~3 s.
 
-This removes the direct LWJGL calls from `ControllerTickHandler` and isolates the brittle
-reflection in one place before it is deleted.
+This exactly matches the friend's log:
 
-### 5.2 `ControllerTickHandler.java`
-- Replace `org.lwjgl.opengl.Display.isActive()` with the platform focus check.
-- Replace `org.lwjgl.input.Keyboard.KEY_LSHIFT/KEY_RSHIFT/KEY_ESCAPE` with platform key codes or
-  `GLFW` constants.
-- Replace `Mouse.setCursorPosition(...)` with the platform cursor call.
-- Keep the game logic (movement, sneak, drop, hotbar, chat, pause) otherwise unchanged.
+```
+[21:26:16] [Client thread/INFO] [fuzzicontrols/]: [FuzziControls] DualSense not found; driver standby.
+[21:26:16] [Client thread/INFO] [fuzzicontrols/]: [FuzziControls] XInputDriver initialised for slot 0.
+```
 
-### 5.3 `GuiKeyHelper.java`
-- On lwjgl3ify, `GuiScreen.keyTyped` dispatch should be re-evaluated.
-- Prefer an access-transformer-free/mixin-free approach only if lwjgl3ify exposes a supported
-  event/input API; otherwise continue reflective `keyTyped` temporarily, isolated behind the
-  platform abstraction.
+The two lines are `DualSenseDriver` (no matching device) and `XInputDriver` constructors.
+The cadence is the 60-tick retry. The author does not see the loop because a DualSense is
+found at startup, so the retry path never runs.
 
-### 5.4 `GuiMouseHelper.java`
-- Replace LWJGL 2 `Mouse.readBuffer`/`Mouse.buttons` reflection with:
-  - GLFW cursor/button APIs, and/or
-  - direct `GuiScreen` dispatch via access transformer/mixin invokers where safe.
-- Confirm the GUI coordinate-space conversion (bottom-left display pixels → top-left scaled GUI
-  coords) still matches lwjgl3ify's `handleMouseInput`.
+### 2.3 Root cause B — the hid4java scanner thread runs every 500 ms
 
-### 5.5 `KeyboardHelper.java`
-- Replace `Keyboard.keyDownBuffer` reflection with GLFW key state APIs or lwjgl3ify's keyboard
-  abstraction.
-- Preserve the shift-click behavior exactly: patch shift state only for the duration of the click.
+`DualSenseDriver.getHidServices()` sets only `setAutoShutdown(false)` (DualSenseDriver.java:41).
+The remaining hid4java defaults are:
 
-### 5.6 Controller backends
-- **Xbox / XInput:** prototype a `GLFWGamepadDriver` using `glfwGetGamepadState`, GLFW gamepad
-  buttons/axes, and joystick connect/disconnect callbacks.
-  - Remove `com.xenoamess:JXInput` and the JNA dependency if GLFW coverage is acceptable.
-- **DualSense:** keep raw HID parsing in `DualSenseDriver`. Update HID4Java/JNA versions for
-  Java 25, or move to a Java FFM-based HID reader if HID4Java proves unstable.
-- **Hot-plug:** prefer GLFW joystick callbacks over the current 3-second polling loop.
+```java
+// hid4java 0.8.0 HidServicesSpecification
+scanMode     = SCAN_AT_FIXED_INTERVAL
+scanInterval = 500          // ms
+autoStart    = true
+```
 
----
+Creating the driver therefore starts a daemon thread that calls `hid_enumerate` every
+500 ms for the whole session. On this machine one scan takes ~500 ms, so the scanner is
+roughly **50 % of a core continuously**, even when a controller is connected, and even after
+`DualSenseDriver.close()` (the shared `HidServices` outlives the driver). This affects the
+author too, not only users without a controller.
 
-## 6. Modern Java Cleanups
+### 2.4 Root cause C — no off switch and log spam
 
-Once native modern bytecode is used, apply cleanups only where they reduce risk:
+- `controllerDriver` only supports `auto | xinput | dualsense`. A user without a controller
+  cannot stop the 3 s probing; `"none"` falls through `selectDriver()` and retries forever.
+- Both constructors log at INFO on every probe (`DualSenseDriver.java:84`,
+  `XInputDriver.java:55`), producing the 2-line pair at 20 pairs/minute.
+- `ControllerManager`'s Javadoc claims the probe cost is “comparable to a single frame of
+  normal polling and is imperceptible in practice” (ControllerManager.java:25–29). That is
+  false; it is ~500 ms on this machine.
 
-- Remove `@Desugar` and Jabel record workaround from `ControllerState`.
-- Use pattern matching for `ControllerButton.isAxis()` / `ControllerMapping.isActive` if clearer.
-- Use sealed/enum improvements only where they improve readability.
-- Consider `VarHandle`/FFM instead of reflection if any third-party native access remains.
+### 2.5 Fix — use the filtered low-level hidapi call
 
----
+`HidApi.open(VID, PID, null)` lets hidapi filter by VID/PID natively, so it does **not**
+enumerate every device. It is ~2 ms when absent and ~14 ms when present. `HidApi.read` /
+`HidApi.close` drive the handle directly, removing the scanner, the stale `HidServices`
+instance, and the double-open in one change.
 
-## 7. GTNHLib Evaluation
+```java
+// DualSenseDriver.java — sketch
+private static boolean hidInitialised;
+private HidDeviceStructure handle;
+private final byte[] data = new byte[REPORT_SIZE];
 
-**Result (inspected `GTNHLib-0.11.41` sources):**
-- No gamepad/controller API — not a replacement for `IControllerDriver`.
-- `com.gtnewhorizon.gtnhlib.reflect.Fields` — type-safe static/instance field reflection helper.
-  Could replace the small fallback reflection, but our usage is already minimal and isolated, so
-  adding a hard dependency for ~30 lines is not worth it.
-- `com.gtnewhorizon.gtnhlib.config.*` (`Config`, `ConfigurationManager`, `SimpleGuiConfig`, `SimpleGuiFactory`)
-  — provides a config-**GUI** out of the box. This is the strongest reason to adopt GTNHLib, but
-  only when the in-game options/remap GUI is actually built.
-- `keybind.*` — network-synced keybinds; not controller-related.
+private static synchronized boolean ensureHid() {
+    if (!hidInitialised) {
+        try {
+            HidApi.init();               // ~132 ms once; move off-thread if desired
+            hidInitialised = true;
+        } catch (Throwable t) {
+            FuzziControls.LOG.warn("[FuzziControls] hidapi unavailable: {}", t.toString());
+        }
+    }
+    return hidInitialised;
+}
 
-**Decision:** do not add GTNHLib now. Re-evaluate if/when the config-GUI/remap-GUI feature is built.
+public DualSenseDriver() {
+    if (!ensureHid()) return;
+    try {
+        handle = HidApi.open(VENDOR_ID, PRODUCT_ID, null); // ~2 ms absent, ~14 ms present
+        if (handle != null) {
+            FuzziControls.LOG.info("[FuzziControls] DualSense controller detected and opened.");
+        } else {
+            FuzziControls.LOG.debug("[FuzziControls] DualSense not found; driver standby.");
+        }
+    } catch (Throwable t) {
+        FuzziControls.LOG.warn("[FuzziControls] DualSense init failed: {}", t.toString());
+        handle = null;
+    }
+}
 
----
+@Override
+public boolean isConnected() {
+    return handle != null;
+}
 
-## 8. Testing and Validation Plan
+@Override
+public ControllerState poll(float deadZone, float triggerThreshold) {
+    if (handle == null) return ControllerState.empty();
+    try {
+        ControllerState fresh = null;
+        int read;
+        while ((read = HidApi.read(handle, data)) >= REPORT_MIN_BYTES) {
+            if ((data[0] & 0xFF) != 0x01) continue; // USB input report only; BT is 0x31/78 bytes
+            fresh = parseReport(data, deadZone, triggerThreshold);
+        }
+        if (read < 0) {                 // unplugged / invalid handle
+            close();
+            return ControllerState.empty();
+        }
+        return reportCache.record(fresh);
+    } catch (Throwable t) {
+        FuzziControls.LOG.debug("[FuzziControls] DualSense read error: {}", t.toString());
+        close();
+        return ControllerState.empty();
+    }
+}
 
-### Unit tests
-- Add normalize→`isActive` regression tests for trigger thresholds.
-- Add stick-axis threshold tests.
-- Add `applyDefaults` reset test.
-- Add `Config.parseButton("NONE")` unbind test.
-- Add `DualSenseDriver` cache/error-path tests (already partially stubbed).
+@Override
+public void close() {
+    if (handle != null) {
+        try {
+            HidApi.close(handle);
+        } catch (Throwable ignored) {}
+        handle = null;
+    }
+    reportCache.clear();
+}
 
-### Manual validation on lwjgl3ify + Java 25
-- Xbox controller: buttons, sticks, triggers, hot-plug.
-- DualSense controller: face buttons, sticks, triggers, D-pad, share/options.
-- GUI navigation: main menu, inventory, pause menu, chest, `GuiSlot` world/server lists.
-- Shift-click in inventories (LT + A/X).
-- Window focus loss/refocus; controller disconnect/reconnect.
-- Cursor speed at multiple window sizes (854×480 reference scaling still works).
+public static synchronized void shutdownHid() {
+    if (hidInitialised) {
+        try {
+            HidApi.exit();
+        } catch (Throwable ignored) {}
+        hidInitialised = false;
+    }
+}
+```
 
-### CI
-- Java 25 build + test job.
-- Optional: keep a Java 8/LWJGL2 compatibility job only if the migration is staged, otherwise
-  remove it.
+Then `ClientProxy` calls `DualSenseDriver.shutdownHid()` instead of
+`shutdownSharedServices()`. Remove the `HidServices` / `HidManager` / `HidServicesSpecification`
+imports and the scanner.
 
----
+If you prefer to keep `HidServices`:
 
-## 9. Risks and Mitigations
+```java
+spec.setAutoStart(false);
+spec.setScanMode(ScanMode.NO_SCAN);
+```
 
-| Risk                                                                | Mitigation                                                                                        |
-|---------------------------------------------------------------------|---------------------------------------------------------------------------------------------------|
-| lwjgl3ify/RetroFuturaGradle does not yet officially support Java 25 | Verify supported JDK in lwjgl3ify README; target the newest supported JDK if 25 is not stable     |
-| JNA/JXInput/HID4Java break on Java 25                               | Replace JXInput with GLFW gamepad; update HID4Java/JNA or move DualSense to FFM                   |
-| Reflection-based GUI event injection differs under lwjgl3ify        | Isolate all input behind platform abstraction; test `GuiSlot` and `handleMouseInput` early        |
-| GLFW gamepad mapping differs from XInput defaults                   | Keep `ControllerState`/`ControllerMapping` semantics; add normalization parity tests              |
-| Shadow minimization strips native/reflection classes                | Inspect shaded jar contents at build time; bump `minimizeShadowedDependencies` settings if needed |
-| DualSense HID support regresses                                     | Keep HID4Java path and gate GLFW gamepad to Xbox/generic controllers only                         |
+and use `HidApi.enumerateDevices(VID, PID)` (2–9 ms) only as a presence check before
+`getHidDevice()`. Also construct it with `new HidServices(spec)` rather than
+`HidManager.getHidServices(spec)`; `HidManager` returns any existing singleton and
+**silently ignores your spec** if another mod created it first.
 
----
+### 2.6 Carried-over note (old B12)
 
-## 10. Phase 0 Status
+The previous plan's B12 said the driver “creates a fresh HidServices instance on every
+construction” and that this was reverted because HID4Java goes stale after unplug/replug.
+The current code is **shared static `HidServices`** (DualSenseDriver.java:30), which is a
+third state: the stale-handle problem is back **and** the scanner runs forever. The
+`HidApi` approach above avoids both: the handle is created per driver instance, opened with
+the native filter, and closed on `close()` or on a `read < 0`.
 
-> Applied to `main`; `./gradlew build` is green (compile + tests + checkstyle + spotless).
+### 2.7 Additional stutter/polish fixes
 
-**Fixed in code:**
-- **B1** — Trigger double-threshold eliminated: `ControllerMapping.isActive` treats normalized triggers as active when `> 0f`; drivers emit digital trigger buttons from raw values.
-- **B2** — Stick digital bindings no longer reuse `triggerThreshold`; they use normalized `> 0f` / `< 0f` (dead-zone is the single gate).
-- **B3** — `DualSenseDriver.poll()`/`close()` and `ControllerManager.tick()` wrapped in try/catch; `safeClose` added.
-- **B4** — Focus-loss & (re)connect edge resync via `syncEdges(...)` in `ControllerTickHandler`.
-- **B5** — `Config` honors explicit `NONE` (true unbind) and resets the mapping on each load.
-- **B6** — `ControllerMapping.applyDefaults()` clears the map first.
-- **B7** — Removed dead code (`consumeAllInWorldEdges`, `lastPartialTick`, unused `handleBButton` GUI branch) and stale docs (AT file, `CommonProxy` Javadoc, `ControllerAction` comments, README defaults/JDK note).
-- **B8** — JVM shutdown hook releases controller resources on exit (in `ClientProxy`).
-- **B9** — Tick handler registered only on the FML bus (Forge-bus duplicate removed).
-- **B10** — `ControllerManager` uses an eager singleton.
-- **B11** — Cached `lastConnected` flag avoids re-polling XInput on every `onRenderTick`.
-- **B14** — `normaliseAxis(0, 0)` returns `+0.0f`.
-
-**Tests added/updated:** trigger threshold regression tests, stick dead-zone flow tests, `applyDefaults` clear test, `normaliseAxis(0,0)` sign test.
-
-**Deferred (handled in the driver-rework / lwjgl3ify phase):**
-- **B12** — Cache/reuse DualSense `HidServices` across reconnect probes. **Reverted after testing:**
-  HID4Java's {@code HidServices} goes stale after an unplug/replug even with {@code scan()},
-  breaking DualSense hot-plug. The driver now creates a fresh instance on every construction
-  (reconnect probes happen at most every 3 seconds, so the cost is negligible) and shut it
-  down in {@code close()}, which guarantees full USB re-enumeration and correct hot-plug.
-- **Reload command (added):** `/fuzzicontrols reload` forces the controller manager to
-  re-initialize both drivers from scratch. Useful for DualSense which doesn't always hot-plug
-  cleanly through hidapi. Registered as a client-side command in `ClientProxy`.
-  Command: `com.mrfuzzihead.fuzzicontrols.command.CommandReloadControllers`.
-- **B13** — Inspect the shaded jar and revisit `relocateShadowedDependencies` (currently `true`) so JNA/hid4java/JXInput native loading is verified/locked down.
-
----
-
-## 11. Tuning & Known Issues (notes)
-
-- **DualSense input-lag fix (done):** the driver now drains the hidapi report FIFO each poll and
-  keeps the *newest* report. Previously it read exactly one report per game tick from the ~1 kHz
-  streaming device, which parsed the *oldest* queued report and fell progressively behind — this
-  was the source of the “>=1 second” lag vs snappy XInput.
-- **DualSense residual lag (still to verify):** latency now feels much better but may need tuning.
-  If it still feels laggy, the next suspect is the report-rate handshake: the DualSense only
-  streams at its full report rate once the host *writes* an output report (e.g. the 0x02
-  lightbar/motor report). We currently never write to the device. Add a best-effort, non-fatal
-  output-report write on open to force high-rate input if needed.
-- **Right-stick Y inversion (checked, no change):** reported as inverted, but verified camera
-  behaves correctly on the current build — no sign flip was required. If a controller later shows
-  real inversion, check whether movement is also inverted (fix at driver: negate Y) or only the
-  camera (fix in `applyLook`).
-- **Left-stick cursor inversion in inventory (fixed):** lwjgl3ify's compat `Mouse.setCursorPosition`
-  passes its Y coordinate directly to SDL, which uses top-left origin. LWJGL convention is
-  bottom-left. Added `mc.displayHeight - 1 - guiCursorY` conversion at every call to
-  `setCursorPosition` so SDL receives the inverted Y.
-
-## Smoothness improvements (done)
-
-- **Camera micro-stutter (fixed):** `onRenderTick` now calls `manager.pollFresh()` instead of
-  `manager.getState()`, polling the controller hardware every render frame (60+ Hz) instead of
-  relying on the 20 Hz game-tick state. This removes the ~50 ms dead-band where axis data was
-  stale between game ticks, making right-stick camera rotation continuously responsive.
-- **Movement hysteresis (fixed):** added `withHysteresis(...)` helper for the four stick-direction
-  movement actions. It tracks per-action state and uses two thresholds (HYST_ON = 0.065 to
-  activate, HYST_OFF = 0.015 to deactivate), preventing micro-oscillation when the stick is near
-  the dead-zone boundary. Activated in `syncEdges` reset.
-- **Camera Movement with right stick choppy:**
+- Add `controllerDriver = none` (and treat unknown values as `none`/`auto` with a one-time
+  warning).
+- Log probe failures at DEBUG; log only on state transitions at INFO.
+- Set `reconnectCooldown = RECONNECT_INTERVAL_TICKS` after a failed `init()`, so `init()` +
+  the first tick do not probe twice (~two 500 ms stalls at startup).
+- Back off 3 s → 10 s → 30 s after repeated failures; pause probing while
+  `!Display.isActive()`.
+- Move the probe off the client thread with an `AtomicReference<IControllerDriver>`.
+  With `HidApi.open` it is only ~2 ms, but a worker also hides the one-time 132 ms
+  `HidApi.init()`.
+- `ControllerManager.pollFresh()` logs a WARN **every render frame** on a persistent driver
+  error (ControllerManager.java:220); rate-limit or mark the driver dead.
+- `onRenderTick()` returns before updating `lastFrameNanos` when the manager is inactive
+  (ControllerTickHandler.java:527), so the first frame after a reconnect can jump by the
+  0.1 s clamp. Reset `lastFrameNanos = 0` on that early return.
 
 ---
 
-## 12. Definition of Done
+## 3. `gradle.properties`
 
-- [x] `main` builds and runs with lwjgl3ify on the target modern JDK.
-- [x] Java 8/Jabel record workarounds are removed (native Java 25; `@Desugar` dropped).
-- [x] `ControllerTickHandler` calls only lwjgl3ify-provided `org.lwjgl.input.*` compat shims (API-identical).
-- [x] `GuiKeyHelper`, `GuiMouseHelper`, and `KeyboardHelper` no longer rely on LWJGL 2 internals: the lwjgl3ify path uses public `org.lwjglx` APIs (LWJGL2 reflection kept only as fallback).
-- [x] JXInput/JNA (XInput path): **kept and justified** — JNA/JXInput/hid4java work on Java 25 (runtime smoke test passed); GLFW gamepad deferred.
-- [x] All high-severity bugs B1–B4 are fixed and covered by tests.
-- [x] Medium/low cleanups B5–B11 and B14 are fixed; B12/B13 explicitly deferred to the driver-rework phase.
-- [x] **B13** — shaded jar verified: `com.sun.jna` + `org.hid4java` are *not* relocated (native paths intact), JXInput is relocated into `shadow/`, all natives present, and the runtime smoke test passed.
-- [ ] Hot-plug, focus loss/refocus, GUI clicks, and cursor movement pass manual validation.
-- [ ] CI runs on Java 25 + lwjgl3ify (pending reusable-workflow support / matrix setup).
+### `downgradeTargetVersion = 17` — correct
+
+- The mod uses records/pattern matching and lwjgl3ify 3.x requires Java 17+. The GTNH
+  template default of 8 would not help.
+- Verified output: base class files are major 61 (Java 17), with `META-INF/versions/21`.
+- `forceToolchainVersion = -1` + default `jvmDowngraderMultiReleaseVersions = 21,25` selects
+  the JDK 25 toolchain; `.java-version` and CI use 25. Consistent.
+- **Restore the comment** explaining why 17 (the working tree removed it). Consider pinning
+  `jvmDowngraderMultiReleaseVersions = 21,25` explicitly so a future GTNHGradle update
+  cannot change the artifact layout.
+
+### `jvmDowngraderStubsProvider = shade` — correct, but fix the license note
+
+The removed comment said “JvmDowngrader is MIT-licensed”. **JvmDowngrader is LGPL-2.1**
+(`LICENSE.md` in `unimined/JvmDowngrader`). Shading the minimized stubs is fine only with
+LGPL-2.1 compliance: keep the license text/attribution and allow relinking/decompilation.
+Add a `THIRD_PARTY_NOTICES.md` covering:
+
+| Component | License |
+|---|---|
+| JvmDowngrader stubs | LGPL-2.1 |
+| JNA / jna-platform | LGPL-2.1 or Apache-2.0 |
+| JXInput | MIT |
+| hid4java | MIT |
+| FuzziControls | MIT |
+
+`shade` remains the right choice for a standalone mod; `gtnhlib` would add a GTNHLib
+≥ 0.11.37 constraint, and lwjgl3ify 3.1.0 does not declare GTNHLib as a runtime dependency
+in its module metadata. Keep `shade`.
+
+### `curseForgeEnvironments = client,server` — change to `client`
+
+The mod is client-only (the README says so); `CommonProxy` only writes a config file.
+CurseForge's environment tags describe where the mod can run/is supported, and
+`client,server` will make server owners install a controller mod that does nothing.
+
+```properties
+curseForgeEnvironments = client
+```
+
+This is inert until `curseForgeProjectId` is filled in, but it is the correct tag when you
+publish. If you add relations, use `requiredDependency:lwjgl3ify` (or `optionalDependency`
+if the `after:` dependency stays soft) and `required-project:lwjgl3ify` on Modrinth.
+
+### Other properties
+
+- `minimizeShadowedDependencies = false` is correct for JNA/hid4java reflection; restore
+  the explanation comment.
+- `relocateShadowedDependencies = false` is correct for JNA: JNA locates its native
+  `libjnidispatch` through its own package path. JXInput/hid4java could be relocated
+  separately if duplicate-class conflicts appear.
+- `usesShadowedDependencies = true`, `usesMixins = true`,
+  `coreModClass = mixins.EarlyMixinsLoader`, `mixinsPackage = mixins` are consistent.
+- The empty `mixins.fuzzicontrols.json` has no `package` or `mixins` list. It works because
+  all current mixins are registered through `mixins.fuzzicontrols.early.json`, but a future
+  late mixin under `com.mrfuzzihead.fuzzicontrols.mixins` would silently not apply. Add the
+  package/list or delete the empty config.
+- `.github/workflows/build-and-test.yml:12` still says `enableModernJavaSyntax = modern`.
+  It is now `jvmDowngrader` with a Java 17 base. Update the comment; `client-only: true`
+  remains correct because the base bytecode is 17, not 8.
+- `README.md` installation says “install Forge, drop in the jar”. The mod is Java 17+ and
+  directly references lwjgl3ify (`org.lwjglx`). The install section should require
+  **lwjgl3ify** and Java 17+, matching the build section.
+- Consider `@Mod(dependencies = "required-after:lwjgl3ify")` rather than `after:`. A
+  non-lwjgl3ify install loads the mod and then throws `NoClassDefFoundError` from
+  `KeyboardHelper`/`GuiMouseHelper` when input is used. If it stays soft, guard every
+  `org.lwjglx` reference with `Exception | LinkageError`.
+
+---
+
+## 4. `dependencies.gradle`
+
+| Dependency | Current | Latest / verdict | Recommended type |
+|---|---|---|---|
+| `com.github.GTNewHorizons:lwjgl3ify` | `3.1.0:dev` | **3.1.0 latest** (GTNH Maven, Nov 2026) | `implementation`/`api`; `api` publishes a transitive `:dev` dep even though no lwjgl3ify type appears in the public API. `compileOnly` + `devOnlyNonPublishable` is cleanest for a user-provided mod. |
+| `com.xenoamess:JXInput` | `1.0.1` | Latest on Maven Central; 2020 republish of StrikerX3's abandoned **JNI** library (not JNA). | `shadowImplementation` to bundle. Consider replacing with lwjgl3ify's GLFW gamepad API (removes a native JNI library; also gives Linux/macOS gamepad support). |
+| `org.hid4java:hid4java` | `0.8.0` | **0.8.0 latest** (Apr 2024) | `shadowImplementation` correct; only needs JNA core. |
+| `net.java.dev.jna:jna` | `5.13.0` | **5.19.1 latest** (Jun 2026) | Update. Verified hid4java 0.8.0 works with 5.19.1; the 500 ms enumeration is hidapi, not JNA. |
+| `net.java.dev.jna:jna-platform` | `5.13.0` | **Unused — remove** | Nothing imports `com.sun.jna.platform`; hid4java uses only `com.sun.jna` core. 1321 unused classes / ~1.5 MB uncompressed. |
+| `junit:junit` | `4.13.2` | Latest JUnit 4 | `testImplementation` correct. |
+
+Notes:
+
+- `shadowImplementation(...) { transitive = false }` on `hid4java` is safe: its only runtime
+  dependency is JNA, which is explicit. Its POM uses `[5.8.0,)`, so 5.13.0 satisfies it —
+  but update to 5.19.1.
+- Do not add `jna-platform` back unless Win32 COM/shell helpers are actually used.
+- JXInput/hid4java MIT notices are easy to lose when shading; add a
+  `THIRD_PARTY_NOTICES.md` and keep the license files.
+- The jar still ships all JNA natives (all platforms). That is needed for cross-platform
+  DualSense support; do not strip them without checking.
+
+---
+
+## 5. Functional bugs
+
+### P1 — Pick block never fires
+
+`ControllerTickHandler.java:489` uses `driveKey(keyBindPickBlock, ...)`, which sets
+`KeyBinding.pressed`. Vanilla 1.7.10 uses `keyBindPickBlock.isPressed()`, which reads
+`pressTime`; only `KeyBinding.onTick()` increments it. Result: **X/Square never
+pick-blocks.** Use the existing edge helper:
+
+```java
+handleEdgeTrigger(ControllerAction.PICK_BLOCK, state, mapping, mc.gameSettings.keyBindPickBlock);
+```
+
+(Verified in the 1.7.10 bytecode: `Minecraft` calls `KeyBinding.isPressed()` for pick
+block, and `setKeyBindState` only writes `pressed`.)
+
+### P1 — `handleBButton` treats `CLOSE_GUI` as a drop trigger
+
+`ControllerTickHandler.java:732`:
+
+```java
+boolean active = (mapping.isActive(dropAction, ...) ...)
+              || (mapping.isActive(closeAction, ...) ...);
+```
+
+With the defaults both actions are B, so it is invisible. If a user rebinds `CLOSE_GUI`,
+pressing that button in-world drops an item. In the no-GUI path only `DROP_ITEM` should
+matter:
+
+```java
+boolean active = mapping.isActive(dropAction, state, Config.triggerThreshold)
+    && !isActionBlocked(dropAction, mapping);
+```
+
+### P1 — `DropTapHold.blockNextRelease()` is cleared by the next press
+
+`DropTapHold.update()`:
+
+```java
+if (heldTicks == 0) {
+    heldTicks = 1;
+    holdFired = false;
+    blocked = false;   // <-- loses blockNextRelease()
+    return NONE;
+}
+if (blocked) return NONE;
+```
+
+The GUI path calls `blockNextRelease()` **without** first calling `update(true)` (the GUI
+path returns before the in-world drop handling), so the next in-world tick resets `blocked`
+and starts a fresh press. `buttonsHeldOnGuiClose` usually masks this, but the state machine
+is wrong and the tests only cover a press that was already in progress. Move
+`if (blocked) return NONE;` above `heldTicks == 0` and add this test:
+
+```java
+drop.blockNextRelease();
+assertEquals(NONE, drop.update(true, true));
+for (int i = 0; i < HOLD_TICKS * 2; i++)
+    assertEquals(NONE, drop.update(true, true));
+assertEquals(NONE, drop.update(false, true));
+```
+
+### P1 — Movement does not work if `MOVE_*` is rebound to a digital button
+
+`withHysteresis()` returns `false` for any non-axis binding
+(ControllerTickHandler.java:117). All actions are freely remappable, so binding
+`MOVE_FORWARD` to `DPAD_UP` or `A` silently disables movement:
+
+```java
+ControllerButton btn = mapping.getButton(action);
+if (btn == null) return false;
+if (!btn.isAxis()) return mapping.isActive(action, state, Config.triggerThreshold);
+return stickHysteresis.update(action, StickHysteresis.axisValue(btn, state));
+```
+
+### P1 — DualSense unplug leaves `isConnected()` true forever
+
+`DualSenseDriver.poll()` treats `read == -1` as “no new report”. `isConnected()` still
+returns `device.isOpen()` (hid4java only checks the non-null handle), so the manager never
+reconnects and returns the last button state forever — **stuck keys after unplug**. Treat
+`read < 0` as a disconnect (close the handle, return empty). Also validate the report ID
+(`data[0] == 0x01` for USB) before parsing.
+
+### P1 — `HidServices.getHidDevice()` + constructor opens the device twice
+
+`HidServices.getHidDevice()` already calls `device.open()` (and ignores the result).
+`DualSenseDriver` calls `device.open()` again. The first handle leaks; if the second open
+fails (possible on Windows with exclusive access), the controller is reported absent while
+the first handle stays open. Remove the constructor's `open()` (or use `HidApi.open`, which
+has neither problem).
+
+### P1 — `LinkageError` can escape the DualSense and keyboard paths
+
+The changelog says XInput's `UnsatisfiedLinkError` was fixed, but
+`DualSenseDriver.getHidServices()`, its constructor, `poll()`, and
+`KeyboardHelper.withKeyHeld()/isPhysicallyDown()` catch only `Exception`. JNA/hidapi load
+failures and missing `org.lwjglx` classes are `Error`s, so they escape into the client
+tick/render loop. Mirror the XInput fix:
+
+```java
+catch (Exception | LinkageError e) { ... }
+```
+
+At minimum, wrap `HidApi.init/open/read/close` and all `KeyboardHelper` uses.
+
+### P1 — Keyboard sneak takeover cancels the key you are holding
+
+`ControllerTickHandler.java:646`:
+
+```java
+sneakToggled = false;
+heldKeys.release(sneakKeyCode);
+KeyBinding.setKeyBindState(sneakKeyCode, false); // keyboard is physically holding it
+```
+
+`driveKey(..., false)` then leaves the key alone (claim released), so sneak stops until the
+key is released and pressed again. Remove the `setKeyBindState(false)`; the keyboard already
+set it true. Similarly, `releaseAllControllerKeys()` (line 584) clears every claimed key even
+if the keyboard holds it; check `Keyboard.isKeyDown(code)` before clearing.
+
+### P2 — `handleKeyboardInput()` re-dispatches the last key event
+
+The B-button GUI close does:
+
+```java
+mc.currentScreen.handleKeyboardInput();
+GuiKeyHelper.injectKey(mc.currentScreen, Keyboard.KEY_ESCAPE, '\0');
+```
+
+In 1.7.10 `GuiScreen.handleKeyboardInput()` calls
+`keyTyped(Keyboard.getEventCharacter(), Keyboard.getEventKey())` if the current (possibly
+stale) LWJGL event is a key-down. It can re-deliver the last typed character (duplicate
+input in chat/text fields). `GuiKeyHelper.injectKey()` already calls `keyTyped` with
+Escape; remove the `handleKeyboardInput()` call.
+
+### P2 — Stale in-world edge state across GUIs
+
+The GUI path returns without advancing `wasActive` for `ATTACK`, `HOTBAR_*`, `INVENTORY`,
+etc. If a button was active before a GUI opened, released inside the GUI, and pressed again
+after closing, `wasActive` can still be true and the first press (including the attack
+`onTick` one-shot) is swallowed. Add `syncInWorldEdges(state, mapping)` (updating only the
+in-world actions, without resetting GUI state like `syncEdges` does) before the GUI path
+returns.
+
+### P2 — Misc correctness
+
+- `ControllerManager.pollFresh()` warns per frame on a persistent poll error; rate-limit or
+  close the driver.
+- `GuiMouseHelper.directMouseClicked()` sets `sdlMouseButtonFlags` outside a `try/finally`;
+  a throwing screen leaves the mouse button logically down. Restore in `finally` (same for
+  `injectLwjgl3ify` if `addButtonEvent` throws).
+- `ControllerManager.selectDriver`'s `quiet` parameter is unused; remove it.
+- `ControllerManager`/`safeClose`/`pollFresh` catch `Exception` only; add `LinkageError`.
+- `Config.parseButton` should `trim()` and use `Locale.ROOT`; `controllerDriver` should trim
+  and validate. A typo currently means “no driver” plus endless retries.
+- `ControllerState` allocates a new empty state per call and the record copies the
+  `EnumSet` again; use a static `EMPTY` and avoid the double copy.
+- `DualSenseDriver.poll` allocates `new byte[64]` every render frame; make it a field.
+- `CommandReloadControllers` uses `ChatComponentTranslation` with literal English strings;
+  use `ChatComponentText` + `EnumChatFormatting`.
+- `MixinSelfTest` logs “mixin not applied?” even when `analogMovement=false` is intentional.
+- `DualSenseDriver.isConnected()` uses the deprecated `isOpen()` (the build's only
+  deprecation warning); use `!isClosed()` or the handle-based check.
+
+---
+
+## 6. Dead code and refactor opportunities
+
+- **Dead fields in `ControllerTickHandler`**: `dropHeldTicks`, `dropHoldFired`,
+  `dropBlockedByGui`, `BASE_DEGREES_PER_SECOND`. Remove.
+- **Dead actions**: `ControllerAction.LOOK_UP/DOWN/LEFT/RIGHT` are never handled (camera
+  uses raw axes); `ControllerAction.DPAD_UP/DOWN/LEFT/RIGHT` are never handled (the
+  *buttons* are used by `GUI_NAV_*`). They still appear in `config/fuzzicontrols.cfg`.
+  Remove or implement them.
+- **`ControllerButton.GUIDE`**: `XInputReportMapper` maps `buttons.guide`, but
+  XInputGetState never reports the guide button (it needs `XInputGetKeystroke`), and the
+  DualSense parser never sets it.
+- **`ControllerMapping.isActive(..., triggerThreshold)`**: the parameter is unused; all
+  drivers pre-threshold triggers. Remove it.
+- **Stale Javadoc**: `{@value #DROP_HOLD_TICKS}` (moved to `DropTapHold.HOLD_TICKS`) and
+  `{@link #controllerHeldKeys}` (renamed `heldKeys`) in `ControllerTickHandler`; the
+  `DropTapHold` doc references the removed `dropBlockedByGui`. The Javadoc task will warn.
+- **`ControllerManager` Javadoc** performance claim: replace with the measured reality.
+- **`GuiFocusNavigator.adjustSlider`** uses hard-coded SRG reflection for
+  `GuiScreenOptionsSounds$Button`. It works in production but likely fails in a dev
+  environment with MCP field names, and re-reflects on every press. Add a mixin accessor
+  for the private class/fields.
+- **`GuiFocusNavigator`/`GuiFocusRenderer`** recompute button hashes and geometry every
+  tick; `InitGuiEvent.Post` + precomputed geometry (already in `BUGS.md`) would remove that.
+- **`ControllerTickHandler`** repeats the same “isActive + edge + wasActive” pattern;
+  `handleEdgeTrigger()` already exists. A small `handleEdge(action, Runnable)` would remove
+  ~60 lines and make edge handling consistent.
+- **`Config`** is loaded twice on the client (`EarlyMixinsLoader.getMixins()` and
+  `CommonProxy.preInit`). The early load is required for `analogMovement`, but the second
+  load is redundant.
+- **`HidManager` vs `new HidServices`**: if `HidServices` stays, use `new HidServices(spec)`
+  so `autoStart=false`/`NO_SCAN` is guaranteed.
+
+---
+
+## 7. Features worth adding
+
+- **`driver = none`** / `enabled` toggle so users without a controller pay zero cost.
+- **Bluetooth DualSense support**: the driver only parses USB report `0x01` (64 bytes).
+  Bluetooth uses report `0x31` (78 bytes, CRC32); DualSense Edge uses PID `0x0DF2`.
+  Currently a BT DualSense is either not detected or misparsed. At minimum document “USB
+  only” and reject non-`0x01` reports.
+- **GLFW gamepad input via lwjgl3ify** instead of JXInput + hid4java: removes one JNI
+  library (JXInput) and gives Linux/macOS gamepad support. hid4java remains for
+  DualSense-specific features. (Also carried over from the previous plan, section 9.)
+- **Rumble/vibration** (XInput `XInputSetState`, DualSense output report).
+- **Controller-type-aware button glyphs** (Xbox vs PlayStation) for the planned remap GUI.
+- **Per-device DualSense calibration** (Sony ships calibration data; raw 0–255 is
+  approximate).
+- **Controller connected/disconnected toast** instead of silent log lines.
+- **In-game remap screen** (already in README future plans), with live “press a button”
+  capture; it would also expose the dead `LOOK_*`/`DPAD_*` actions if kept.
+
+---
+
+## 8. Tests, CI, docs
+
+- Missing tests:
+  - `DropTapHold.blockNextRelease()` **before** any `update(true)`.
+  - `withHysteresis` with a digital binding.
+  - `handleBButton` with `DROP_ITEM` and `CLOSE_GUI` on different buttons (extract the
+    active-state calculation into a pure helper).
+  - `releaseAllControllerKeys` does not clear a key the keyboard holds.
+  - Extract a `HidTransport` (`open/read/close`) from `DualSenseDriver` and test
+    `read == -1` → disconnect, report-ID filtering, and the no-report cache path.
+- Add a structural test that the DualSense probe is **not** called from the client tick
+  path (inject a `ProbeExecutor` and assert it is a worker). The CI self-test cannot
+  reproduce the 500 ms freeze without hardware.
+- `client-smoke-test-java25` should assert no `hid4java device scanner` thread and no
+  recurring `DualSense not found` lines after the fix.
+- `README.md` installation: add lwjgl3ify and Java 17+.
+- `BUTTON_BINDINGS.md`: `HOTBAR_NEXT` says “D-pad right” but the default is RB; `SPRINT`
+  says “toggle” but `driveKey(keyBindSprint, ...)` holds it; `INVENTORY` says “open/close”
+  but Y does nothing in a GUI. Align docs or implement.
+- `.github/workflows/build-and-test.yml`: update the stale `modern` comment; consider
+  pinning the shared workflow to a tag/commit instead of `@master`.
+- `jitpack.yml`: `setupCIWorkspace` exists, but JitPack's default JDK will not be 25. Add
+  `jdk: openjdk25` or remove the file if JitPack is not supported.
+
+---
+
+## 9. Open items carried over from the previous plan
+
+These were not completed by the migration and remain valid:
+
+- **B11 — XInput is polled multiple times per frame.** `XInputDriver.isConnected()` calls
+  `device.poll()`, and the manager calls `isConnected()` + `poll()` per tick; `pollFresh()`
+  adds another pair per rendered frame. Measured cost is only ~8 µs per call, so this is a
+  cleanup, not a stutter source. Cache the connected flag per tick.
+- **Manual validation checklist** (still unchecked):
+  - Xbox controller: buttons, sticks, triggers, hot-plug.
+  - DualSense: face buttons, sticks, triggers, D-pad, share/options; unplug/replug.
+  - GUI navigation: main menu, inventory, pause, chest, `GuiSlot` world/server lists.
+  - Shift-click (LT + A/X), scroll, D-pad focus, sliders.
+  - Focus loss/refocus; controller disconnect/reconnect.
+  - Cursor speed at multiple window sizes (854×480 reference scaling).
+  - **New:** no periodic hitch with no controller connected; no recurring
+    `DualSense not found` lines; no `hid4java device scanner` thread.
+- **GLFW gamepad backend** (section 7): still the preferred long-term replacement for
+  JXInput; keep `ControllerState`/`ControllerMapping` semantics and add normalization parity
+  tests.
+- **GTNHLib evaluation** (from the previous plan): no gamepad API; `SimpleGuiConfig` is the
+  only strong reason to add it, and only when the remap/config GUI is built. Do not add it
+  now.
+- **DualSense output-report handshake**: the device may need a best-effort output report
+  (e.g. `0x02` lightbar/motor) on open to stream at full rate. Still worth testing if
+  latency feels high.
+- **Right-stick Y inversion**: previously checked as correct; re-check on the final build if
+  a controller reports inversion. Fix at the driver (negate Y) if movement is also
+  inverted, or in `applyLook` if only the camera is.
+- **Shaded-jar verification (old B13)**: current values are
+  `minimizeShadowedDependencies=false`, `relocateShadowedDependencies=false` (the old plan
+  text said `true`). Verify JNA/hid4java/JXInput natives are present and unrelocated, and
+  remove the unused `jna-platform` classes. `BUGS.md`’s “minimize” note is stale.
+
+---
+
+## 10. Suggested order of work
+
+1. **P0 stutter**: switch `DualSenseDriver` to `HidApi.open/read/close`, remove the
+   `HidServices` scanner, update `ClientProxy`'s shutdown call.
+2. **Retry hygiene**: add `driver = none`, DEBUG logging, backoff, skip while unfocused,
+   set the cooldown after `init`.
+3. **Small high-value bugs**: pick block, drop-button remapping, `DropTapHold.blockNextRelease`,
+   digital `MOVE_*` bindings.
+4. **DualSense lifecycle**: report-ID check, `read < 0` → disconnect, no double open,
+   `LinkageError` guards, USB-only/BT notes.
+5. **Keyboard interaction**: remove the fake `handleKeyboardInput()`, stop clearing
+   keyboard-held keys on sneak takeover/disconnect.
+6. **Dependencies**: JNA 5.19.1, remove `jna-platform`, fix the JXInput comment, add
+   `THIRD_PARTY_NOTICES.md`.
+7. **Config/docs/metadata**: `curseForgeEnvironments=client`,
+   `required-after:lwjgl3ify` (or guard the fallbacks), README install, BUTTON_BINDINGS,
+   restore accurate `gradle.properties` comments (including the LGPL-2.1 correction).
+8. **Refactor/dead code**: remove dead fields/actions, fix stale Javadoc, add the
+   sound-slider accessor, consolidate edge handling, then add the tests in section 8.
+
+---
+
+## 11. Definition of done
+
+- [ ] Idle (no controller) probing costs < ~20 ms per probe and never blocks the client
+      thread for a frame; no hid4java scanner thread.
+- [ ] `HidServices`/`HidApi` lifecycle has no leaked handles; unplug is detected within one
+      tick.
+- [ ] `driver = none` is supported and documented.
+- [ ] Pick block, drop:one/drop:stack, movement rebinding, sneak takeover, and GUI close via
+      B all behave correctly in-game.
+- [ ] `curseForgeEnvironments = client`; dependency versions/notices updated; JNA upgraded;
+      `jna-platform` removed.
+- [ ] Dead fields/actions/Javadoc removed; `./gradlew build` (tests + checkstyle + spotless)
+      green.
+- [ ] New unit tests from section 8 pass; the client self-test still reports
+      `Mixin self-test: 7 checks, 0 failures`.
+- [ ] Manual validation checklist in section 9 completed.
