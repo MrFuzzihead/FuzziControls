@@ -629,10 +629,16 @@ returns.
 ## 7. Features worth adding
 
 - **`driver = none`** — done (see P0): users without a controller pay zero cost; an extra `enabled` toggle is unnecessary.
-- **Bluetooth DualSense support**: the driver only parses USB report `0x01` (64 bytes).
-  Bluetooth uses report `0x31` (78 bytes, CRC32); DualSense Edge uses PID `0x0DF2`.
-  Currently a BT DualSense is either not detected or misparsed. At minimum document “USB
-  only” and reject non-`0x01` reports.
+- **Bluetooth DualSense support** — done (this iteration). The driver now parses the USB
+  `0x01` (64-byte) report, the Bluetooth simple `0x01` (10-byte) report and the Bluetooth
+  enhanced `0x31` (78-byte, CRC32 seed `0xA1`) report. Reading feature report `0x05` on
+  connect requests the enhanced report; if the controller stays in simple mode, sticks,
+  buttons and triggers still work. DualSense Edge PID `0x0DF2` is supported alongside
+  `0x0CE6`. Bluetooth handles that stop sending reports are treated as disconnected after
+  2 seconds. The report layouts live in `DualSenseReportParser` and the HID lifecycle in
+  `DualSenseTransport`/`HidApiDualSenseTransport`, both covered by unit tests. Remaining:
+  hardware validation on Windows/Linux/macOS Bluetooth, a USB-vs-Bluetooth preference when
+  both are connected, and Edge paddle/function buttons (not in `ControllerButton`).
 - **GLFW gamepad input via lwjgl3ify** instead of JXInput + hid4java: removes one JNI
   library (JXInput) and gives Linux/macOS gamepad support. hid4java remains for
   DualSense-specific features. (Also carried over from the previous plan, section 9.)
@@ -683,8 +689,11 @@ returns.
   - `handleBButton` with `DROP_ITEM` and `CLOSE_GUI` on different buttons (extract the
     active-state calculation into a pure helper).
   - `releaseAllControllerKeys` does not clear a key the keyboard holds.
-  - Extract a `HidTransport` (`open/read/close`) from `DualSenseDriver` and test
+  - [x] Extract a `DualSenseTransport` (`open/read/close`) from `DualSenseDriver` and test
     `read == -1` → disconnect, report-ID filtering, and the no-report cache path.
+    `DualSenseDriverTest` covers the transport lifecycle, read errors, stale handles and the
+    no-report cache; `DualSenseReportParserTest` covers USB, Bluetooth simple, Bluetooth
+    enhanced, layout detection and the Bluetooth CRC.
 - Add a structural test that the DualSense probe is **not** called from the client tick
   path (inject a `ProbeExecutor` and assert it is a worker). The CI self-test cannot
   reproduce the 500 ms freeze without hardware.
@@ -711,7 +720,12 @@ These were not completed by the migration and remain valid:
   cleanup, not a stutter source. Cache the connected flag per tick.
 - **Manual validation checklist** (still unchecked):
   - Xbox controller: buttons, sticks, triggers, hot-plug.
-  - DualSense: face buttons, sticks, triggers, D-pad, share/options; unplug/replug.
+  - DualSense: face buttons, sticks, triggers, D-pad, share/options; USB unplug/replug.
+  - DualSense Bluetooth: pair in the OS, connect while the game is running, verify sticks,
+    buttons and triggers in both simple and enhanced modes, then turn the controller off and
+    verify it reconnects without stuck keys (2 s stale-handle timeout).
+  - DualSense Edge (PID `0x0DF2`): standard buttons/sticks/triggers over USB and Bluetooth.
+    Paddles/function buttons are not mapped yet.
   - GUI navigation: main menu, inventory, pause, chest, `GuiSlot` world/server lists.
   - Shift-click (LT + A/X), scroll, D-pad focus, sliders.
   - Focus loss/refocus; controller disconnect/reconnect.

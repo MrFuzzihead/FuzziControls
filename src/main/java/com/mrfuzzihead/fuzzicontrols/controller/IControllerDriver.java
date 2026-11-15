@@ -30,4 +30,20 @@ public interface IControllerDriver {
 
     /** Human-readable name for logging and config UI. */
     String getDriverName();
+
+    /**
+     * Human-readable device name for toasts and the settings screen, e.g. {@code DualSense Edge}.
+     * Defaults to the driver name for drivers that only expose one device type.
+     */
+    default String getDeviceName() {
+        return getDriverName();
+    }
+
+    /**
+     * Human-readable transport, e.g. {@code USB} or {@code Bluetooth}. Empty when the driver does
+     * not distinguish transports (XInput) or does not know yet.
+     */
+    default String getTransportName() {
+        return "";
+    }
 }
