@@ -97,6 +97,10 @@ jobs:
 
       - name: Run the in-game server tests
         run: |
+          # pipefail matters: `| tee` otherwise reports tee's status and a failed Gradle run
+          # (e.g. a Maven Central 429 during plugin resolution) silently "passes" this step,
+          # leaving the report assert to fail with a misleading "no report" message.
+          set -o pipefail
           timeout 600 ./gradlew --console=plain --stacktrace gameTestServer 2>&1 | tee gametest-server.log
 
       - name: Assert the game-test result
@@ -206,6 +210,7 @@ jobs:
           FUZZICONTROLS_SELFTEST: '1'
         run: |
           set +e
+          set -o pipefail
           timeout 900 xvfb-run -a -s "-screen 0 1280x720x24 +extension GLX +extension RANDR +render -noreset -ac" \
             ./gradlew --console=plain --stacktrace runClient25 2>&1 | tee client.log
           echo "client step exit: $?"
@@ -275,6 +280,7 @@ jobs:
       - name: Run in-game client tests headless
         run: |
           set +e
+          set -o pipefail
           timeout 900 xvfb-run -a -s "-screen 0 1280x720x24 +extension GLX +extension RANDR +render -noreset -ac" ./gradlew --console=plain --stacktrace gameTestClient 2>&1 | tee gametest-client.log
           echo "game test step exit: $?"
 
