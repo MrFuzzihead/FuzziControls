@@ -50,7 +50,7 @@ When any screen is open — inventory, crafting table, chest, the pause menu, or
 - **Left stick** → moves the OS cursor with an analogue quadratic curve (gentle tilt = precision, full push = speed), automatically scaled to your window size
 - **A / Cross** → left-click (select slots, press buttons, pick items)
 - **X / Square** → right-click (split stacks, etc.)
-- **LT / L2** → arm shift-click mode — the next left-click moves an entire stack, just like Shift+clicking with a mouse
+- **LT / L2** → hold for shift-click mode — every left-click while held moves an entire stack; tap it to arm a single Shift+click
 - **Right stick ↑/↓** → scroll lists, inventories and other scrolling GUIs (quadratic response, speed set by `scrollSensitivity`)
 - **B / Circle** → close the screen
 

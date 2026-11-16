@@ -21,6 +21,10 @@ Versions are derived from git tags (`git describe`), so a release is published b
 
 ### Fixed
 
+- **Holding LT/L2 in a GUI only shift-clicked the first stack.** The shift-click state was consumed by
+  the first left-click, so moving several stacks required releasing and re-pressing the trigger. While
+  LT/L2 is held, every A/Cross left-click is now a Shift+click (moving stack after stack); a tap still
+  arms a single Shift+click. Keyboard Shift continues to take priority.
 - **Keyboard WASD stopped working whenever a controller was connected.** The analogue-movement mixin
   overwrote the movement axes with the left stick's deflection even when the stick was centred, which is
   exactly `0.0` inside the dead zone — so holding W/A/S/D produced no movement at all. A centred stick

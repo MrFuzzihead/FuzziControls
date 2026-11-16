@@ -118,15 +118,12 @@ public class ControllerTickHandler {
     /** Tracks previous press state for GUI right-click (edge detection). */
     private boolean wasGuiRightClick = false;
 
-    /** Tracks previous press state for GUI shift-click (edge detection). */
-    private boolean wasGuiShiftClick = false;
-
     /**
-     * When true, the next GUI left-click will be a shift+left-click (moves entire stack).
-     * Toggled by {@link ControllerAction#GUI_SHIFT_CLICK}. Cleared automatically when
-     * the physical keyboard Shift key is pressed, or when the GUI closes.
+     * Hold/tap state for {@link ControllerAction#GUI_SHIFT_CLICK}: holding LT/L2 arms Shift+click
+     * for every left-click; a tap still arms one click. Reset when the GUI closes or the
+     * controller disconnects.
      */
-    private boolean guiShiftToggled = false;
+    private final GuiShiftClick guiShift = new GuiShiftClick();
 
     /**
      * Buttons that were physically held when a GUI screen last closed. Each button in this set
@@ -247,6 +244,14 @@ public class ControllerTickHandler {
                 guiCursorInitialized = true;
                 warpCursor(mc, guiCursorX, guiCursorY);
             }
+
+            // Update the GUI shift-click mode before any nav/click action so LT + A in the same
+            // tick is delivered as a Shift+click. Holding LT/L2 keeps shift armed for every
+            // click; a tap still arms the next click.
+            boolean keyboardShift = KeyboardHelper.isPhysicallyDown(Keyboard.KEY_LSHIFT)
+                || KeyboardHelper.isPhysicallyDown(Keyboard.KEY_RSHIFT);
+            guiShift.update(mapping.isActive(ControllerAction.GUI_SHIFT_CLICK, state), keyboardShift);
+
             // ---- D-pad discrete navigation state machine ----
             // ---- D-pad discrete navigation state machine (see DpadNavState) ----
             // Activation: any D-pad ↑/↓/←/→ physically pressed (not rising edge — the rising edge is
@@ -336,14 +341,6 @@ public class ControllerTickHandler {
             }
             suppressGuiRightClick = false;
 
-            handleGuiShiftClick(state, mapping, mc);
-
-            // If the keyboard Shift key is pressed, clear any controller shift toggle so they
-            // don't fight each other.
-            if (Keyboard.isKeyDown(Keyboard.KEY_LSHIFT) || Keyboard.isKeyDown(Keyboard.KEY_RSHIFT)) {
-                guiShiftToggled = false;
-            }
-
             // B / Circle: inject an Escape key press to back out of any screen.
             // GuiKeyHelper dispatches keyTyped(Escape) directly, which works for inventory, pause
             // menu, main-menu submenus, chat, etc. without needing a player.
@@ -381,7 +378,7 @@ public class ControllerTickHandler {
 
         // Screen is closed — reset cursor init flag and consume GUI-click and nav edges cleanly.
         guiCursorInitialized = false;
-        guiShiftToggled = false;
+        guiShift.reset();
         suppressGuiLeftClick = false;
         suppressGuiRightClick = false;
         dpadNav.reset();
@@ -391,7 +388,6 @@ public class ControllerTickHandler {
         mouseMotionTracker.reset();
         consumeGuiClick(ControllerAction.GUI_LEFT_CLICK, state, mapping);
         consumeGuiClick(ControllerAction.GUI_RIGHT_CLICK, state, mapping);
-        consumeGuiClick(ControllerAction.GUI_SHIFT_CLICK, state, mapping);
         consumeNavEdges(state, mapping);
 
         // Remove any buttons from the post-GUI block set that have now been released.
@@ -711,9 +707,8 @@ public class ControllerTickHandler {
         }
         wasGuiLeftClick = mapping.isActive(ControllerAction.GUI_LEFT_CLICK, state);
         wasGuiRightClick = mapping.isActive(ControllerAction.GUI_RIGHT_CLICK, state);
-        wasGuiShiftClick = mapping.isActive(ControllerAction.GUI_SHIFT_CLICK, state);
         dropTapHold.reset();
-        guiShiftToggled = false;
+        guiShift.reset();
         suppressGuiLeftClick = false;
         suppressGuiRightClick = false;
         dpadNav.reset();
@@ -828,13 +823,13 @@ public class ControllerTickHandler {
             int guiX = (int) (guiCursorX * sr.getScaledWidth() / mc.displayWidth);
             int guiY = sr.getScaledHeight() - (int) (guiCursorY * sr.getScaledHeight() / mc.displayHeight) - 1;
 
-            // If shift is toggled on for GUI clicks and this is a left-click press, dispatch
-            // directly and synchronously while the LWJGL keyboard buffer is patched to report
-            // Shift as held. This ensures GuiContainer.handleMouseClick() sees the shift for
-            // the exact duration of the call, moving the entire item stack.
+            // If shift-click is armed and this is a left-click press, dispatch directly and
+            // synchronously while the LWJGL keyboard buffer is patched to report Shift as held.
+            // This ensures GuiContainer.handleMouseClick() sees the shift for the exact duration
+            // of the call, moving the entire item stack.
             // The normal injectMouseButton path writes to Mouse.readBuffer (processed
             // asynchronously on the next game-loop iteration) which would be too late.
-            boolean applyShift = guiShiftToggled && mouseButton == 0 && justPressed;
+            boolean applyShift = guiShift.isArmed() && mouseButton == 0 && justPressed;
             if (applyShift) {
                 final int gx = guiX;
                 final int gy = guiY;
@@ -845,8 +840,7 @@ public class ControllerTickHandler {
                 // Also send the corresponding release through the normal queue so the screen
                 // sees a complete press/release cycle.
                 GuiMouseHelper.injectMouseButton(mc.currentScreen, mouseButton, false, guiX, guiY);
-                // Consume the shift toggle — one shift-click per toggle press.
-                guiShiftToggled = false;
+                guiShift.onClickDelivered();
             } else {
                 GuiMouseHelper.injectMouseButton(mc.currentScreen, mouseButton, justPressed, guiX, guiY);
             }
@@ -860,51 +854,27 @@ public class ControllerTickHandler {
     }
 
     /**
-     * Activates the currently focused element with the given mouse button, honouring the shift-click
-     * toggle. Delegates to {@link GuiElementActivator} so the dispatch is shared with the client
-     * self-test harness.
+     * Activates the currently focused element with the given mouse button, honouring the armed
+     * Shift+click state. Delegates to {@link GuiElementActivator} so the dispatch is shared with
+     * the client self-test harness.
      *
      * @param mouseButton 0 = left, 1 = right
      * @return true when a focused element existed and consumed the press
      */
     private boolean activateFocused(int mouseButton) {
-        boolean shiftClick = mouseButton == 0 && guiShiftToggled;
+        boolean shiftClick = mouseButton == 0 && guiShift.isArmed();
         boolean activated = GuiElementActivator
             .activate(guiFocusNavigator, mouseButton, Minecraft.getMinecraft(), shiftClick);
         if (activated && shiftClick) {
-            // One shift-click per toggle press.
-            guiShiftToggled = false;
+            guiShift.onClickDelivered();
         }
         return activated;
     }
 
     /**
-     * Handles {@link ControllerAction#GUI_SHIFT_CLICK}: on the rising edge of the bound button,
-     * toggles {@link #guiShiftToggled}. The next GUI left-click will then be delivered with
-     * the Shift key held, causing Minecraft to move the entire item stack.
-     *
-     * <p>
-     * The toggle is also cleared when:
-     * <ul>
-     * <li>A shift-click is successfully delivered (consumed in {@link #handleGuiClick}).</li>
-     * <li>The physical keyboard Shift key is pressed (checked in {@link #onClientTick}).</li>
-     * <li>A GUI screen closes (reset in {@link #onClientTick}).</li>
-     * </ul>
-     */
-    private void handleGuiShiftClick(ControllerState state, ControllerMapping mapping, Minecraft mc) {
-        int idx = ControllerAction.GUI_SHIFT_CLICK.ordinal();
-        boolean active = mapping.isActive(ControllerAction.GUI_SHIFT_CLICK, state);
-        boolean justPressed = active && !wasGuiShiftClick;
-        if (justPressed) {
-            guiShiftToggled = !guiShiftToggled;
-        }
-        wasGuiShiftClick = active;
-    }
-
-    /**
      * Advances the GUI click edge state without performing any action.
-     * Called when no screen is open to keep {@link #wasGuiLeftClick}/{@link #wasGuiRightClick}/
-     * {@link #wasGuiShiftClick} clean so rising edges don't carry over into a newly opened GUI.
+     * Called when no screen is open to keep {@link #wasGuiLeftClick}/{@link #wasGuiRightClick}
+     * clean so rising edges don't carry over into a newly opened GUI.
      */
     private void consumeGuiClick(ControllerAction action, ControllerState state, ControllerMapping mapping) {
         boolean active = mapping.isActive(action, state);
@@ -912,8 +882,6 @@ public class ControllerTickHandler {
             wasGuiLeftClick = active;
         } else if (action == ControllerAction.GUI_RIGHT_CLICK) {
             wasGuiRightClick = active;
-        } else if (action == ControllerAction.GUI_SHIFT_CLICK) {
-            wasGuiShiftClick = active;
         }
     }
 

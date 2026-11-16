@@ -42,7 +42,7 @@ Camera rotation is applied **every rendered frame** (not via the action mapping)
 |---|---|---|---|
 | Right Trigger (RT) | R2 | Attack / mine *(in-world)* | Held — fires continuously; works even without a target in crosshair |
 | Left Trigger (LT) | L2 | Use item / place block *(in-world)* | Held — fires continuously while held |
-| Left Trigger (LT) | L2 | **Toggle shift-click mode** *(in GUI)* | Press once to arm shift mode; next left-click (A/✕) sends a Shift+click, moving the entire stack. Auto-clears after one use or when keyboard Shift is pressed. |
+| Left Trigger (LT) | L2 | **Shift-click (hold or tap)** *(in GUI)* | Hold to send a Shift+click with every A/✕ left-click while held (moves stack after stack). A tap arms a single Shift+click instead. Cleared on release after a used hold, when keyboard Shift is pressed, or when the GUI closes. |
 | Right Bumper (RB) | R1 | Next hotbar slot | Edge-triggered |
 | Left Bumper (LB) | L1 | Previous hotbar slot | Edge-triggered |
 
@@ -71,7 +71,7 @@ switches from game-play mode to cursor mode automatically.
 | Left Stick | Left Stick | Move cursor | Analogue speed (quadratic curve) — gentle tilt = precise, full = fast. Scaled by `inventoryCursorSensitivity`. Speed scales with window size automatically. |
 | A | Cross (✕) | Left-click | Selects slots, presses buttons, etc. at cursor position. If shift mode is armed (see LT), sends a Shift+left-click instead. |
 | X | Square (□) | Right-click | Half-stack pick-up, etc. at cursor position |
-| Left Trigger (LT) | L2 | Toggle shift-click mode | Rising edge arms shift mode. The very next A/✕ left-click will be a Shift+click (move entire stack). Cleared after one use, on GUI close, or if keyboard Shift is pressed. |
+| Left Trigger (LT) | L2 | Shift-click (hold or tap) | Holding LT sends a Shift+click with every A/✕ left-click until released, so multiple stacks can be moved quickly. A tap arms one Shift+click. Cleared on release after a used hold, on GUI close, or if keyboard Shift is pressed. |
 | B | Circle (○) | Close screen | Returns to game (same as pressing Escape) |
 
 The left stick drives the real OS cursor via LWJGL `Mouse.setCursorPosition`, so this works
@@ -100,9 +100,9 @@ When `dpadNavigation = true` in config, the D-pad activates discrete **inventory
 | D-pad ↓ | D-pad ↓ | **GUI focus down** (when `dpadNavigation=true`) | Moves focus to the nearest item below. In inventory screens, navigates between item slots in the container grid. |
 | D-pad ← | D-pad ← | **GUI focus left / slider decrease** (when `dpadNavigation=true`) | Moves focus left in button lists and inventory slot grids. If focused on a slider, decreases its value by `dpadSliderStep`. |
 | D-pad → | D-pad → | **GUI focus right / slider increase** (when `dpadNavigation=true`) | Moves focus right. If focused on a slider, increases its value by `dpadSliderStep` (or one step of the option's own value grid when that grid is coarser — e.g. Mipmap Levels, Anisotropic Filtering). |
-| A / Cross | A / Cross | **Confirm focused element** (when `dpadNavigation=true`) | Activates the focused button, selects a focused world/server list entry, or clicks the focused inventory slot. With shift-click armed (LT), a focused slot moves the entire stack. |
+| A / Cross | A / Cross | **Confirm focused element** (when `dpadNavigation=true`) | Activates the focused button, selects a focused world/server list entry, or clicks the focused inventory slot. While LT/L2 is held (or tap-armed), a focused slot moves the entire stack. |
 | X / Square | X / Square | **Right-click focused slot** (when `dpadNavigation=true`) | Splits a stack / places a single item on the focused inventory slot. Does nothing on a focused button or slider (a right-click would otherwise press the button). |
-| LT / L2 | L2 | **Arm shift-click** (when `dpadNavigation=true`) | As in cursor mode: the next A/Cross on a focused slot moves the entire stack. |
+| LT / L2 | L2 | **Shift-click (hold or tap)** (when `dpadNavigation=true`) | Hold LT/L2 and press A/Cross on focused slots to move stack after stack; release to end the mode. A tap arms one focused-slot Shift+click. |
 
 While `dpadNavigation=true`, list screens (world select, server list, video settings) scroll themselves so
 the focused entry stays visible, and an entry that is scrolled out of view is never activated — pressing
@@ -196,7 +196,7 @@ Scroll behavior is controlled by `rightStickScrolling` (default `true`) and `scr
 | 2026-03-01 | Fixed: character no longer jumps after closing a GUI with a button also bound to an in-world action (e.g. A = GUI left-click AND jump) — buttonsHeldOnGuiClose set tracks every button held at GUI close time; each button is blocked from triggering any in-world action until it is fully released, regardless of how long it is held |
 | 2026-03-01 | Fixed: virtual cursor and camera no longer move when the game window is not focused — both onClientTick and onRenderTick guard with Display.isActive(); delta timer resets on focus loss to prevent a position jump on return |
 | 2026-03-02 | Fixed: DualSense input lag — switched to non-blocking HID reads (timeout=0); last valid state is cached and returned when no new report is available, eliminating the 5 ms forced wait per poll |
-| 2026-03-02 | Added: Shift-left-click in inventories — LT (L2) toggles shift mode while a GUI is open; the next A/✕ left-click delivers a Shift+click via KeyboardHelper patching LWJGL Keyboard.isKeyDown(), moving the entire stack. Toggle auto-clears after one use, on GUI close, or if keyboard Shift is pressed |
+| 2026-03-02 | Added: Shift-left-click in inventories — LT (L2) sends Shift+click while a GUI is open; holding it applies to every A/✕ left-click until release (multiple stacks), while a tap arms one click. Delivered via KeyboardHelper patching LWJGL Keyboard.isKeyDown(), moving the entire stack. Cleared on release after a used hold, on GUI close, or if keyboard Shift is pressed |
 | 2026-03-02 | Fixed: GUI cursor speed now scales with window size relative to an 854×480 reference — cursor traversal time is now consistent at any resolution from small windowed to full-screen |
 | 2026-03-02 | Fixed: pressing the keyboard sneak key while the controller sneak toggle is on now clears the toggle, so keyboard sneak works normally without fighting the controller |
 | 2026-03-02 | Deferred: analog movement speed scaling (requires Mixin into EntityPlayerSP) — tracked in plan for future implementation |
