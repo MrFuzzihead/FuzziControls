@@ -30,7 +30,7 @@ public enum Mixins implements IMixins {
         .addClientMixins("GuiContainerAccessors")),
 
     ANALOG_MOVEMENT(new MixinBuilder().setPhase(Phase.EARLY)
-        .addClientMixins("MixinEntityPlayerSP")
+        .addClientMixins("MixinEntityPlayerSP", "MixinEntity_MoveFlying")
         .setApplyIf(() -> Config.analogMovement));
 
     private final MixinBuilder builder;

@@ -8,6 +8,7 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
@@ -43,9 +44,22 @@ public class ControllerManagerTest {
 
         private ControllerState nextState = ControllerState.empty();
 
+        private String deviceName;
+
+        private String transportName = "";
+
+        private boolean connectionConfirmed = true;
+
         FakeDriver(String name, boolean connected) {
             this.name = name;
             this.connected = connected;
+            this.deviceName = name;
+        }
+
+        FakeDriver withDevice(String deviceName, String transportName) {
+            this.deviceName = deviceName;
+            this.transportName = transportName;
+            return this;
         }
 
         @Override
@@ -68,6 +82,37 @@ public class ControllerManagerTest {
         @Override
         public String getDriverName() {
             return name;
+        }
+
+        @Override
+        public String getDeviceName() {
+            return deviceName;
+        }
+
+        @Override
+        public String getTransportName() {
+            return transportName;
+        }
+
+        @Override
+        public boolean isConnectionConfirmed() {
+            return connectionConfirmed;
+        }
+    }
+
+    /** Records connection events as compact strings so tests can assert their order. */
+    private static final class RecordingListener implements ControllerManager.ConnectionListener {
+
+        private final List<String> events = new ArrayList<>();
+
+        @Override
+        public void onControllerConnected(ControllerConnection connection) {
+            events.add("+" + connection.getDeviceName() + "/" + connection.getTransportName());
+        }
+
+        @Override
+        public void onControllerDisconnected(ControllerConnection connection) {
+            events.add("-" + connection.getDeviceName() + "/" + connection.getTransportName());
         }
     }
 
@@ -423,6 +468,182 @@ public class ControllerManagerTest {
         }
 
         assertTrue("A device appearing later must be picked up", manager.isActive());
+    }
+
+    // -------------------------------------------------------------------------
+    // Connection listeners
+    // -------------------------------------------------------------------------
+
+    @Test
+    public void connectEventWaitsForTheFirstPollSoTransportIsKnown() {
+        FakeDriver driver = new FakeDriver("DualSense (HID)", true).withDevice("DualSense Edge", "Bluetooth");
+        factory.queueDualSense(driver);
+        RecordingListener listener = new RecordingListener();
+        manager.addConnectionListener(listener);
+
+        manager.init();
+        assertTrue("a selected driver is not announced before its first report", listener.events.isEmpty());
+
+        manager.tick();
+
+        assertEquals(Collections.singletonList("+DualSense Edge/Bluetooth"), listener.events);
+    }
+
+    @Test
+    public void connectEventWaitsForDriverConfirmation() {
+        FakeDriver driver = new FakeDriver("DualSense (HID)", true).withDevice("DualSense", "USB");
+        driver.connectionConfirmed = false;
+        factory.queueDualSense(driver);
+        RecordingListener listener = new RecordingListener();
+        manager.addConnectionListener(listener);
+        manager.init();
+
+        manager.tick();
+        assertTrue("an opened but unconfirmed handle must not announce a connection", listener.events.isEmpty());
+
+        driver.connectionConfirmed = true;
+        manager.tick();
+        assertEquals(Collections.singletonList("+DualSense/USB"), listener.events);
+    }
+
+    @Test
+    public void unconfirmedStaleHandleDoesNotEmitAConnectDisconnectPair() {
+        FakeDriver stale = new FakeDriver("DualSense (HID)", true).withDevice("DualSense", "USB");
+        stale.connectionConfirmed = false;
+        factory.queueDualSense(stale);
+        RecordingListener listener = new RecordingListener();
+        manager.addConnectionListener(listener);
+        manager.init();
+
+        // First poll opens the stale handle but produces no valid report, then the next tick sees
+        // the handle disappear. Neither transition was ever announced to the player.
+        manager.tick();
+        stale.connected = false;
+        manager.tick();
+
+        assertTrue(listener.events.isEmpty());
+    }
+
+    @Test
+    public void disconnectAndReconnectInTheSameTickEmitsBothEvents() {
+        FakeDriver first = new FakeDriver("DualSense (HID)", true).withDevice("DualSense", "USB");
+        FakeDriver second = new FakeDriver("DualSense (HID)", true).withDevice("DualSense", "USB");
+        factory.queueDualSense(first, second);
+        RecordingListener listener = new RecordingListener();
+        manager.addConnectionListener(listener);
+        manager.init();
+        manager.tick();
+        listener.events.clear();
+
+        first.connected = false;
+        manager.tick();
+
+        assertEquals(Arrays.asList("-DualSense/USB", "+DualSense/USB"), listener.events);
+    }
+
+    @Test
+    public void pollFailureEmitsDisconnected() {
+        FakeDriver driver = new FakeDriver("DualSense (HID)", true).withDevice("DualSense", "USB");
+        factory.queueDualSense(driver);
+        RecordingListener listener = new RecordingListener();
+        manager.addConnectionListener(listener);
+        manager.init();
+        manager.tick();
+        listener.events.clear();
+
+        driver.throwOnPoll = true;
+        manager.tick();
+
+        assertEquals(Collections.singletonList("-DualSense/USB"), listener.events);
+    }
+
+    @Test
+    public void reinitialisingTheSameDeviceDoesNotEmitConnectionEvents() {
+        FakeDriver first = new FakeDriver("DualSense (HID)", true).withDevice("DualSense", "USB");
+        FakeDriver second = new FakeDriver("DualSense (HID)", true).withDevice("DualSense", "USB");
+        factory.queueDualSense(first, second);
+        RecordingListener listener = new RecordingListener();
+        manager.addConnectionListener(listener);
+        manager.init();
+        manager.tick();
+        listener.events.clear();
+
+        manager.init();
+        manager.tick();
+
+        assertTrue("a config reload of the same device must not produce a toast pair", listener.events.isEmpty());
+    }
+
+    @Test
+    public void switchingDeviceEmitsDisconnectThenConnect() {
+        FakeDriver first = new FakeDriver("DualSense (HID)", true).withDevice("DualSense", "USB");
+        FakeDriver second = new FakeDriver("DualSense (HID)", true).withDevice("DualSense Edge", "Bluetooth");
+        factory.queueDualSense(first, second);
+        RecordingListener listener = new RecordingListener();
+        manager.addConnectionListener(listener);
+        manager.init();
+        manager.tick();
+        listener.events.clear();
+
+        manager.init();
+        manager.tick();
+
+        assertEquals(Arrays.asList("-DualSense/USB", "+DualSense Edge/Bluetooth"), listener.events);
+    }
+
+    @Test
+    public void aDriverThatFailsBeforeItsFirstPollDoesNotEmitPhantomDisconnect() {
+        FakeDriver driver = new FakeDriver("DualSense (HID)", true).withDevice("DualSense", "USB");
+        factory.queueDualSense(driver);
+        RecordingListener listener = new RecordingListener();
+        manager.addConnectionListener(listener);
+        manager.init();
+
+        driver.throwOnPoll = true;
+        manager.tick();
+
+        assertTrue("no connect toast was shown, so there must be no disconnect toast", listener.events.isEmpty());
+    }
+
+    @Test
+    public void aDriverThatDisappearsBeforeItsFirstPollDoesNotEmitPhantomDisconnect() {
+        FakeDriver driver = new FakeDriver("DualSense (HID)", true).withDevice("DualSense", "USB");
+        factory.queueDualSense(driver);
+        RecordingListener listener = new RecordingListener();
+        manager.addConnectionListener(listener);
+        manager.init();
+
+        driver.connected = false;
+        manager.tick();
+
+        assertTrue("no connect toast was shown, so there must be no disconnect toast", listener.events.isEmpty());
+    }
+
+    @Test
+    public void removedListenerStopsReceivingEvents() {
+        FakeDriver driver = new FakeDriver("DualSense (HID)", true).withDevice("DualSense", "USB");
+        factory.queueDualSense(driver);
+        RecordingListener listener = new RecordingListener();
+        manager.addConnectionListener(listener);
+        manager.removeConnectionListener(listener);
+
+        manager.init();
+        manager.tick();
+
+        assertTrue(listener.events.isEmpty());
+    }
+
+    @Test
+    public void pollFreshCanCompleteAPendingConnectNotification() {
+        FakeDriver driver = new FakeDriver("DualSense (HID)", true).withDevice("DualSense", "USB");
+        factory.queueDualSense(driver);
+        manager.init();
+        RecordingListener listener = new RecordingListener();
+        manager.addConnectionListener(listener);
+
+        manager.pollFresh();
+
+        assertEquals(Collections.singletonList("+DualSense/USB"), listener.events);
     }
 
     // -------------------------------------------------------------------------

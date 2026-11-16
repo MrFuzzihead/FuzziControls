@@ -146,11 +146,11 @@ Scroll behavior is controlled by `rightStickScrolling` (default `true`) and `scr
 |---|---|---|
 | `stickDeadZone` | `0.15` | Analogue stick dead-zone radius [0.0–0.99] |
 | `triggerThreshold` | `0.20` | Minimum trigger value to register as pressed [0.0–0.99] |
-| `lookSensitivity` | `2.0` | Right-stick camera speed multiplier [0.1–10.0] |
+| `lookSensitivity` | `2.0` | Right-stick camera speed multiplier [0.1–10.0]. Uses a 25% linear / 75% cubic aim curve, so small corrections are precise and full deflection reaches the configured rate. |
 | `inventoryCursorSensitivity` | `300` | GUI cursor speed in **display pixels/s** at full stick deflection at the 854×480 reference resolution [1–2000]. Scales automatically with window size. |
 | `dropEntireStack` | `false` | When `true`, holding B for 0.5 s drops the entire held stack |
 | `sneakToggle` | `true` | When `true` (default), RS-click toggles sneak; when `false`, sneak is held. Pressing the keyboard sneak key while the toggle is on automatically clears the toggle so keyboard control resumes normally. |
-| `analogMovement` | `true` | When `true` (default), movement speed scales with left-stick deflection (gentle push = slow walk, full push = full speed), capped to walk speed while sneaking. Set `false` for digital on/off movement. |
+| `analogMovement` | `true` | When `true` (default), movement speed scales with the left stick’s radial magnitude (gentle push = slow walk, full push = full speed) while preserving the stick’s true angle; sneak and item-use speed factors apply normally. Keyboard input takes per-axis priority. Set `false` for digital on/off movement. |
 | `dpadNavigation` | `true` | When `true` (default), D-pad navigates GUI elements discretely (console-style). Set `false` to use only the left-stick virtual cursor. |
 | `dpadSliderStep` | `0.05` | Step size for D-pad slider adjustment as a fraction of the slider's full range [0.01–0.5]. Only relevant when `dpadNavigation = true`. |
 | `rightStickScrolling` | `true` | When `true`, the right stick can scroll in GUI screens (inventories, lists, modded scrolling GUIs, etc.) by pushing up/down. |

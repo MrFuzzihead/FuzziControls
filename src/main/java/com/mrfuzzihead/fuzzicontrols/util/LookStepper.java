@@ -18,7 +18,9 @@ import cpw.mods.fml.relauncher.SideOnly;
  * </ul>
  *
  * <p>
- * Rotation is scaled by elapsed time, so the degrees-per-second rate is identical at any frame rate.
+ * The stick response is a blend of linear and cubic: gentle deflection is precise for aiming, while
+ * full deflection still reaches the configured turn rate. Rotation is scaled by elapsed time, so
+ * the degrees-per-second rate is identical at any frame rate.
  *
  * @see com.mrfuzzihead.fuzzicontrols.Config#lookSensitivity
  */
@@ -31,7 +33,30 @@ public final class LookStepper {
     /** Vanilla clamps pitch to this range. */
     public static final float PITCH_LIMIT = 90f;
 
+    /** Linear share of the response curve; the remaining share is cubic for fine aim. */
+    public static final float LINEAR_RESPONSE_WEIGHT = 0.25f;
+
     private LookStepper() {}
+
+    /**
+     * Applies the aim response curve to one stick axis.
+     *
+     * <p>
+     * A purely linear stick makes small corrections twitchy because the same degrees-per-pixel is
+     * used at every deflection. This curve keeps full-speed turning at the edge but reduces the
+     * centre sensitivity: {@code 0.5} deflection produces {@code 0.21875} of full speed, and
+     * {@code 0.1} produces {@code 0.02575}. The function is odd, so signs and inverted look are
+     * preserved.
+     *
+     * @param deflection stick axis in {@code [-1, 1]}; values outside are clamped
+     * @return shaped response in {@code [-1, 1]}
+     */
+    public static float response(float deflection) {
+        float clamped = Math.max(-1f, Math.min(1f, deflection));
+        float magnitude = Math.abs(clamped);
+        float shaped = magnitude * (LINEAR_RESPONSE_WEIGHT + (1f - LINEAR_RESPONSE_WEIGHT) * magnitude * magnitude);
+        return Math.copySign(shaped, clamped);
+    }
 
     /**
      * Returns the yaw change for one frame (positive = turn right). Horizontal look is never inverted.
@@ -43,7 +68,7 @@ public final class LookStepper {
      */
     public static float yawDelta(float rightStickX, float sensitivity, float deltaSeconds) {
         if (deltaSeconds <= 0f) return 0f;
-        return rightStickX * BASE_DEGREES_PER_SECOND * sensitivity * deltaSeconds;
+        return response(rightStickX) * BASE_DEGREES_PER_SECOND * sensitivity * deltaSeconds;
     }
 
     /**
@@ -57,7 +82,7 @@ public final class LookStepper {
      */
     public static float pitchDelta(float rightStickY, float sensitivity, float deltaSeconds, boolean invertVertical) {
         if (deltaSeconds <= 0f) return 0f;
-        float delta = rightStickY * BASE_DEGREES_PER_SECOND * sensitivity * deltaSeconds;
+        float delta = response(rightStickY) * BASE_DEGREES_PER_SECOND * sensitivity * deltaSeconds;
         return invertVertical ? -delta : delta;
     }
 

@@ -8,6 +8,8 @@ import com.mrfuzzihead.fuzzicontrols.controller.ControllerTickHandler;
 import com.mrfuzzihead.fuzzicontrols.controller.DualSenseDriver;
 import com.mrfuzzihead.fuzzicontrols.selftest.ClientSelfTest;
 import com.mrfuzzihead.fuzzicontrols.selftest.MixinSelfTest;
+import com.mrfuzzihead.fuzzicontrols.toast.ControllerToastListener;
+import com.mrfuzzihead.fuzzicontrols.toast.ToastRenderer;
 import com.mrfuzzihead.fuzzicontrols.util.GuiFocusRenderer;
 
 import cpw.mods.fml.common.FMLCommonHandler;
@@ -21,6 +23,9 @@ public class ClientProxy extends CommonProxy {
         super.init(event);
 
         ControllerManager manager = ControllerManager.getInstance();
+        // Register before init() so a controller that is already connected when the game starts
+        // still produces a toast once the first poll reports its transport.
+        manager.addConnectionListener(new ControllerToastListener());
         manager.init();
 
         ControllerTickHandler tickHandler = new ControllerTickHandler();
@@ -30,6 +35,9 @@ public class ClientProxy extends CommonProxy {
 
         // Register the D-pad focus-highlight renderer (only renders when dpadNavigation is enabled).
         net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(new GuiFocusRenderer());
+
+        // Connection toasts render over both the HUD and open GUI screens.
+        net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(new ToastRenderer());
 
         // Register /fuzzicontrols reload so players can force controller re-init
         // without restarting the game (needed for DualSense which does not always

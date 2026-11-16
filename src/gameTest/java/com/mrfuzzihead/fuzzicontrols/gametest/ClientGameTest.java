@@ -1,9 +1,12 @@
 package com.mrfuzzihead.fuzzicontrols.gametest;
 
+import java.io.IOException;
 import java.util.List;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiMainMenu;
+import net.minecraft.client.gui.ScaledResolution;
+import net.minecraft.util.ResourceLocation;
 
 import com.mrfuzzihead.fuzzicontrols.Config;
 import com.mrfuzzihead.fuzzicontrols.controller.ControllerAction;
@@ -11,6 +14,8 @@ import com.mrfuzzihead.fuzzicontrols.controller.ControllerButton;
 import com.mrfuzzihead.fuzzicontrols.controller.ControllerManager;
 import com.mrfuzzihead.fuzzicontrols.controller.ControllerMapping;
 import com.mrfuzzihead.fuzzicontrols.selftest.MixinSelfTest;
+import com.mrfuzzihead.fuzzicontrols.toast.Toast;
+import com.mrfuzzihead.fuzzicontrols.toast.ToastManager;
 import com.mrfuzzihead.fuzzicontrols.util.GuiFocusNavigator;
 
 import cpw.mods.fml.common.FMLCommonHandler;
@@ -144,6 +149,36 @@ public final class ClientGameTest implements IGameTest {
                 + manager.getActiveTransportName()
                 + "'");
 
+        // ---- Connection toast: assets exist, the queue accepts a message, and it renders ----
+        report.check(
+            "toast background texture is present",
+            resourceExists(mc, new ResourceLocation("fuzzicontrols:textures/gui/toast.png")));
+        report.check(
+            "DualSense controller icon is present",
+            resourceExists(mc, new ResourceLocation("fuzzicontrols:textures/gui/controller_dualsense.png")));
+        report.check(
+            "Xbox controller icon is present",
+            resourceExists(mc, new ResourceLocation("fuzzicontrols:textures/gui/controller_xbox.png")));
+        report.check(
+            "generic controller icon is present",
+            resourceExists(mc, new ResourceLocation("fuzzicontrols:textures/gui/controller_generic.png")));
+
+        ToastManager.getInstance()
+            .clear();
+        ToastManager.getInstance()
+            .add(new Toast(Toast.Type.CONNECTED, "GameTest Controller", "USB"));
+        report.check(
+            "controller toast can be queued",
+            ToastManager.getInstance()
+                .getQueuedToastCount() > 0);
+        try {
+            ToastManager.getInstance()
+                .render(mc, new ScaledResolution(mc, mc.displayWidth, mc.displayHeight));
+            report.check("controller toast renders without throwing", true);
+        } catch (Throwable t) {
+            report.check("controller toast renders without throwing: " + t, false);
+        }
+
         // ---- Live GUI navigation stack on the real main menu ----
         GuiFocusNavigator navigator = new GuiFocusNavigator();
         navigator.update(mc.currentScreen);
@@ -156,4 +191,15 @@ public final class ClientGameTest implements IGameTest {
 
         report.finish();
     }
+
+    private static boolean resourceExists(Minecraft mc, ResourceLocation location) {
+        try {
+            mc.getResourceManager()
+                .getResource(location);
+            return true;
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
 }

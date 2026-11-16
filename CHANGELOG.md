@@ -15,12 +15,39 @@ Versions are derived from git tags (`git describe`), so a release is published b
   mode, sticks, buttons and triggers still work. Bluetooth handles that stop sending reports are
   treated as disconnected after 2 seconds instead of leaving buttons stuck.
 - **DualSense Edge support** (`054C:0DF2`) alongside the standard DualSense (`054C:0CE6`).
-- Driver metadata (`getDeviceName`, `getTransportName`) for the upcoming connection toast and
-  settings screen, plus a `DualSenseTransport` seam and a dedicated report parser with unit tests
-  for all three layouts and the Bluetooth CRC.
+- **Controller connection toasts.** A modern top-right notification slides in when a controller
+  connects or disconnects, showing the device name and USB/Bluetooth transport. The title is green
+  for a connection and red for a disconnect, and the icon follows the controller family
+  (DualSense, Xbox/XInput, or a generic pad). Up to five toasts stack, additional messages queue,
+  and each stays for five seconds before sliding out. Disable with `showControllerToasts = false`
+  in the `[controller]` section. Implemented as a self-contained 1.7.10 version of the 1.12
+  `GuiToast` layout; GTNHLib and Et Futurum Requiem do not expose a reusable toast API.
+- Driver metadata (`getDeviceName`, `getTransportName`) for connection toasts and the settings
+  screen, plus a `DualSenseTransport` seam and a dedicated report parser with unit tests for all
+  three layouts and the Bluetooth CRC.
+
+### Changed
+
+- **Analogue movement now changes actual speed.** Vanilla `Entity.moveFlying()` normalises the
+  input vector to length 1, so the per-axis analogue values only ever affected direction. A second
+  mixin now scales movement friction by the left stick's radial magnitude, giving true analogue
+  speed while preserving the stick's real angle (diagonals no longer bend toward the axes). Half
+  tilt is quarter speed, keyboard input keeps per-axis priority, and sneak/use-item factors are
+  applied once.
+- **Right-stick camera response is smoother near centre.** Look input now uses a 25% linear / 75%
+  cubic curve: small corrections are precise, while full deflection still reaches the configured
+  turn rate. The previous rotation is advanced with the same per-frame delta as vanilla
+  `Entity.setAngles()`, so camera interpolation no longer lags a tick behind.
 
 ### Fixed
 
+- **A disappearing Bluetooth controller could show three toasts.** The immediate reconnect probe
+  could open a stale HID handle and treat it as a successful connection before its first read failed.
+  Connection notifications now wait for the first valid input report, so only the real disconnect
+  toast is shown.
+- **Toast panels and icons were sampled incorrectly.** The 160×32 panel and 16×16 icons were drawn
+  with the vanilla 256×256 UV assumption, which stretched the border across the panel and made the
+  icons effectively invisible. The textures are now padded to 256×256.
 - **Holding LT/L2 in a GUI only shift-clicked the first stack.** The shift-click state was consumed by
   the first left-click, so moving several stacks required releasing and re-pressing the trigger. While
   LT/L2 is held, every A/Cross left-click is now a Shift+click (moving stack after stack); a tap still

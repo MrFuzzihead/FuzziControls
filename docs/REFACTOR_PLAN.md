@@ -646,7 +646,23 @@ returns.
 - **Controller-type-aware button glyphs** (Xbox vs PlayStation) for the planned remap GUI.
 - **Per-device DualSense calibration** (Sony ships calibration data; raw 0–255 is
   approximate).
-- **Controller connected/disconnected toast** instead of silent log lines.
+- **Controller connected/disconnected toast** — done (this iteration). A self-contained modern
+  toast queue renders a 160×32 panel in the top-right corner, with a 600 ms slide-in, five-second
+  hold and 600 ms slide-out; up to five toasts stack and the rest queue. Toasts show the device name
+  and `USB`/`Bluetooth` transport, use a green/red state title and a DualSense/Xbox/generic sprite,
+  are emitted from `ControllerManager.ConnectionListener` after the first valid input report (so
+  the transport is known and a stale opened handle cannot produce a phantom connect/disconnect
+  pair), and are suppressed for a same-device `/fuzzicontrols reload`. Disable with
+  `showControllerToasts = false` in the `[controller]` section. GTNHLib and Et Futurum Requiem do
+  not provide a reusable toast API, so the layout is implemented locally from the 1.12 `GuiToast`
+  behaviour.
+- **Analogue movement/camera feel** — done (this iteration). Vanilla `moveFlying()` normalises
+  the input vector, so analogue values previously affected direction only. `MixinEntity_MoveFlying`
+  now scales movement friction by the stick's radial magnitude, preserving the true stick angle
+  (half tilt = quarter speed) while `MixinEntityPlayerSP` keeps keyboard per-axis priority and
+  applies sneak/use-item factors once. The camera uses a 25% linear / 75% cubic response curve and
+  advances `prevRotation*` with the same per-frame delta as vanilla `setAngles()` for smooth
+  interpolation. Sensitivity sliders remain part of the future settings screen.
 - **In-game remap screen** (already in README future plans), with live “press a button”
   capture; it would also expose the dead `LOOK_*`/`DPAD_*` actions if kept.
 
@@ -796,5 +812,5 @@ These were not completed by the migration and remain valid:
 - [x] Section 6 cleanup complete: cached button/slot geometry plus the deliberate per-tick
       button-state hash remainder documented in section 6.
 - [x] New unit tests from section 8 pass; the client self-test still reports
-      `Mixin self-test: 8 checks, 0 failures`.
+      `Mixin self-test: 9 checks, 0 failures`.
 - [ ] Manual validation checklist in section 9 completed.

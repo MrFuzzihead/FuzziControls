@@ -9,6 +9,7 @@ import net.minecraft.client.gui.GuiOptionsRowList;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.GuiSlot;
 import net.minecraft.client.gui.inventory.GuiContainer;
+import net.minecraft.entity.Entity;
 
 import com.mrfuzzihead.fuzzicontrols.Config;
 import com.mrfuzzihead.fuzzicontrols.FuzziControls;
@@ -87,6 +88,12 @@ public final class MixinSelfTest {
                 "MixinEntityPlayerSP -> EntityPlayerSP (expected when analogMovement=true)",
                 analogApplied || !Config.analogMovement));
 
+        boolean analogFrictionApplied = declaresInjectedMethod(Entity.class, "fuzzicontrols$analogMoveFlyingApplied");
+        checks.add(
+            new Check(
+                "MixinEntity_MoveFlying -> Entity (expected when analogMovement=true)",
+                analogFrictionApplied || !Config.analogMovement));
+
         return checks;
     }
 
@@ -102,7 +109,7 @@ public final class MixinSelfTest {
      * Logs one error per missing mixin plus a single summary line.
      *
      * <p>
-     * The summary has a fixed shape ({@code Mixin self-test: 8 checks, N failures}) so it can be
+     * The summary has a fixed shape ({@code Mixin self-test: 9 checks, N failures}) so it can be
      * asserted by automation.
      */
     public static void logReport() {

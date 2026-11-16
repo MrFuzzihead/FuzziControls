@@ -46,4 +46,17 @@ public interface IControllerDriver {
     default String getTransportName() {
         return "";
     }
+
+    /**
+     * Returns true once the driver has confirmed that it is receiving usable input.
+     *
+     * <p>
+     * A hot-plug probe can successfully open a stale HID handle that fails on its first read (a
+     * Bluetooth controller that is still disappearing is the common case). The manager delays the
+     * connect toast until this returns true, so that handle does not produce a connect/disconnect
+     * pair. Drivers that can confirm the device at open time keep the default {@code true}.
+     */
+    default boolean isConnectionConfirmed() {
+        return true;
+    }
 }
