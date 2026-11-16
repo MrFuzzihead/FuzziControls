@@ -104,6 +104,12 @@ public class Config {
      */
     public static float scrollSensitivity = 10.0f;
 
+    /**
+     * When true (default), show a modern-style toast in the top-right corner when a controller
+     * connects or disconnects.
+     */
+    public static boolean showControllerToasts = true;
+
     // ---- Action → Button mapping (populated by synchroniseConfiguration) ----
     public static ControllerMapping controllerMapping = new ControllerMapping();
 
@@ -215,6 +221,12 @@ public class Config {
             1.0f,
             100.0f,
             "Scroll speed in notches per second at full right-stick deflection [1.0 – 100.0].");
+
+        showControllerToasts = configuration.getBoolean(
+            "showControllerToasts",
+            CAT_CONTROLLER,
+            showControllerToasts,
+            "Show a modern-style toast in the top-right corner when a controller connects or disconnects.");
 
         // Bindings: persist each action → button pair
         ControllerMapping defaults = new ControllerMapping();

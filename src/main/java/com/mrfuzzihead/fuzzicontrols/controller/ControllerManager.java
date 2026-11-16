@@ -1,6 +1,9 @@
 package com.mrfuzzihead.fuzzicontrols.controller;
 
+import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Supplier;
 
 import com.mrfuzzihead.fuzzicontrols.Config;
 import com.mrfuzzihead.fuzzicontrols.FuzziControls;
@@ -67,6 +70,23 @@ public class ControllerManager {
     /** Normalized driver preference captured at {@link #init()}, so retries do not re-read the config. */
     private String driverPref = "auto";
 
+    /** UI listeners notified after the first successful poll and whenever the active device goes away. */
+    private final List<ConnectionListener> connectionListeners = new CopyOnWriteArrayList<>();
+
+    /**
+     * A driver selected by {@link #init()} or a reconnect is not announced until its first poll,
+     * so the toast can include the USB/Bluetooth transport that is only known after a report.
+     */
+    private boolean connectedNotificationPending = false;
+
+    /** Receives connection/disconnection events after the manager has committed the state change. */
+    public interface ConnectionListener {
+
+        void onControllerConnected(ControllerConnection connection);
+
+        void onControllerDisconnected(ControllerConnection connection);
+    }
+
     /** Creates the concrete drivers; injectable so the selection/reconnect logic can be unit tested. */
     interface DriverFactory {
 
@@ -120,11 +140,15 @@ public class ControllerManager {
      * Safe to call more than once (e.g. after a config reload or hot-plug retry).
      */
     public void init() {
+        ControllerConnection previous = snapshotConnection(activeDriver);
+        boolean previousAnnounced = !connectedNotificationPending;
+
         if (activeDriver != null) {
             safeClose(activeDriver);
             activeDriver = null;
             lastConnected = false;
         }
+        connectedNotificationPending = false;
         lastState = ControllerState.empty();
         reconnectCooldown = 0;
         driverDisabled = false;
@@ -139,6 +163,7 @@ public class ControllerManager {
             driverDisabled = true;
             lastConnected = false;
             FuzziControls.LOG.info("[FuzziControls] Controller support disabled (driver=none).");
+            if (previousAnnounced) notifyDisconnected(previous);
             return;
         }
 
@@ -149,6 +174,7 @@ public class ControllerManager {
                 "[FuzziControls] Unknown controller driver '{}'; expected auto, xinput, dualsense or none. "
                     + "Controller support is disabled until the config is fixed.",
                 requested);
+            if (previousAnnounced) notifyDisconnected(previous);
             return;
         }
 
@@ -156,10 +182,22 @@ public class ControllerManager {
 
         if (selectDriver(driverPref)) {
             lastConnected = true;
+            ControllerConnection current = snapshotConnection(activeDriver);
+
+            // /fuzzicontrols reload closes and reopens the same device. Do not turn that into a
+            // disconnect/connect toast pair; only report a genuine device change.
+            if (previousAnnounced && previous != null && !previous.hasSameDevice(current)) {
+                notifyDisconnected(previous);
+            }
+            if (previous == null || !previous.hasSameDevice(current)) {
+                connectedNotificationPending = true;
+            }
             return;
         }
 
         lastConnected = false;
+        if (previousAnnounced) notifyDisconnected(previous);
+
         // init() already paid for one probe; do not repeat it on the very next tick.
         reconnectCooldown = focused ? FOCUSED_RECONNECT_TICKS : UNFOCUSED_RECONNECT_TICKS;
         FuzziControls.LOG.info(
@@ -222,12 +260,16 @@ public class ControllerManager {
 
         // If the active driver has disconnected, release it so we attempt a reconnect.
         if (activeDriver != null && !activeDriver.isConnected()) {
+            ControllerConnection previous = snapshotConnection(activeDriver);
+            boolean previousAnnounced = !connectedNotificationPending;
             FuzziControls.LOG.info("[FuzziControls] Controller disconnected. Will retry.");
             safeClose(activeDriver);
             activeDriver = null;
             lastState = ControllerState.empty();
             lastConnected = false;
             reconnectCooldown = 0;
+            connectedNotificationPending = false;
+            if (previousAnnounced) notifyDisconnected(previous);
         }
 
         if (activeDriver == null) {
@@ -250,19 +292,25 @@ public class ControllerManager {
             }
 
             reconnectCooldown = 0;
+            connectedNotificationPending = true;
         }
 
         try {
             lastState = activeDriver.poll(Config.stickDeadZone, Config.triggerThreshold);
             lastConnected = true;
+            notifyConnectedIfPending();
         } catch (Exception | LinkageError e) {
             // A transient hardware/native error must never crash the client tick.
             FuzziControls.LOG.warn("[FuzziControls] Controller poll error: {}", e.toString());
+            ControllerConnection previous = snapshotConnection(activeDriver);
+            boolean previousAnnounced = !connectedNotificationPending;
             safeClose(activeDriver);
             activeDriver = null;
             lastState = ControllerState.empty();
             lastConnected = false;
             reconnectCooldown = 0;
+            connectedNotificationPending = false;
+            if (previousAnnounced) notifyDisconnected(previous);
         }
     }
 
@@ -314,15 +362,20 @@ public class ControllerManager {
         if (activeDriver != null && lastConnected) {
             try {
                 lastState = activeDriver.poll(Config.stickDeadZone, Config.triggerThreshold);
+                notifyConnectedIfPending();
             } catch (Exception | LinkageError e) {
                 // A render-frame poll error is usually fatal to the handle. Close it once and let
                 // the next tick reconnect; logging this per frame would flood the log.
                 FuzziControls.LOG.warn("[FuzziControls] Poll error in pollFresh: {}", e.toString());
+                ControllerConnection previous = snapshotConnection(activeDriver);
+                boolean previousAnnounced = !connectedNotificationPending;
                 safeClose(activeDriver);
                 activeDriver = null;
                 lastState = ControllerState.empty();
                 lastConnected = false;
                 reconnectCooldown = 0;
+                connectedNotificationPending = false;
+                if (previousAnnounced) notifyDisconnected(previous);
             }
         }
         return lastState;
@@ -333,12 +386,26 @@ public class ControllerManager {
         return activeDriver != null && lastConnected;
     }
 
+    /** Registers a listener for connect/disconnect events. */
+    public void addConnectionListener(ConnectionListener listener) {
+        if (listener != null) connectionListeners.add(listener);
+    }
+
+    /** Removes a previously registered connection listener. */
+    public void removeConnectionListener(ConnectionListener listener) {
+        if (listener != null) connectionListeners.remove(listener);
+    }
+
     /** Closes and releases the active driver. Called on mod shutdown. */
     public void shutdown() {
+        ControllerConnection previous = snapshotConnection(activeDriver);
+        boolean previousAnnounced = !connectedNotificationPending;
         safeClose(activeDriver);
         activeDriver = null;
         lastState = ControllerState.empty();
         lastConnected = false;
+        connectedNotificationPending = false;
+        if (previousAnnounced) notifyDisconnected(previous);
         // The process-wide hidapi library is released separately by
         // DualSenseDriver.shutdownHid(), which ClientProxy calls from the JVM shutdown hook after
         // this method.
@@ -357,6 +424,52 @@ public class ControllerManager {
     /** Human-readable transport of the active device (e.g. {@code USB}), or {@code ""}. */
     public String getActiveTransportName() {
         return activeDriver != null ? activeDriver.getTransportName() : "";
+    }
+
+    private void notifyConnectedIfPending() {
+        if (!connectedNotificationPending || activeDriver == null) return;
+        connectedNotificationPending = false;
+        notifyConnected(snapshotConnection(activeDriver));
+    }
+
+    private static ControllerConnection snapshotConnection(IControllerDriver driver) {
+        if (driver == null) return null;
+
+        String driverName = safeName(driver::getDriverName, "Controller");
+        String deviceName = safeName(driver::getDeviceName, driverName);
+        String transportName = safeName(driver::getTransportName, "");
+        return new ControllerConnection(driverName, deviceName, transportName);
+    }
+
+    private static String safeName(Supplier<String> getter, String fallback) {
+        try {
+            String value = getter.get();
+            return value != null ? value : fallback;
+        } catch (Exception | LinkageError e) {
+            return fallback;
+        }
+    }
+
+    private void notifyConnected(ControllerConnection connection) {
+        if (connection == null) return;
+        for (ConnectionListener listener : connectionListeners) {
+            try {
+                listener.onControllerConnected(connection);
+            } catch (Exception | LinkageError e) {
+                FuzziControls.LOG.warn("[FuzziControls] Connection listener failed: {}", e.toString());
+            }
+        }
+    }
+
+    private void notifyDisconnected(ControllerConnection connection) {
+        if (connection == null) return;
+        for (ConnectionListener listener : connectionListeners) {
+            try {
+                listener.onControllerDisconnected(connection);
+            } catch (Exception | LinkageError e) {
+                FuzziControls.LOG.warn("[FuzziControls] Connection listener failed: {}", e.toString());
+            }
+        }
     }
 
     /** Closes a driver without letting a native error propagate. */

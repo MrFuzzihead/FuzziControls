@@ -11,6 +11,7 @@ FuzziControls brings modern, console-quality gamepad support to the classic Mine
 - 🎮 **XInput support out of the box** — any Xbox or XInput-compatible controller works immediately on Windows with no extra software
 - 🎯 **DualSense (PS5) support** — native HID support over **USB and Bluetooth**, including the DualSense Edge, detected and prioritized automatically. Bluetooth uses the enhanced 0x31 report when the controller supports it and falls back to the simple report otherwise.
 - 🔌 **Hot-plug** — connect or reconnect a controller at any time. An active controller dropping is noticed within one tick; with no controller, probing runs every second while the game window is focused, backs off to 30 s when unfocused, and probes immediately when focus returns.
+- 🔔 **Connection toasts** — a modern top-right toast (160×32, slide-in/out) shows the controller name and USB/Bluetooth transport when it connects or disconnects. It can be disabled with `showControllerToasts = false` in the `[controller]` section.
 - 🖱️ **Full GUI / inventory navigation** — the left stick drives a virtual cursor across every screen (inventory, crafting, chest, pause menu, main menu, and every mod GUI), with no per-screen code required
 - ⚡ **Smooth camera** — right-stick camera rotation runs every rendered frame for butter-smooth looking with configurable sensitivity
 - 📝 **Fully configurable** — every button binding, dead zone, trigger threshold, look sensitivity, cursor speed, sneak mode, and drop behavior is exposed in `config/fuzzicontrols.cfg`
@@ -76,6 +77,7 @@ All options live in `config/fuzzicontrols.cfg`:
 | Option | Default | Description |
 |---|---|---|
 | `driver` | `auto` | Force `xinput`, `dualsense`, `none` (disable all controller polling), or let the mod choose |
+| `showControllerToasts` | `true` | Show a modern top-right toast when a controller connects or disconnects |
 | `xInputSlot` | `0` | Controller index (0–3) for XInput |
 | `stickDeadZone` | `0.15` | Stick dead-zone radius (0.0–0.99) |
 | `triggerThreshold` | `0.2` | Minimum trigger value to register as pressed (0.0–0.99) |
