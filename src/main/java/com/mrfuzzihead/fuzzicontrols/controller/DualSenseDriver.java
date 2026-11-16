@@ -124,6 +124,9 @@ public class DualSenseDriver implements IControllerDriver {
     /** Whether the detected transport has been logged for this connection. */
     private boolean transportLogged;
 
+    /** True after the first parsed input report; a successfully opened stale handle never sets it. */
+    private boolean receivedValidReport;
+
     /** Rate-limits the diagnostic log for an unsupported report. */
     private boolean unknownReportLogged;
 
@@ -213,6 +216,8 @@ public class DualSenseDriver implements IControllerDriver {
                     continue;
                 }
 
+                receivedValidReport = true;
+
                 if (layout == DualSenseReportParser.Layout.USB_0X01) {
                     connectionType = ConnectionType.USB;
                 } else {
@@ -267,6 +272,7 @@ public class DualSenseDriver implements IControllerDriver {
         connectionType = ConnectionType.UNKNOWN;
         enhancedModeRetried = false;
         transportLogged = false;
+        receivedValidReport = false;
         unknownReportLogged = false;
         crcMismatchLogged = false;
     }
@@ -288,6 +294,11 @@ public class DualSenseDriver implements IControllerDriver {
             case BLUETOOTH -> "Bluetooth";
             case UNKNOWN -> "";
         };
+    }
+
+    @Override
+    public boolean isConnectionConfirmed() {
+        return receivedValidReport;
     }
 
     private void requestEnhancedReports() {

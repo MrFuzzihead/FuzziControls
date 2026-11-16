@@ -48,6 +48,8 @@ public class ControllerManagerTest {
 
         private String transportName = "";
 
+        private boolean connectionConfirmed = true;
+
         FakeDriver(String name, boolean connected) {
             this.name = name;
             this.connected = connected;
@@ -90,6 +92,11 @@ public class ControllerManagerTest {
         @Override
         public String getTransportName() {
             return transportName;
+        }
+
+        @Override
+        public boolean isConnectionConfirmed() {
+            return connectionConfirmed;
         }
     }
 
@@ -480,6 +487,41 @@ public class ControllerManagerTest {
         manager.tick();
 
         assertEquals(Collections.singletonList("+DualSense Edge/Bluetooth"), listener.events);
+    }
+
+    @Test
+    public void connectEventWaitsForDriverConfirmation() {
+        FakeDriver driver = new FakeDriver("DualSense (HID)", true).withDevice("DualSense", "USB");
+        driver.connectionConfirmed = false;
+        factory.queueDualSense(driver);
+        RecordingListener listener = new RecordingListener();
+        manager.addConnectionListener(listener);
+        manager.init();
+
+        manager.tick();
+        assertTrue("an opened but unconfirmed handle must not announce a connection", listener.events.isEmpty());
+
+        driver.connectionConfirmed = true;
+        manager.tick();
+        assertEquals(Collections.singletonList("+DualSense/USB"), listener.events);
+    }
+
+    @Test
+    public void unconfirmedStaleHandleDoesNotEmitAConnectDisconnectPair() {
+        FakeDriver stale = new FakeDriver("DualSense (HID)", true).withDevice("DualSense", "USB");
+        stale.connectionConfirmed = false;
+        factory.queueDualSense(stale);
+        RecordingListener listener = new RecordingListener();
+        manager.addConnectionListener(listener);
+        manager.init();
+
+        // First poll opens the stale handle but produces no valid report, then the next tick sees
+        // the handle disappear. Neither transition was ever announced to the player.
+        manager.tick();
+        stale.connected = false;
+        manager.tick();
+
+        assertTrue(listener.events.isEmpty());
     }
 
     @Test

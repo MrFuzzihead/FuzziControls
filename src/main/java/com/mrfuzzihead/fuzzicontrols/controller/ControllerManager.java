@@ -428,6 +428,10 @@ public class ControllerManager {
 
     private void notifyConnectedIfPending() {
         if (!connectedNotificationPending || activeDriver == null) return;
+        // A HID handle can open successfully and then fail its first read (a Bluetooth controller
+        // that is still disappearing is the usual case). Wait for a real report before announcing
+        // the connection; otherwise that stale handle produces a spurious connect/disconnect pair.
+        if (!activeDriver.isConnectionConfirmed()) return;
         connectedNotificationPending = false;
         notifyConnected(snapshotConnection(activeDriver));
     }

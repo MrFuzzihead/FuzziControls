@@ -44,13 +44,17 @@ public final class ToastManager {
         FuzziControls.MODID,
         "textures/gui/toast.png");
 
-    private static final ResourceLocation CONNECTED_ICON = new ResourceLocation(
+    private static final ResourceLocation DUALSENSE_ICON = new ResourceLocation(
         FuzziControls.MODID,
-        "textures/gui/controller_connected.png");
+        "textures/gui/controller_dualsense.png");
 
-    private static final ResourceLocation DISCONNECTED_ICON = new ResourceLocation(
+    private static final ResourceLocation XBOX_ICON = new ResourceLocation(
         FuzziControls.MODID,
-        "textures/gui/controller_disconnected.png");
+        "textures/gui/controller_xbox.png");
+
+    private static final ResourceLocation GENERIC_ICON = new ResourceLocation(
+        FuzziControls.MODID,
+        "textures/gui/controller_generic.png");
 
     private static final ToastManager INSTANCE = new ToastManager(System::currentTimeMillis);
 
@@ -156,7 +160,7 @@ public final class ToastManager {
             ToastGui.INSTANCE.drawTexture(x, y, 0, 0, WIDTH, HEIGHT);
 
             mc.getTextureManager()
-                .bindTexture(toast.getType() == Toast.Type.CONNECTED ? CONNECTED_ICON : DISCONNECTED_ICON);
+                .bindTexture(iconTexture(toast.getIcon()));
             ToastGui.INSTANCE.drawTexture(x + 8, y + 8, 0, 0, 16, 16);
 
             FontRenderer font = mc.fontRenderer;
@@ -166,12 +170,19 @@ public final class ToastManager {
                         : "fuzzicontrols.toast.disconnected");
                 String subtitle = buildSubtitle(toast);
 
-                font.drawString(font.trimStringToWidth(title, WIDTH - 38), x + 30, y + 7, 0xFFFFFFFF);
-                font.drawString(font.trimStringToWidth(subtitle, WIDTH - 38), x + 30, y + 18, 0xFFB0B0B0);
+                int titleColor = toast.getType() == Toast.Type.CONNECTED ? 0xFF55FF55 : 0xFFFF5555;
+                font.drawString(font.trimStringToWidth(title, WIDTH - 38), x + 30, y + 7, titleColor);
+                font.drawString(font.trimStringToWidth(subtitle, WIDTH - 38), x + 30, y + 18, 0xFFFFFFFF);
             }
         } finally {
             GL11.glPopAttrib();
         }
+    }
+
+    private static ResourceLocation iconTexture(Toast.Icon icon) {
+        if (icon == Toast.Icon.DUALSENSE) return DUALSENSE_ICON;
+        if (icon == Toast.Icon.XBOX) return XBOX_ICON;
+        return GENERIC_ICON;
     }
 
     private static String buildSubtitle(Toast toast) {

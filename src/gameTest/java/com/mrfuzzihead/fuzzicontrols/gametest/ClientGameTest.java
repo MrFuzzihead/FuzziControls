@@ -154,11 +154,14 @@ public final class ClientGameTest implements IGameTest {
             "toast background texture is present",
             resourceExists(mc, new ResourceLocation("fuzzicontrols:textures/gui/toast.png")));
         report.check(
-            "connected controller icon is present",
-            resourceExists(mc, new ResourceLocation("fuzzicontrols:textures/gui/controller_connected.png")));
+            "DualSense controller icon is present",
+            resourceExists(mc, new ResourceLocation("fuzzicontrols:textures/gui/controller_dualsense.png")));
         report.check(
-            "disconnected controller icon is present",
-            resourceExists(mc, new ResourceLocation("fuzzicontrols:textures/gui/controller_disconnected.png")));
+            "Xbox controller icon is present",
+            resourceExists(mc, new ResourceLocation("fuzzicontrols:textures/gui/controller_xbox.png")));
+        report.check(
+            "generic controller icon is present",
+            resourceExists(mc, new ResourceLocation("fuzzicontrols:textures/gui/controller_generic.png")));
 
         ToastManager.getInstance()
             .clear();

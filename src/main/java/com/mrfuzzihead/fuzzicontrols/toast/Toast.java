@@ -15,19 +15,32 @@ public final class Toast {
         DISCONNECTED
     }
 
+    /** Which controller family sprite to show in the toast. */
+    public enum Icon {
+        DUALSENSE,
+        XBOX,
+        GENERIC
+    }
+
     private static final long DEFAULT_DURATION_MILLIS = 5000L;
 
     private final Type type;
+    private final Icon icon;
     private final String deviceName;
     private final String transportName;
     private final long durationMillis;
 
     public Toast(Type type, String deviceName, String transportName) {
-        this(type, deviceName, transportName, DEFAULT_DURATION_MILLIS);
+        this(type, Icon.GENERIC, deviceName, transportName, DEFAULT_DURATION_MILLIS);
     }
 
-    Toast(Type type, String deviceName, String transportName, long durationMillis) {
+    public Toast(Type type, Icon icon, String deviceName, String transportName) {
+        this(type, icon, deviceName, transportName, DEFAULT_DURATION_MILLIS);
+    }
+
+    Toast(Type type, Icon icon, String deviceName, String transportName, long durationMillis) {
         this.type = type != null ? type : Type.DISCONNECTED;
+        this.icon = icon != null ? icon : Icon.GENERIC;
         this.deviceName = deviceName != null ? deviceName : "";
         this.transportName = transportName != null ? transportName : "";
         this.durationMillis = Math.max(1L, durationMillis);
@@ -35,6 +48,10 @@ public final class Toast {
 
     public Type getType() {
         return type;
+    }
+
+    public Icon getIcon() {
+        return icon;
     }
 
     public String getDeviceName() {

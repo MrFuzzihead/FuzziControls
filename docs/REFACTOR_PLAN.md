@@ -649,11 +649,13 @@ returns.
 - **Controller connected/disconnected toast** — done (this iteration). A self-contained modern
   toast queue renders a 160×32 panel in the top-right corner, with a 600 ms slide-in, five-second
   hold and 600 ms slide-out; up to five toasts stack and the rest queue. Toasts show the device name
-  and `USB`/`Bluetooth` transport, are emitted from `ControllerManager.ConnectionListener` after
-  the first successful poll (so the transport is known), and are suppressed for a same-device
-  `/fuzzicontrols reload`. Disable with `showControllerToasts = false` in the `[controller]` section. GTNHLib and
-  Et Futurum Requiem do not provide a reusable toast API, so the layout is implemented locally
-  from the 1.12 `GuiToast` behaviour.
+  and `USB`/`Bluetooth` transport, use a green/red state title and a DualSense/Xbox/generic sprite,
+  are emitted from `ControllerManager.ConnectionListener` after the first valid input report (so
+  the transport is known and a stale opened handle cannot produce a phantom connect/disconnect
+  pair), and are suppressed for a same-device `/fuzzicontrols reload`. Disable with
+  `showControllerToasts = false` in the `[controller]` section. GTNHLib and Et Futurum Requiem do
+  not provide a reusable toast API, so the layout is implemented locally from the 1.12 `GuiToast`
+  behaviour.
 - **In-game remap screen** (already in README future plans), with live “press a button”
   capture; it would also expose the dead `LOOK_*`/`DPAD_*` actions if kept.
 

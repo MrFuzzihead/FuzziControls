@@ -121,6 +121,7 @@ public class DualSenseDriverTest {
         DualSenseDriver driver = new DualSenseDriver(transport, System::nanoTime);
 
         assertTrue(driver.isConnected());
+        assertFalse("opening a handle is not proof that reports are arriving", driver.isConnectionConfirmed());
         assertEquals(1, transport.featureReads);
         assertEquals(0x05, transport.lastFeatureReportId);
         assertEquals("", driver.getTransportName());
@@ -147,6 +148,7 @@ public class DualSenseDriverTest {
         DualSenseDriver driver = new DualSenseDriver(transport, System::nanoTime);
 
         assertFalse(driver.isConnected());
+        assertFalse(driver.isConnectionConfirmed());
         assertEquals(ControllerState.empty(), driver.poll(DEAD_ZONE, TRIGGER_THRESHOLD));
         assertEquals("No calibration read after a failed open", 0, transport.featureReads);
     }
@@ -197,6 +199,7 @@ public class DualSenseDriverTest {
 
         assertTrue(state.isPressed(ControllerButton.A));
         assertTrue(state.isPressed(ControllerButton.LEFT_BUMPER));
+        assertTrue("a parsed report confirms the connection", driver.isConnectionConfirmed());
         assertEquals("USB", driver.getTransportName());
         assertEquals("USB input must not trigger the Bluetooth enhanced-mode retry", 1, transport.featureReads);
     }
@@ -245,12 +248,14 @@ public class DualSenseDriverTest {
         DualSenseDriver driver = new DualSenseDriver(transport, System::nanoTime);
 
         assertEquals(ControllerState.empty(), driver.poll(DEAD_ZONE, TRIGGER_THRESHOLD));
+        assertFalse("a CRC failure must not confirm the connection", driver.isConnectionConfirmed());
 
         // A valid report afterwards must still parse.
         transport.enqueue(usbReport());
         assertTrue(
             driver.poll(DEAD_ZONE, TRIGGER_THRESHOLD)
                 .isPressed(ControllerButton.A));
+        assertTrue(driver.isConnectionConfirmed());
     }
 
     @Test
@@ -298,6 +303,7 @@ public class DualSenseDriverTest {
 
         assertFalse(transport.isOpen());
         assertFalse(driver.isConnected());
+        assertFalse("a closed driver must wait for a new report", driver.isConnectionConfirmed());
         assertEquals("", driver.getTransportName());
     }
 
@@ -364,6 +370,7 @@ public class DualSenseDriverTest {
 
         assertFalse(transport.isOpen());
         assertFalse(driver.isConnected());
+        assertFalse("a closed driver must wait for a new report", driver.isConnectionConfirmed());
         assertEquals("", driver.getTransportName());
         assertEquals(ControllerState.empty(), driver.poll(DEAD_ZONE, TRIGGER_THRESHOLD));
     }

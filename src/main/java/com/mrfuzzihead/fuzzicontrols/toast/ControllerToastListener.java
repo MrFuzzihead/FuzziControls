@@ -1,5 +1,7 @@
 package com.mrfuzzihead.fuzzicontrols.toast;
 
+import java.util.Locale;
+
 import com.mrfuzzihead.fuzzicontrols.Config;
 import com.mrfuzzihead.fuzzicontrols.controller.ControllerConnection;
 import com.mrfuzzihead.fuzzicontrols.controller.ControllerManager;
@@ -18,7 +20,12 @@ public final class ControllerToastListener implements ControllerManager.Connecti
         if (!Config.showControllerToasts) return;
 
         ToastManager.getInstance()
-            .add(new Toast(Toast.Type.CONNECTED, connection.getDeviceName(), connection.getTransportName()));
+            .add(
+                new Toast(
+                    Toast.Type.CONNECTED,
+                    iconFor(connection),
+                    connection.getDeviceName(),
+                    connection.getTransportName()));
     }
 
     @Override
@@ -26,6 +33,18 @@ public final class ControllerToastListener implements ControllerManager.Connecti
         if (!Config.showControllerToasts) return;
 
         ToastManager.getInstance()
-            .add(new Toast(Toast.Type.DISCONNECTED, connection.getDeviceName(), connection.getTransportName()));
+            .add(
+                new Toast(
+                    Toast.Type.DISCONNECTED,
+                    iconFor(connection),
+                    connection.getDeviceName(),
+                    connection.getTransportName()));
+    }
+
+    private static Toast.Icon iconFor(ControllerConnection connection) {
+        String name = (connection.getDriverName() + " " + connection.getDeviceName()).toLowerCase(Locale.ROOT);
+        if (name.contains("dualsense")) return Toast.Icon.DUALSENSE;
+        if (name.contains("xinput") || name.contains("xbox")) return Toast.Icon.XBOX;
+        return Toast.Icon.GENERIC;
     }
 }

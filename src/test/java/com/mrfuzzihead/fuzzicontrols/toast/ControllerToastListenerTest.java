@@ -48,6 +48,7 @@ public class ControllerToastListenerTest {
             .getToast();
         assertNotNull(toast);
         assertEquals(Toast.Type.CONNECTED, toast.getType());
+        assertEquals(Toast.Icon.DUALSENSE, toast.getIcon());
         assertEquals("DualSense Edge", toast.getDeviceName());
         assertEquals("Bluetooth", toast.getTransportName());
     }
@@ -64,6 +65,30 @@ public class ControllerToastListenerTest {
         assertEquals(Toast.Type.DISCONNECTED, toast.getType());
         assertEquals("DualSense", toast.getDeviceName());
         assertEquals("USB", toast.getTransportName());
+    }
+
+    @Test
+    public void xinputUsesTheXboxSprite() {
+        listener.onControllerConnected(new ControllerConnection("XInput (slot 0)", "XInput (slot 0)", ""));
+
+        ToastManager.getInstance()
+            .updateForTest(0L);
+        Toast toast = ToastManager.getInstance()
+            .getVisibleForTest(0)
+            .getToast();
+        assertEquals(Toast.Icon.XBOX, toast.getIcon());
+    }
+
+    @Test
+    public void unknownDriverUsesTheGenericSprite() {
+        listener.onControllerConnected(new ControllerConnection("Custom HID", "Custom Pad", "USB"));
+
+        ToastManager.getInstance()
+            .updateForTest(0L);
+        Toast toast = ToastManager.getInstance()
+            .getVisibleForTest(0)
+            .getToast();
+        assertEquals(Toast.Icon.GENERIC, toast.getIcon());
     }
 
     @Test

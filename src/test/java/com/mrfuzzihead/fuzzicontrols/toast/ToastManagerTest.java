@@ -127,8 +127,16 @@ public class ToastManagerTest {
         Toast toast = new Toast(Toast.Type.DISCONNECTED, "DualSense Edge", "Bluetooth");
 
         assertEquals(Toast.Type.DISCONNECTED, toast.getType());
+        assertEquals(Toast.Icon.GENERIC, toast.getIcon());
         assertEquals("DualSense Edge", toast.getDeviceName());
         assertEquals("Bluetooth", toast.getTransportName());
         assertTrue(toast.getDurationMillis() > 0L);
+    }
+
+    @Test
+    public void iconCanBeSelectedForTheDeviceFamily() {
+        Toast toast = new Toast(Toast.Type.CONNECTED, Toast.Icon.XBOX, "XInput (slot 0)", "");
+
+        assertEquals(Toast.Icon.XBOX, toast.getIcon());
     }
 }
