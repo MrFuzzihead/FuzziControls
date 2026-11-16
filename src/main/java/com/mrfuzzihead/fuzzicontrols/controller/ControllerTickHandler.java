@@ -943,7 +943,13 @@ public class ControllerTickHandler {
         float pitchDelta = LookStepper
             .pitchDelta(state.rightStickY(), Config.lookSensitivity, deltaSeconds, mc.gameSettings.invertMouse);
 
+        // Match Entity.setAngles(): move the previous rotation by the same delta so the camera's
+        // per-frame interpolation does not lag one tick behind the new rotation.
+        float oldYaw = mc.thePlayer.rotationYaw;
+        float oldPitch = mc.thePlayer.rotationPitch;
         mc.thePlayer.rotationYaw += yawDelta;
-        mc.thePlayer.rotationPitch = LookStepper.clampPitch(mc.thePlayer.rotationPitch + pitchDelta);
+        mc.thePlayer.rotationPitch = LookStepper.clampPitch(oldPitch + pitchDelta);
+        mc.thePlayer.prevRotationYaw += mc.thePlayer.rotationYaw - oldYaw;
+        mc.thePlayer.prevRotationPitch += mc.thePlayer.rotationPitch - oldPitch;
     }
 }

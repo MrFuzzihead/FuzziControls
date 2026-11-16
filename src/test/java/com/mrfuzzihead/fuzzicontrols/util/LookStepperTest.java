@@ -85,10 +85,27 @@ public class LookStepperTest {
     }
 
     @Test
-    public void deflectionScalesLinearly() {
+    public void halfDeflectionUsesACurvedResponse() {
         float half = LookStepper.yawDelta(0.5f, SENSITIVITY, 0.1f);
         float full = LookStepper.yawDelta(1f, SENSITIVITY, 0.1f);
-        assertEquals(full / 2f, half, 1e-5f);
+        assertEquals("Half stick must be precise, not half of full speed", full * 0.21875f, half, 1e-5f);
+    }
+
+    @Test
+    public void smallDeflectionIsPrecise() {
+        assertEquals(0.02575f, LookStepper.response(0.1f), 1e-6f);
+        assertEquals(0.02575f, Math.abs(LookStepper.response(-0.1f)), 1e-6f);
+    }
+
+    @Test
+    public void responseIsOddAndClamped() {
+        for (float stick : new float[] { -2f, -1f, -0.5f, -0.1f, 0f, 0.1f, 0.5f, 1f, 2f }) {
+            float shaped = LookStepper.response(stick);
+            assertEquals(-LookStepper.response(-stick), shaped, 1e-6f);
+            assertTrue(shaped >= -1f && shaped <= 1f);
+        }
+        assertEquals(1f, LookStepper.response(2f), 0f);
+        assertEquals(-1f, LookStepper.response(-2f), 0f);
     }
 
     @Test

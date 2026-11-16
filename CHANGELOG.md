@@ -26,6 +26,19 @@ Versions are derived from git tags (`git describe`), so a release is published b
   screen, plus a `DualSenseTransport` seam and a dedicated report parser with unit tests for all
   three layouts and the Bluetooth CRC.
 
+### Changed
+
+- **Analogue movement now changes actual speed.** Vanilla `Entity.moveFlying()` normalises the
+  input vector to length 1, so the per-axis analogue values only ever affected direction. A second
+  mixin now scales movement friction by the left stick's radial magnitude, giving true analogue
+  speed while preserving the stick's real angle (diagonals no longer bend toward the axes). Half
+  tilt is quarter speed, keyboard input keeps per-axis priority, and sneak/use-item factors are
+  applied once.
+- **Right-stick camera response is smoother near centre.** Look input now uses a 25% linear / 75%
+  cubic curve: small corrections are precise, while full deflection still reaches the configured
+  turn rate. The previous rotation is advanced with the same per-frame delta as vanilla
+  `Entity.setAngles()`, so camera interpolation no longer lags a tick behind.
+
 ### Fixed
 
 - **A disappearing Bluetooth controller could show three toasts.** The immediate reconnect probe

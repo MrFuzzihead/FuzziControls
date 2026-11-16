@@ -656,6 +656,13 @@ returns.
   `showControllerToasts = false` in the `[controller]` section. GTNHLib and Et Futurum Requiem do
   not provide a reusable toast API, so the layout is implemented locally from the 1.12 `GuiToast`
   behaviour.
+- **Analogue movement/camera feel** — done (this iteration). Vanilla `moveFlying()` normalises
+  the input vector, so analogue values previously affected direction only. `MixinEntity_MoveFlying`
+  now scales movement friction by the stick's radial magnitude, preserving the true stick angle
+  (half tilt = quarter speed) while `MixinEntityPlayerSP` keeps keyboard per-axis priority and
+  applies sneak/use-item factors once. The camera uses a 25% linear / 75% cubic response curve and
+  advances `prevRotation*` with the same per-frame delta as vanilla `setAngles()` for smooth
+  interpolation. Sensitivity sliders remain part of the future settings screen.
 - **In-game remap screen** (already in README future plans), with live “press a button”
   capture; it would also expose the dead `LOOK_*`/`DPAD_*` actions if kept.
 
@@ -805,5 +812,5 @@ These were not completed by the migration and remain valid:
 - [x] Section 6 cleanup complete: cached button/slot geometry plus the deliberate per-tick
       button-state hash remainder documented in section 6.
 - [x] New unit tests from section 8 pass; the client self-test still reports
-      `Mixin self-test: 8 checks, 0 failures`.
+      `Mixin self-test: 9 checks, 0 failures`.
 - [ ] Manual validation checklist in section 9 completed.

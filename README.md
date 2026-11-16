@@ -81,11 +81,11 @@ All options live in `config/fuzzicontrols.cfg`:
 | `xInputSlot` | `0` | Controller index (0–3) for XInput |
 | `stickDeadZone` | `0.15` | Stick dead-zone radius (0.0–0.99) |
 | `triggerThreshold` | `0.2` | Minimum trigger value to register as pressed (0.0–0.99) |
-| `lookSensitivity` | `2.0` | Right-stick camera speed multiplier |
+| `lookSensitivity` | `2.0` | Right-stick camera speed multiplier (25% linear / 75% cubic aim curve; full deflection = 360°/s at 2.0) |
 | `inventoryCursorSensitivity` | `300` | GUI cursor speed (display px/s at reference resolution, [1–2000]) |
 | `sneakToggle` | `true` | `true` = press RS to toggle sneak; `false` = hold RS to sneak |
 | `dropEntireStack` | `true` | Hold B/○ to drop entire stack instead of one item |
-| `analogMovement` | `true` | Scale movement speed with left-stick deflection instead of on/off |
+| `analogMovement` | `true` | True radial movement speed: half tilt = quarter speed, full stick = full speed; set `false` for digital on/off |
 | `dpadNavigation` | `true` | `false` = use only the left-stick virtual cursor |
 | `dpadSliderStep` | `0.05` | Slider step per D-pad press as a fraction of range ([0.01–0.5]) |
 | `rightStickScrolling` | `true` | `true` = right stick scrolls while a GUI is open |
