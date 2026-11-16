@@ -14,7 +14,7 @@ import org.junit.Test;
  *
  * <p>
  * These exercise the real production code — {@link LastReportCache} (used by
- * {@link DualSenseDriver#poll}) and {@link DualSenseDriver#parseReport} — rather than a stub that
+ * {@link DualSenseDriver#poll}) and {@link DualSenseReportParser} — rather than a stub that
  * duplicated the logic, so a regression in either is caught here.
  */
 public class DualSenseDriverCacheTest {
@@ -38,7 +38,8 @@ public class DualSenseDriverCacheTest {
     }
 
     private static ControllerState parse(byte[] data) {
-        return DualSenseDriver.parseReport(data, DEAD_ZONE, TRIGGER_THRESHOLD);
+        return DualSenseReportParser
+            .parse(data, data.length, DualSenseReportParser.Layout.USB_0X01, DEAD_ZONE, TRIGGER_THRESHOLD);
     }
 
     // -------------------------------------------------------------------------

@@ -7,8 +7,24 @@ Versions are derived from git tags (`git describe`), so a release is published b
 
 ## [Unreleased]
 
+### Added
+
+- **DualSense Bluetooth support.** The driver now understands the Bluetooth simple (`0x01`, 10-byte)
+  and enhanced (`0x31`, 78-byte, CRC32) input reports as well as the existing USB report. Reading
+  feature report `0x05` on connect requests the enhanced report; if the controller stays in simple
+  mode, sticks, buttons and triggers still work. Bluetooth handles that stop sending reports are
+  treated as disconnected after 2 seconds instead of leaving buttons stuck.
+- **DualSense Edge support** (`054C:0DF2`) alongside the standard DualSense (`054C:0CE6`).
+- Driver metadata (`getDeviceName`, `getTransportName`) for the upcoming connection toast and
+  settings screen, plus a `DualSenseTransport` seam and a dedicated report parser with unit tests
+  for all three layouts and the Bluetooth CRC.
+
 ### Fixed
 
+- **Holding LT/L2 in a GUI only shift-clicked the first stack.** The shift-click state was consumed by
+  the first left-click, so moving several stacks required releasing and re-pressing the trigger. While
+  LT/L2 is held, every A/Cross left-click is now a Shift+click (moving stack after stack); a tap still
+  arms a single Shift+click. Keyboard Shift continues to take priority.
 - **Keyboard WASD stopped working whenever a controller was connected.** The analogue-movement mixin
   overwrote the movement axes with the left stick's deflection even when the stick was centred, which is
   exactly `0.0` inside the dead zone — so holding W/A/S/D produced no movement at all. A centred stick

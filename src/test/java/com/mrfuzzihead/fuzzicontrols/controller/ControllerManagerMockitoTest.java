@@ -56,6 +56,8 @@ public class ControllerManagerMockitoTest {
         when(factory.createDualSense()).thenReturn(dualSense);
         when(dualSense.isConnected()).thenReturn(true);
         when(dualSense.getDriverName()).thenReturn("DualSense (HID)");
+        when(dualSense.getDeviceName()).thenReturn("DualSense");
+        when(dualSense.getTransportName()).thenReturn("USB");
         ControllerState expected = new ControllerState(0.5f, 0f, 0f, 0f, 0f, 0f, Collections.emptySet());
         when(dualSense.poll(anyFloat(), anyFloat())).thenReturn(expected);
 
@@ -64,6 +66,8 @@ public class ControllerManagerMockitoTest {
 
         assertTrue(manager.isActive());
         assertEquals("DualSense (HID)", manager.getActiveDriverName());
+        assertEquals("DualSense", manager.getActiveDeviceName());
+        assertEquals("USB", manager.getActiveTransportName());
 
         manager.tick();
 

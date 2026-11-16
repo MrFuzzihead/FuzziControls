@@ -9,7 +9,7 @@ FuzziControls brings modern, console-quality gamepad support to the classic Mine
 ## ✨ Highlights
 
 - 🎮 **XInput support out of the box** — any Xbox or XInput-compatible controller works immediately on Windows with no extra software
-- 🎯 **DualSense (PS5) support** — native HID support for PlayStation 5 controllers, detected and prioritized automatically
+- 🎯 **DualSense (PS5) support** — native HID support over **USB and Bluetooth**, including the DualSense Edge, detected and prioritized automatically. Bluetooth uses the enhanced 0x31 report when the controller supports it and falls back to the simple report otherwise.
 - 🔌 **Hot-plug** — connect or reconnect a controller at any time. An active controller dropping is noticed within one tick; with no controller, probing runs every second while the game window is focused, backs off to 30 s when unfocused, and probes immediately when focus returns.
 - 🖱️ **Full GUI / inventory navigation** — the left stick drives a virtual cursor across every screen (inventory, crafting, chest, pause menu, main menu, and every mod GUI), with no per-screen code required
 - ⚡ **Smooth camera** — right-stick camera rotation runs every rendered frame for butter-smooth looking with configurable sensitivity
@@ -50,7 +50,7 @@ When any screen is open — inventory, crafting table, chest, the pause menu, or
 - **Left stick** → moves the OS cursor with an analogue quadratic curve (gentle tilt = precision, full push = speed), automatically scaled to your window size
 - **A / Cross** → left-click (select slots, press buttons, pick items)
 - **X / Square** → right-click (split stacks, etc.)
-- **LT / L2** → arm shift-click mode — the next left-click moves an entire stack, just like Shift+clicking with a mouse
+- **LT / L2** → hold for shift-click mode — every left-click while held moves an entire stack; tap it to arm a single Shift+click
 - **Right stick ↑/↓** → scroll lists, inventories and other scrolling GUIs (quadratic response, speed set by `scrollSensitivity`)
 - **B / Circle** → close the screen
 
@@ -103,7 +103,8 @@ by a mixin at class load, so **enabling** it needs a restart (disabling it is im
 2. Install [lwjgl3ify](https://github.com/GTNewHorizons/lwjgl3ify) — **required**, and the reason the mod
    runs on Java 17+ rather than Java 8.
 3. Drop the `fuzzicontrols-*.jar` into your `mods/` folder.
-4. Launch the game, plug in your controller, and play.
+4. Launch the game, plug in your controller, and play. For a DualSense over Bluetooth, pair it in
+   your operating system first; USB and Bluetooth are both supported.
 
 > FuzziControls is **client-side only**. Installing it on a server has no effect.
 

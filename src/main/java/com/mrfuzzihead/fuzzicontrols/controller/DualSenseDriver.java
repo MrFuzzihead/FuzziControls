@@ -1,10 +1,9 @@
 package com.mrfuzzihead.fuzzicontrols.controller;
 
-import java.util.EnumSet;
-import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.function.LongSupplier;
 
 import org.hid4java.jna.HidApi;
-import org.hid4java.jna.HidDeviceStructure;
 
 import com.mrfuzzihead.fuzzicontrols.FuzziControls;
 
@@ -16,30 +15,49 @@ import com.mrfuzzihead.fuzzicontrols.FuzziControls;
  * first calls {@code hid_enumerate(0, 0)}: it enumerates <em>every</em> HID device on the system and
  * only then filters in Java. On a Windows machine with a normal set of keyboards, mice, headsets and
  * RGB devices that measured ~500 ms per probe, which used to block the client tick thread every
- * 3 seconds (see {@code docs/REFACTOR_PLAN.md} section 2). {@code HidApi.open(vid, pid, null)} lets
- * hidapi apply the vendor/product filter natively; it measured ~2 ms when no controller is present
- * and ~14 ms when one is, and it does not start hid4java's 500 ms background scanner thread.
+ * 3 seconds (see {@code docs/REFACTOR_PLAN.md} section 2). {@link HidApi#open(int, int, String)}
+ * lets hidapi apply the vendor/product filter natively; it measured ~2 ms when no controller is
+ * present and ~14 ms when one is, and it does not start hid4java's 500 ms background scanner thread.
  *
  * <p>
- * <b>Report format:</b> only the USB input report {@code 0x01} (64 bytes) is parsed. A Bluetooth
- * DualSense uses report {@code 0x31} (78 bytes, CRC32) and a DualSense Edge uses PID {@code 0x0DF2};
- * neither is supported yet. Non-USB reports are ignored rather than misparsed.
+ * <b>Report formats:</b> both USB and Bluetooth DualSense/DualSense Edge controllers are supported.
+ * USB uses report {@code 0x01} (64 bytes). Bluetooth starts with a simple {@code 0x01} report
+ * (10 bytes) and switches to an enhanced {@code 0x31} report (78 bytes, CRC32) after a feature
+ * report is read. {@link DualSenseReportParser} decodes all three layouts. Reading feature report
+ * {@code 0x05} on open requests the enhanced Bluetooth report; if that fails, the simple report is
+ * still fully usable for sticks, buttons and triggers.
  *
  * <p>
- * <b>Lifecycle:</b> one raw handle per driver instance. {@link #close()} releases it. A read error
+ * <b>Lifecycle:</b> one transport per driver instance. {@link #close()} releases it. A read error
  * ({@code -1}) is treated as a disconnect rather than "no new report", so an unplug closes the
  * handle and lets {@link ControllerManager} reconnect instead of returning a frozen button state.
+ * Bluetooth devices can stop delivering reports without returning an error, so the driver also
+ * considers a handle stale after {@value #BLUETOOTH_TIMEOUT_SECONDS} seconds without a report.
  */
 public class DualSenseDriver implements IControllerDriver {
 
-    private static final int VENDOR_ID = 0x054C;
-    private static final int PRODUCT_ID = 0x0CE6;
+    /** The only feature report this driver reads; also switches Bluetooth to the enhanced report. */
+    private static final int FEATURE_CALIBRATION_REPORT_ID = 0x05;
 
-    /** The only input report this parser understands (USB, 64 bytes). Bluetooth uses 0x31. */
-    private static final int USB_INPUT_REPORT_ID = 0x01;
+    private static final int FEATURE_REPORT_BUFFER_SIZE = 64;
 
-    private static final int REPORT_SIZE = 64;
-    private static final int REPORT_MIN_BYTES = 10;
+    /** Bluetooth enhanced reports are 78 bytes; leave room for a padded simple report too. */
+    private static final int REPORT_BUFFER_SIZE = 128;
+
+    private static final int USB_TIMEOUT_SECONDS = 5;
+
+    private static final int BLUETOOTH_TIMEOUT_SECONDS = 2;
+
+    private static final long USB_TIMEOUT_NANOS = TimeUnit.SECONDS.toNanos(USB_TIMEOUT_SECONDS);
+
+    private static final long BLUETOOTH_TIMEOUT_NANOS = TimeUnit.SECONDS.toNanos(BLUETOOTH_TIMEOUT_SECONDS);
+
+    /** How the controller is currently connected; unknown until the first report. */
+    private enum ConnectionType {
+        UNKNOWN,
+        USB,
+        BLUETOOTH
+    }
 
     /** {@code HidApi.init()} is process-wide and only needs to run once. */
     private static boolean hidInitialised;
@@ -83,51 +101,139 @@ public class DualSenseDriver implements IControllerDriver {
         hidInitFailed = false;
     }
 
-    /** Raw hidapi handle, or null when no controller is open. */
-    private HidDeviceStructure handle;
+    private final DualSenseTransport transport;
+
+    private final LongSupplier nanoClock;
 
     /** Reused across polls; the parser consumes it before the next read. */
-    private final byte[] reportBuffer = new byte[REPORT_SIZE];
+    private final byte[] reportBuffer = new byte[REPORT_BUFFER_SIZE];
+
+    /** Reused for the one-off calibration/enhanced-mode feature report. */
+    private final byte[] featureBuffer = new byte[FEATURE_REPORT_BUFFER_SIZE];
 
     private final LastReportCache reportCache = new LastReportCache();
 
+    /** Timestamp of the last report (or the open, before the first report). */
+    private long lastReportNanos;
+
+    private ConnectionType connectionType = ConnectionType.UNKNOWN;
+
+    /** Whether we have already retried the enhanced-mode feature report after a simple BT report. */
+    private boolean enhancedModeRetried;
+
+    /** Whether the detected transport has been logged for this connection. */
+    private boolean transportLogged;
+
+    /** Rate-limits the diagnostic log for an unsupported report. */
+    private boolean unknownReportLogged;
+
+    /** Rate-limits the diagnostic log for a CRC mismatch. */
+    private boolean crcMismatchLogged;
+
     public DualSenseDriver() {
-        if (!ensureHid()) return;
+        this(ensureHid() ? new HidApiDualSenseTransport() : null, System::nanoTime);
+    }
+
+    /** Test seam: a scripted transport with no hidapi/hardware. */
+    DualSenseDriver(DualSenseTransport transport) {
+        this(transport, System::nanoTime);
+    }
+
+    /** Test seam: a scripted transport and clock. */
+    DualSenseDriver(DualSenseTransport transport, LongSupplier nanoClock) {
+        this.transport = transport;
+        this.nanoClock = nanoClock != null ? nanoClock : System::nanoTime;
+
+        if (transport == null) return;
 
         try {
-            // Native VID/PID filter: ~2 ms when absent, ~14 ms when present. No full enumeration,
-            // no background scanner, no second open() (HidServices.open() leaked the first handle).
-            handle = HidApi.open(VENDOR_ID, PRODUCT_ID, null);
-            if (handle != null) {
-                FuzziControls.LOG.info("[FuzziControls] DualSense controller detected and opened.");
-            } else {
-                FuzziControls.LOG.debug("[FuzziControls] DualSense not found; driver standby.");
+            if (!transport.open()) {
+                FuzziControls.LOG.debug("[FuzziControls] DualSense/DualSense Edge not found; driver standby.");
+                return;
             }
+
+            lastReportNanos = this.nanoClock.getAsLong();
+            FuzziControls.LOG.info(
+                "[FuzziControls] {} controller detected and opened (hidapi {}).",
+                transport.getDeviceName(),
+                transport.getVersion());
+
+            // Read the calibration report once. On Bluetooth this also switches the controller
+            // from the simple 0x01 report to the enhanced 0x31 report. Failure is non-fatal: the
+            // simple report still carries sticks, buttons and triggers.
+            requestEnhancedReports();
         } catch (Throwable t) {
             FuzziControls.LOG.warn("[FuzziControls] DualSense open failed: {}", t.toString());
-            handle = null;
+            close();
         }
     }
 
     @Override
     public boolean isConnected() {
-        return handle != null;
+        if (transport == null || !transport.isOpen()) return false;
+
+        // A Bluetooth device can stop delivering reports without returning an error. Treat a long
+        // gap as a disconnect so the manager releases the handle instead of returning a frozen
+        // button state forever.
+        if (lastReportNanos == 0L) return true;
+
+        long timeout = connectionType == ConnectionType.BLUETOOTH ? BLUETOOTH_TIMEOUT_NANOS : USB_TIMEOUT_NANOS;
+        long elapsed = nanoClock.getAsLong() - lastReportNanos;
+        if (elapsed > timeout) {
+            FuzziControls.LOG.debug(
+                "[FuzziControls] No DualSense report for {} ms; treating the device as disconnected.",
+                TimeUnit.NANOSECONDS.toMillis(elapsed));
+            return false;
+        }
+
+        return true;
     }
 
     @Override
     public ControllerState poll(float deadZone, float triggerThreshold) {
-        if (handle == null) return ControllerState.empty();
+        if (transport == null || !transport.isOpen()) return ControllerState.empty();
 
         try {
             // Drain every report that is waiting; the last one is the freshest state.
             ControllerState fresh = null;
             int read;
-            while ((read = HidApi.read(handle, reportBuffer, 0)) >= REPORT_MIN_BYTES) {
-                if ((reportBuffer[0] & 0xFF) != USB_INPUT_REPORT_ID) {
-                    // Bluetooth report (0x31) or a different report: not ours, do not misparse it.
+            while ((read = transport.read(reportBuffer)) > 0) {
+                // Any report proves the handle is still alive, even if we cannot parse it.
+                lastReportNanos = nanoClock.getAsLong();
+
+                DualSenseReportParser.Layout layout = DualSenseReportParser.detect(reportBuffer, read);
+                if (layout == DualSenseReportParser.Layout.UNKNOWN) {
+                    logUnknownReportOnce(read);
                     continue;
                 }
-                fresh = parseReport(reportBuffer, deadZone, triggerThreshold);
+
+                if (layout == DualSenseReportParser.Layout.BLUETOOTH_ENHANCED_0X31
+                    && !DualSenseReportParser.hasValidBluetoothCrc(reportBuffer, read)) {
+                    logCrcMismatchOnce();
+                    continue;
+                }
+
+                if (layout == DualSenseReportParser.Layout.USB_0X01) {
+                    connectionType = ConnectionType.USB;
+                } else {
+                    connectionType = ConnectionType.BLUETOOTH;
+
+                    // The open-time feature report can arrive before the controller is ready.
+                    // Retry once after the first simple Bluetooth report; the next report should
+                    // then use the enhanced layout.
+                    if (layout == DualSenseReportParser.Layout.BLUETOOTH_SIMPLE_0X01 && !enhancedModeRetried) {
+                        enhancedModeRetried = true;
+                        requestEnhancedReports();
+                    }
+                }
+
+                if (!transportLogged) {
+                    transportLogged = true;
+                    FuzziControls.LOG
+                        .info("[FuzziControls] DualSense reports are using the {} transport.", getTransportName());
+                }
+
+                fresh = DualSenseReportParser.parse(reportBuffer, read, layout, deadZone, triggerThreshold);
             }
 
             if (read < 0) {
@@ -146,73 +252,23 @@ public class DualSenseDriver implements IControllerDriver {
         }
     }
 
-    /**
-     * Decodes one HID input report.
-     *
-     * <p>
-     * Package-private so the report decoding (axis scaling, D-pad hat masks, button bits) can be
-     * unit tested without hardware.
-     *
-     * @param data             report bytes; must contain at least {@value #REPORT_MIN_BYTES} bytes
-     * @param deadZone         stick dead-zone passed to {@link ControllerState#normaliseAxis}
-     * @param triggerThreshold trigger threshold passed to {@link ControllerState#normaliseTrigger}
-     * @return the decoded state
-     */
-    static ControllerState parseReport(byte[] data, float deadZone, float triggerThreshold) {
-        float lx = byteToAxis(data[1]);
-        float ly = byteToAxis(data[2]);
-        float rx = byteToAxis(data[3]);
-        float ry = byteToAxis(data[4]);
-        float rawLt = byteToTrigger(data[5]);
-        float rawRt = byteToTrigger(data[6]);
-
-        lx = ControllerState.normaliseAxis(lx, deadZone);
-        ly = ControllerState.normaliseAxis(ly, deadZone);
-        rx = ControllerState.normaliseAxis(rx, deadZone);
-        ry = ControllerState.normaliseAxis(ry, deadZone);
-        float lt = ControllerState.normaliseTrigger(rawLt, triggerThreshold);
-        float rt = ControllerState.normaliseTrigger(rawRt, triggerThreshold);
-
-        int btnByte1 = data[8] & 0xFF;
-        int btnByte2 = data[9] & 0xFF;
-        int dpad = btnByte1 & 0x0F;
-
-        Set<ControllerButton> pressed = EnumSet.noneOf(ControllerButton.class);
-
-        if ((btnByte1 & 0x10) != 0) pressed.add(ControllerButton.X);
-        if ((btnByte1 & 0x20) != 0) pressed.add(ControllerButton.A);
-        if ((btnByte1 & 0x40) != 0) pressed.add(ControllerButton.B);
-        if ((btnByte1 & 0x80) != 0) pressed.add(ControllerButton.Y);
-
-        if ((btnByte2 & 0x01) != 0) pressed.add(ControllerButton.LEFT_BUMPER);
-        if ((btnByte2 & 0x02) != 0) pressed.add(ControllerButton.RIGHT_BUMPER);
-        if (rawLt >= triggerThreshold) pressed.add(ControllerButton.LEFT_TRIGGER);
-        if (rawRt >= triggerThreshold) pressed.add(ControllerButton.RIGHT_TRIGGER);
-
-        if ((btnByte2 & 0x10) != 0) pressed.add(ControllerButton.BACK);
-        if ((btnByte2 & 0x20) != 0) pressed.add(ControllerButton.START);
-        if ((btnByte2 & 0x40) != 0) pressed.add(ControllerButton.LEFT_STICK_CLICK);
-        if ((btnByte2 & 0x80) != 0) pressed.add(ControllerButton.RIGHT_STICK_CLICK);
-
-        if (dpad == 0 || dpad == 1 || dpad == 7) pressed.add(ControllerButton.DPAD_UP);
-        if (dpad == 2 || dpad == 1 || dpad == 3) pressed.add(ControllerButton.DPAD_RIGHT);
-        if (dpad == 4 || dpad == 3 || dpad == 5) pressed.add(ControllerButton.DPAD_DOWN);
-        if (dpad == 6 || dpad == 5 || dpad == 7) pressed.add(ControllerButton.DPAD_LEFT);
-
-        return new ControllerState(lx, ly, rx, ry, lt, rt, pressed);
-    }
-
     @Override
     public void close() {
-        if (handle != null) {
+        if (transport != null) {
             try {
-                HidApi.close(handle);
+                transport.close();
             } catch (Throwable t) {
                 FuzziControls.LOG.debug("[FuzziControls] DualSense device close error: {}", t.toString());
             }
-            handle = null;
         }
+
         reportCache.clear();
+        lastReportNanos = 0L;
+        connectionType = ConnectionType.UNKNOWN;
+        enhancedModeRetried = false;
+        transportLogged = false;
+        unknownReportLogged = false;
+        crcMismatchLogged = false;
     }
 
     @Override
@@ -220,12 +276,49 @@ public class DualSenseDriver implements IControllerDriver {
         return "DualSense (HID)";
     }
 
-    private static float byteToAxis(byte b) {
-        int unsigned = b & 0xFF;
-        return (unsigned - 128) / 127.5f;
+    @Override
+    public String getDeviceName() {
+        return transport != null ? transport.getDeviceName() : "DualSense";
     }
 
-    private static float byteToTrigger(byte b) {
-        return (b & 0xFF) / 255.0f;
+    @Override
+    public String getTransportName() {
+        return switch (connectionType) {
+            case USB -> "USB";
+            case BLUETOOTH -> "Bluetooth";
+            case UNKNOWN -> "";
+        };
+    }
+
+    private void requestEnhancedReports() {
+        if (transport == null || !transport.isOpen()) return;
+
+        try {
+            int read = transport.readFeatureReport(featureBuffer, FEATURE_CALIBRATION_REPORT_ID);
+            if (read < 0) {
+                FuzziControls.LOG.debug(
+                    "[FuzziControls] DualSense calibration feature report unavailable; "
+                        + "continuing with input reports.");
+            }
+        } catch (Throwable t) {
+            FuzziControls.LOG.debug("[FuzziControls] DualSense feature report failed: {}", t.toString());
+        }
+    }
+
+    private void logUnknownReportOnce(int length) {
+        if (unknownReportLogged) return;
+        unknownReportLogged = true;
+        FuzziControls.LOG.debug(
+            "[FuzziControls] Ignoring unsupported DualSense report id=0x{} length={}.",
+            Integer.toHexString(reportBuffer[0] & 0xFF),
+            length);
+    }
+
+    private void logCrcMismatchOnce() {
+        if (crcMismatchLogged) return;
+        crcMismatchLogged = true;
+        FuzziControls.LOG.debug(
+            "[FuzziControls] Ignoring DualSense Bluetooth report with an invalid CRC32; "
+                + "check the connection if this repeats.");
     }
 }

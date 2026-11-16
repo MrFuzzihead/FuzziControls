@@ -136,6 +136,13 @@ public final class ClientGameTest implements IGameTest {
         // CI log makes the improvement (and any regression) visible without a flaky timing gate.
         System.out.println(
             "[FC-GAMETEST] info controller manager tick took " + elapsedMs + " ms (active=" + manager.isActive() + ")");
+        System.out.println(
+            "[FC-GAMETEST] info active controller: driver='" + manager.getActiveDriverName()
+                + "' device='"
+                + manager.getActiveDeviceName()
+                + "' transport='"
+                + manager.getActiveTransportName()
+                + "'");
 
         // ---- Live GUI navigation stack on the real main menu ----
         GuiFocusNavigator navigator = new GuiFocusNavigator();

@@ -349,6 +349,16 @@ public class ControllerManager {
         return activeDriver != null ? activeDriver.getDriverName() : "None";
     }
 
+    /** Human-readable name of the active device (e.g. {@code DualSense Edge}), or {@code ""}. */
+    public String getActiveDeviceName() {
+        return activeDriver != null ? activeDriver.getDeviceName() : "";
+    }
+
+    /** Human-readable transport of the active device (e.g. {@code USB}), or {@code ""}. */
+    public String getActiveTransportName() {
+        return activeDriver != null ? activeDriver.getTransportName() : "";
+    }
+
     /** Closes a driver without letting a native error propagate. */
     private static void safeClose(IControllerDriver driver) {
         if (driver == null) return;
