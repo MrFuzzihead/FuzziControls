@@ -34,8 +34,8 @@ Controls follow the [official Minecraft console controller layout](https://minec
 | A | A | Cross (✕) | Jump / GUI left-click |
 | B | B | Circle (○) | Close GUI / drop item |
 | X | X | Square (□) | Pick block / GUI right-click |
-| Y | Y | Triangle (△) | Open / close inventory |
-| LS (click) | LS | L3 | Toggle sprint |
+| Y | Y | Triangle (△) | Open inventory (in-world) |
+| LS (click) | LS | L3 | Sprint (hold) |
 | RS (click) | RS | R3 | Toggle sneak (configurable) |
 | Start | Start | Options | Pause menu |
 | Back | Back | Share | Open chat |

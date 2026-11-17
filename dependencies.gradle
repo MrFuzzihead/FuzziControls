@@ -43,7 +43,7 @@ dependencies {
     shadowImplementation("org.hid4java:hid4java:0.8.0") { transitive = false }
 
     // JNA (required by both libraries above - include at runtime)
-    shadowImplementation("net.java.dev.jna:jna:5.13.0") { transitive = false }
+    shadowImplementation("net.java.dev.jna:jna:5.19.1") { transitive = false }
 
     // Unit tests. JUnit 4.13.2 is the newest 4.x; Mockito 5 uses the inline mock maker by
     // default, so final Minecraft classes and static helpers can be mocked without the old
