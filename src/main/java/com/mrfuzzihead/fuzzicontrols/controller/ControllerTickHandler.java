@@ -1,5 +1,8 @@
 package com.mrfuzzihead.fuzzicontrols.controller;
 
+import java.util.function.IntConsumer;
+import java.util.function.IntPredicate;
+
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiChat;
 import net.minecraft.client.gui.GuiIngameMenu;
@@ -470,7 +473,7 @@ public class ControllerTickHandler {
         handleEdgeTrigger(ControllerAction.PICK_BLOCK, state, mapping, mc.gameSettings.keyBindPickBlock);
 
         // --- B button: drop item (no GUI open) ---
-        handleBButton(ControllerAction.DROP_ITEM, state, mapping, mc);
+        handleBButton(state, mapping, mc);
 
         // --- Inventory, chat, command, pause and hotbar are all one-shot edges ---
         handleEdgeTrigger(ControllerAction.INVENTORY, state, mapping, mc.gameSettings.keyBindInventory);
@@ -562,16 +565,30 @@ public class ControllerTickHandler {
      */
     private void releaseAllControllerKeys() {
         if (heldKeys.isEmpty()) return;
-        for (int code : heldKeys.claimed()) {
-            // The controller only owns keys it pressed; a key the keyboard is holding must stay
-            // pressed when the controller disconnects or the window loses focus.
-            if (!KeyboardHelper.isPhysicallyDown(code)) {
-                KeyBinding.setKeyBindState(code, false);
-            }
-        }
+        releaseUnheldControllerKeys(
+            heldKeys,
+            KeyboardHelper::isPhysicallyDown,
+            code -> KeyBinding.setKeyBindState(code, false));
         heldKeys.clear();
         // Also cancel sneak toggle so the player doesn't remain stuck sneaking.
         sneakToggled = false;
+    }
+
+    /**
+     * Releases every controller-claimed key that the keyboard is not physically holding.
+     *
+     * <p>
+     * Extracted so the keyboard-takeover contract can be unit tested without a live LWJGL
+     * keyboard. The controller must never clear a key the player is holding on the keyboard.
+     * </p>
+     */
+    static void releaseUnheldControllerKeys(KeyClaimTracker heldKeys, IntPredicate physicallyDown,
+        IntConsumer releaseKey) {
+        for (int code : heldKeys.claimed()) {
+            if (!physicallyDown.test(code)) {
+                releaseKey.accept(code);
+            }
+        }
     }
 
     /**
@@ -734,19 +751,27 @@ public class ControllerTickHandler {
      * The {@link DropTapHold} state machine ensures that if B was pressed while a GUI was open
      * (causing it to close), no item is dropped on that same press even after the GUI closes.
      */
-    private void handleBButton(ControllerAction dropAction, ControllerState state, ControllerMapping mapping,
-        Minecraft mc) {
-
-        // Only the drop binding may drop in-world. CLOSE_GUI is handled by the GUI path; treating it
-        // as a drop trigger meant remapping CLOSE_GUI to another button caused unwanted drops.
-        boolean active = mapping.isActive(dropAction, state) && !isActionBlocked(dropAction, mapping);
-
+    private void handleBButton(ControllerState state, ControllerMapping mapping, Minecraft mc) {
         // Tap-versus-hold bookkeeping lives in DropTapHold so it can be unit tested.
-        switch (dropTapHold.update(active, Config.dropEntireStack)) {
+        switch (dropTapHold.update(isDropActive(state, mapping), Config.dropEntireStack)) {
             case DROP_ONE -> mc.thePlayer.dropOneItem(false);
             case DROP_STACK -> mc.thePlayer.dropOneItem(true);
             case NONE -> {}
         }
+    }
+
+    /**
+     * Returns whether the in-world drop binding is active.
+     *
+     * <p>
+     * Only {@link ControllerAction#DROP_ITEM} may drop in-world; {@link ControllerAction#CLOSE_GUI}
+     * is handled by the GUI path. Treating CLOSE_GUI as a drop trigger meant remapping it to another
+     * button caused unwanted drops. Extracted as a pure helper so the binding split can be tested.
+     * </p>
+     */
+    boolean isDropActive(ControllerState state, ControllerMapping mapping) {
+        return mapping.isActive(ControllerAction.DROP_ITEM, state)
+            && !isActionBlocked(ControllerAction.DROP_ITEM, mapping);
     }
 
     /**

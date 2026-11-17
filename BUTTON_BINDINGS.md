@@ -18,7 +18,7 @@ Each entry uses the `ControllerButton` enum name as its value (e.g. `MOVE_FORWAR
 | Left Stick ↓ | Left Stick ↓ | Move backward | Analogue |
 | Left Stick ← | Left Stick ← | Strafe left | Analogue |
 | Left Stick → | Left Stick → | Strafe right | Analogue |
-| Left Stick Click (LS) | L3 | Toggle sprint | Edge-triggered (press once to sprint) |
+| Left Stick Click (LS) | L3 | Sprint (hold) | Hold to sprint; release to stop |
 
 ---
 
@@ -57,7 +57,7 @@ Camera rotation is applied **every rendered frame** (not via the action mapping)
 | B | Circle (○) | **Drop one item** (when no screen is open, tap) | Fires on release — holding does NOT drop first |
 | B | Circle (○) | **Drop entire stack** (when no screen is open, hold 0.5 s) | Only when `dropEntireStack = true` in config; tap still drops one item; default is `false` |
 | X | Square (□) | Pick block *(in-world)* / **Right-click** *(in GUI)* | Pick block when no screen open; right-clicks at virtual cursor position when a GUI is open |
-| Y | Triangle (△) | Open / close inventory | Edge-triggered |
+| Y | Triangle (△) | Open inventory (in-world) | Edge-triggered; B closes an open screen |
 
 ---
 

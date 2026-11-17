@@ -18,6 +18,7 @@ import org.gradle.api.tasks.JavaExec
 import org.gradle.api.tasks.SourceSetContainer
 import org.gradle.api.tasks.testing.Test
 import org.gradle.api.tasks.testing.logging.TestExceptionFormat
+import org.gradle.language.jvm.tasks.ProcessResources
 import org.gradle.testing.jacoco.plugins.JacocoPluginExtension
 import org.gradle.testing.jacoco.plugins.JacocoTaskExtension
 import org.gradle.testing.jacoco.tasks.JacocoCoverageVerification
@@ -28,6 +29,11 @@ import org.gradle.testing.jacoco.tasks.JacocoReport
 // ---------------------------------------------------------------------------------------------------------
 
 apply(plugin = "jacoco")
+
+// Ship the third-party attribution file inside the jar, not only in the repository.
+tasks.named<ProcessResources>("processResources") {
+    from(rootProject.file("THIRD_PARTY_NOTICES.md"))
+}
 
 project.extensions.configure(JacocoPluginExtension::class.java) {
     toolVersion = "0.8.16"

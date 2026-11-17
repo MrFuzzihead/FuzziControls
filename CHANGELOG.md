@@ -28,6 +28,9 @@ Versions are derived from git tags (`git describe`), so a release is published b
 
 ### Changed
 
+- **Bundled JNA updated to 5.19.1.** The shaded jar now carries the current JNA classes and
+  native dispatch libraries, and `THIRD_PARTY_NOTICES.md` is shipped inside the jar for the
+  bundled LGPL-2.1 and MIT components.
 - **Analogue movement now changes actual speed.** Vanilla `Entity.moveFlying()` normalises the
   input vector to length 1, so the per-axis analogue values only ever affected direction. A second
   mixin now scales movement friction by the left stick's radial magnitude, giving true analogue

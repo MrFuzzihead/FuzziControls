@@ -272,6 +272,17 @@ jobs:
             echo "::error::Error markers found in the client log"; status=1
           fi
 
+          # Regression guard for the old hid4java scanner (500 ms enumeration thread) and the
+          # per-probe INFO spam from the unfiltered DualSense lookup.
+          scanner_hits=$(grep -c "hid4java device scanner" client.log || true)
+          if [ "${scanner_hits:-0}" -gt 0 ]; then
+            echo "::error::hid4java scanner thread is running (see client.log)"; status=1
+          fi
+          not_found_hits=$(grep -c "DualSense not found" client.log || true)
+          if [ "${not_found_hits:-0}" -gt 3 ]; then
+            echo "::error::DualSense probing logged repeatedly ($not_found_hits hits); see client.log"; status=1
+          fi
+
           echo "assert exit status: $status"
           exit $status
 
@@ -298,6 +309,17 @@ jobs:
           fi
           if ! grep -q "FUZZICONTROLS_GAMETEST_OK" "$report"; then
             echo "::error::Client game-test OK marker missing"
+            exit 1
+          fi
+
+          scanner_hits=$(grep -c "hid4java device scanner" gametest-client.log || true)
+          if [ "${scanner_hits:-0}" -gt 0 ]; then
+            echo "::error::hid4java scanner thread is running (see gametest-client.log)"
+            exit 1
+          fi
+          not_found_hits=$(grep -c "DualSense not found" gametest-client.log || true)
+          if [ "${not_found_hits:-0}" -gt 3 ]; then
+            echo "::error::DualSense probing logged repeatedly ($not_found_hits hits); see gametest-client.log"
             exit 1
           fi
 

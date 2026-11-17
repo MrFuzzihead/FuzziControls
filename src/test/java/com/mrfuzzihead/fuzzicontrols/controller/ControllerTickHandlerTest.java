@@ -4,8 +4,10 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.List;
 
 import org.junit.Test;
 
@@ -57,5 +59,49 @@ public class ControllerTickHandlerTest {
 
         handler.syncInWorldEdges(ControllerState.empty(), mapping);
         assertFalse("PICK_BLOCK must be released", handler.wasActiveForTest(ControllerAction.PICK_BLOCK));
+    }
+
+    @Test
+    public void onlyTheDropBindingCanDropWhenCloseGuiUsesAnotherButton() {
+        ControllerTickHandler handler = new ControllerTickHandler();
+        ControllerMapping mapping = new ControllerMapping();
+        mapping.bind(ControllerAction.DROP_ITEM, ControllerButton.B);
+        mapping.bind(ControllerAction.CLOSE_GUI, ControllerButton.A);
+
+        assertFalse(
+            "CLOSE_GUI must not drop an item when it is rebound to another button",
+            handler.isDropActive(pressed(ControllerButton.A), mapping));
+        assertTrue("DROP_ITEM must still drop", handler.isDropActive(pressed(ControllerButton.B), mapping));
+    }
+
+    @Test
+    public void dropFollowsItsOwnBindingWhenTheButtonsAreSwapped() {
+        ControllerTickHandler handler = new ControllerTickHandler();
+        ControllerMapping mapping = new ControllerMapping();
+        mapping.bind(ControllerAction.DROP_ITEM, ControllerButton.A);
+        mapping.bind(ControllerAction.CLOSE_GUI, ControllerButton.B);
+
+        assertTrue(
+            "DROP_ITEM must follow its rebound button",
+            handler.isDropActive(pressed(ControllerButton.A), mapping));
+        assertFalse(
+            "CLOSE_GUI must still not drop after the swap",
+            handler.isDropActive(pressed(ControllerButton.B), mapping));
+    }
+
+    @Test
+    public void controllerDisconnectDoesNotReleaseKeyboardHeldKeys() {
+        KeyClaimTracker held = new KeyClaimTracker();
+        held.update(17, true); // W: physically held on the keyboard
+        held.update(57, true); // space: only held by the controller
+
+        List<Integer> released = new ArrayList<>();
+        ControllerTickHandler.releaseUnheldControllerKeys(held, code -> code == 17, released::add);
+
+        assertEquals(Collections.singletonList(57), released);
+    }
+
+    private static ControllerState pressed(ControllerButton button) {
+        return new ControllerState(0f, 0f, 0f, 0f, 0f, 0f, EnumSet.of(button));
     }
 }
