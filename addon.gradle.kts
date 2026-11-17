@@ -87,6 +87,10 @@ fun jacocoClassDirs() = project.files(jacocoMainClasses).asFileTree.matching {
         "com/mrfuzzihead/fuzzicontrols/Tags.class",
         "com/mrfuzzihead/fuzzicontrols/selftest/**",
         "com/mrfuzzihead/fuzzicontrols/mixins/**",
+        // The settings screen is a live GuiScreen: its behaviour depends on Minecraft's GUI
+        // lifecycle and is exercised by ClientSelfTest (open, tab navigation, rebind capture,
+        // slider focus). Headless unit tests cannot construct these classes meaningfully.
+        "com/mrfuzzihead/fuzzicontrols/gui/**",
         // Multi-release variants duplicate com/mrfuzzihead/... classes; JaCoCo rejects a bundle
         // that contains two classes with the same name. The root (Java 17) variant is the one the
         // directory-classpath test JVM loads.

@@ -15,6 +15,7 @@ import org.lwjgl.input.Mouse;
 import org.lwjgl.opengl.Display;
 
 import com.mrfuzzihead.fuzzicontrols.Config;
+import com.mrfuzzihead.fuzzicontrols.gui.ControllerCaptureScreen;
 import com.mrfuzzihead.fuzzicontrols.util.GuiElementActivator;
 import com.mrfuzzihead.fuzzicontrols.util.GuiFocusNavigator;
 import com.mrfuzzihead.fuzzicontrols.util.GuiFocusRenderer;
@@ -92,6 +93,12 @@ public class ControllerTickHandler {
      * keyboard input when the corresponding controller axis is in the dead-zone.
      */
     private final KeyClaimTracker heldKeys = new KeyClaimTracker();
+
+    /** Key codes claimed by user-defined keyboard shortcuts, tracked separately for clean release. */
+    private final KeyClaimTracker shortcutKeys = new KeyClaimTracker();
+
+    /** Previous active state for each keyboard-shortcut slot (tap edge detection). */
+    private final boolean[] wasShortcutActive = new boolean[Config.SHORTCUT_SLOTS];
 
     /** Two-threshold evaluation of stick directions, so a stick resting near a threshold cannot oscillate. */
     private final StickHysteresis stickHysteresis = new StickHysteresis();
@@ -237,9 +244,26 @@ public class ControllerTickHandler {
         }
         wasControllerConnected = connected;
 
+        // ---- Raw capture path (binding/rebind overlay) ----
+        // Consume the state before the normal GUI path, otherwise pressing B to bind it would send
+        // Escape and pressing A would click whatever is behind the overlay.
+        if (mc.currentScreen instanceof ControllerCaptureScreen captureScreen
+            && captureScreen.isCapturingControllerInput()) {
+            captureScreen.captureControllerState(state);
+            syncEdges(state, mapping);
+            syncShortcutEdges(state);
+            releaseShortcutKeys();
+            return;
+        }
+
         // ---- GUI-only path (main menu, inventory, pause, chat, etc.) ----
         // Runs even when thePlayer is null (e.g. main menu).
         if (mc.currentScreen != null) {
+            // Shortcuts are an in-world input layer; do not leave a held shortcut key active while
+            // a menu/chat screen owns the keyboard.
+            releaseShortcutKeys();
+            syncShortcutEdges(state);
+
             // Initialize cursor to screen center on first tick a screen is open.
             if (!guiCursorInitialized) {
                 guiCursorX = mc.displayWidth / 2f;
@@ -482,6 +506,9 @@ public class ControllerTickHandler {
         handleEdge(ControllerAction.PAUSE, state, mapping, () -> mc.displayGuiScreen(new GuiIngameMenu()));
         handleEdge(ControllerAction.HOTBAR_NEXT, state, mapping, () -> mc.thePlayer.inventory.changeCurrentItem(-1));
         handleEdge(ControllerAction.HOTBAR_PREV, state, mapping, () -> mc.thePlayer.inventory.changeCurrentItem(1));
+
+        // --- User-defined controller-button → keyboard-key shortcuts ---
+        processKeyboardShortcuts(state);
     }
 
     // -------------------------------------------------------------------------
@@ -564,14 +591,24 @@ public class ControllerTickHandler {
      * set. Called when the controller disconnects mid-game to prevent keys from getting stuck.
      */
     private void releaseAllControllerKeys() {
-        if (heldKeys.isEmpty()) return;
-        releaseUnheldControllerKeys(
-            heldKeys,
-            KeyboardHelper::isPhysicallyDown,
-            code -> KeyBinding.setKeyBindState(code, false));
-        heldKeys.clear();
+        releaseKeys(heldKeys);
+        releaseKeys(shortcutKeys);
         // Also cancel sneak toggle so the player doesn't remain stuck sneaking.
         sneakToggled = false;
+    }
+
+    private void releaseKeys(KeyClaimTracker claims) {
+        if (claims.isEmpty()) return;
+        releaseUnheldControllerKeys(
+            claims,
+            KeyboardHelper::isPhysicallyDown,
+            code -> KeyBinding.setKeyBindState(code, false));
+        claims.clear();
+    }
+
+    /** Releases shortcut keys when a GUI opens, without disturbing the normal held-key tracker. */
+    private void releaseShortcutKeys() {
+        releaseKeys(shortcutKeys);
     }
 
     /**
@@ -603,11 +640,67 @@ public class ControllerTickHandler {
      * </ul>
      */
     private void driveKey(KeyBinding binding, boolean active) {
-        int code = binding.getKeyCode();
+        driveKeyCode(binding.getKeyCode(), active);
+    }
+
+    /** Drives an arbitrary keyboard key through the same keyboard-preserving claim tracker. */
+    private void driveKeyCode(int code, boolean active) {
+        if (code <= 0) return;
         switch (heldKeys.update(code, active)) {
             case PRESS -> KeyBinding.setKeyBindState(code, true);
             case RELEASE -> KeyBinding.setKeyBindState(code, false);
             case NONE -> {}
+        }
+    }
+
+    /**
+     * Applies the user-defined controller-button to keyboard-key shortcuts. HOLD mirrors the button
+     * state; TAP queues one KeyBinding press edge per physical press.
+     */
+    private void processKeyboardShortcuts(ControllerState state) {
+        KeyboardShortcut[] shortcuts = Config.keyboardShortcuts;
+        if (shortcuts == null) return;
+
+        for (int i = 0; i < shortcuts.length && i < wasShortcutActive.length; i++) {
+            KeyboardShortcut shortcut = shortcuts[i];
+            boolean active = shortcut != null && shortcut.isBound()
+                && ControllerMapping.isButtonActive(shortcut.getButton(), state);
+
+            if (shortcut != null && shortcut.isBound()) {
+                int code = shortcut.getKeyCode();
+                if (shortcut.getMode() == KeyboardShortcut.Mode.TAP) {
+                    if (active && !wasShortcutActive[i]) {
+                        // onTick is what vanilla's isPressed() loop consumes.
+                        KeyBinding.onTick(code);
+                    }
+                    // Tap mode never holds the key down between presses.
+                    driveShortcutKey(code, false);
+                } else {
+                    driveShortcutKey(code, active);
+                }
+            } else {
+                driveShortcutKey(0, false);
+            }
+            wasShortcutActive[i] = active;
+        }
+    }
+
+    private void driveShortcutKey(int code, boolean active) {
+        if (code <= 0) return;
+        switch (shortcutKeys.update(code, active)) {
+            case PRESS -> KeyBinding.setKeyBindState(code, true);
+            case RELEASE -> KeyBinding.setKeyBindState(code, false);
+            case NONE -> {}
+        }
+    }
+
+    private void syncShortcutEdges(ControllerState state) {
+        KeyboardShortcut[] shortcuts = Config.keyboardShortcuts;
+        if (shortcuts == null) return;
+        for (int i = 0; i < shortcuts.length && i < wasShortcutActive.length; i++) {
+            KeyboardShortcut shortcut = shortcuts[i];
+            wasShortcutActive[i] = shortcut != null && shortcut.isBound()
+                && ControllerMapping.isButtonActive(shortcut.getButton(), state);
         }
     }
 
@@ -722,6 +815,7 @@ public class ControllerTickHandler {
         for (ControllerAction action : ControllerAction.values()) {
             wasActive[action.ordinal()] = mapping.isActive(action, state);
         }
+        syncShortcutEdges(state);
         wasGuiLeftClick = mapping.isActive(ControllerAction.GUI_LEFT_CLICK, state);
         wasGuiRightClick = mapping.isActive(ControllerAction.GUI_RIGHT_CLICK, state);
         dropTapHold.reset();

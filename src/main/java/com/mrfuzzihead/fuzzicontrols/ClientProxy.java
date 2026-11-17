@@ -6,6 +6,7 @@ import com.mrfuzzihead.fuzzicontrols.command.CommandReloadControllers;
 import com.mrfuzzihead.fuzzicontrols.controller.ControllerManager;
 import com.mrfuzzihead.fuzzicontrols.controller.ControllerTickHandler;
 import com.mrfuzzihead.fuzzicontrols.controller.DualSenseDriver;
+import com.mrfuzzihead.fuzzicontrols.gui.OptionsMenuButtonHandler;
 import com.mrfuzzihead.fuzzicontrols.selftest.ClientSelfTest;
 import com.mrfuzzihead.fuzzicontrols.selftest.MixinSelfTest;
 import com.mrfuzzihead.fuzzicontrols.toast.ControllerToastListener;
@@ -38,6 +39,9 @@ public class ClientProxy extends CommonProxy {
 
         // Connection toasts render over both the HUD and open GUI screens.
         net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(new ToastRenderer());
+
+        // Adds the FuzziControls entry to the vanilla Options screen.
+        net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(new OptionsMenuButtonHandler());
 
         // Register /fuzzicontrols reload so players can force controller re-init
         // without restarting the game (needed for DualSense which does not always

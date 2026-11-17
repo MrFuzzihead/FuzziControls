@@ -17,6 +17,7 @@ import org.junit.rules.TemporaryFolder;
 
 import com.mrfuzzihead.fuzzicontrols.controller.ControllerAction;
 import com.mrfuzzihead.fuzzicontrols.controller.ControllerButton;
+import com.mrfuzzihead.fuzzicontrols.controller.KeyboardShortcut;
 
 /**
  * Tests that {@link Config#reload()} actually re-reads the configuration file.
@@ -53,6 +54,8 @@ public class ConfigReloadTest {
     /** Restores defaults so the global config statics do not leak into other tests. */
     @After
     public void restoreDefaults() throws Exception {
+        Config.controllerEnabled = true;
+        Config.controllerDriver = "auto";
         Config.synchronizeConfiguration(folder.newFile("defaults.cfg"));
     }
 
@@ -136,6 +139,79 @@ public class ConfigReloadTest {
         // Simulate a restart: reading the file again must produce the saved binding.
         Config.synchronizeConfiguration(configFile);
         assertEquals(ControllerButton.Y, Config.controllerMapping.getButton(ControllerAction.JUMP));
+    }
+
+    @Test
+    public void settingsSaveAndReloadRoundTrip() throws Exception {
+        writeConfig("controller {", "    B:enabled=true", "}", "bindings {", "    S:JUMP=A", "}");
+        Config.synchronizeConfiguration(configFile);
+
+        Config.lookSensitivity = 3.25f;
+        Config.stickDeadZone = 0.22f;
+        Config.triggerThreshold = 0.35f;
+        Config.analogMovement = false;
+        Config.controllerEnabled = false;
+        Config.save();
+
+        Config.synchronizeConfiguration(configFile);
+
+        assertEquals(3.25f, Config.lookSensitivity, 0f);
+        assertEquals(0.22f, Config.stickDeadZone, 0f);
+        assertEquals(0.35f, Config.triggerThreshold, 0f);
+        assertFalse(Config.analogMovement);
+        assertFalse(Config.controllerEnabled);
+    }
+
+    @Test
+    public void controllerMasterSwitchRoundTrips() throws Exception {
+        writeConfig("controller {", "    B:enabled=false", "    S:driver=dualsense", "}");
+
+        Config.synchronizeConfiguration(configFile);
+        assertFalse(Config.controllerEnabled);
+        assertEquals("dualsense", Config.controllerDriver);
+
+        Config.controllerEnabled = true;
+        Config.save();
+        Config.synchronizeConfiguration(configFile);
+
+        assertTrue(Config.controllerEnabled);
+        assertEquals("The selected driver must survive an off/on cycle", "dualsense", Config.controllerDriver);
+    }
+
+    @Test
+    public void legacyDriverNoneReadsAsDisabled() throws Exception {
+        writeConfig("controller {", "    S:driver=none", "}");
+
+        Config.synchronizeConfiguration(configFile);
+
+        assertFalse("driver=none must keep working for existing configs", Config.controllerEnabled);
+    }
+
+    @Test
+    public void keyboardShortcutsSurviveSaveAndReload() throws Exception {
+        writeConfig("shortcuts {", "    S:slot1=A:33:HOLD", "    S:slot2=B:42:TAP", "}");
+        Config.synchronizeConfiguration(configFile);
+
+        assertTrue(Config.keyboardShortcuts[0].isBound());
+        assertEquals(ControllerButton.A, Config.keyboardShortcuts[0].getButton());
+        assertEquals(KeyboardShortcut.Mode.TAP, Config.keyboardShortcuts[1].getMode());
+
+        Config.keyboardShortcuts[2] = new KeyboardShortcut(ControllerButton.X, 19, KeyboardShortcut.Mode.HOLD);
+        Config.save();
+        Config.synchronizeConfiguration(configFile);
+
+        assertTrue(Config.keyboardShortcuts[2].isBound());
+        assertEquals(ControllerButton.X, Config.keyboardShortcuts[2].getButton());
+        assertEquals(19, Config.keyboardShortcuts[2].getKeyCode());
+    }
+
+    @Test
+    public void malformedKeyboardShortcutFallsBackToUnbound() throws Exception {
+        writeConfig("shortcuts {", "    S:slot1=garbage", "}");
+
+        Config.synchronizeConfiguration(configFile);
+
+        assertFalse(Config.keyboardShortcuts[0].isBound());
     }
 
     @Test

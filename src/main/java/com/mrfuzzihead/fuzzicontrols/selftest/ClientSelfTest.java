@@ -12,6 +12,7 @@ import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.gui.GuiMainMenu;
 import net.minecraft.client.gui.GuiOptionSlider;
 import net.minecraft.client.gui.GuiOptions;
+import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.GuiVideoSettings;
 import net.minecraft.client.gui.inventory.GuiContainer;
 import net.minecraft.client.resources.I18n;
@@ -21,10 +22,15 @@ import net.minecraft.inventory.Container;
 import net.minecraft.inventory.InventoryBasic;
 import net.minecraft.inventory.Slot;
 
+import org.lwjgl.input.Keyboard;
+
 import com.mrfuzzihead.fuzzicontrols.Config;
 import com.mrfuzzihead.fuzzicontrols.FuzziControls;
+import com.mrfuzzihead.fuzzicontrols.gui.GuiFuzziControls;
+import com.mrfuzzihead.fuzzicontrols.gui.widget.GuiFuzziSlider;
 import com.mrfuzzihead.fuzzicontrols.mixins.early.GuiContainerAccessors;
 import com.mrfuzzihead.fuzzicontrols.mixins.early.GuiOptionSliderAccessors;
+import com.mrfuzzihead.fuzzicontrols.mixins.early.GuiScreenAccessors;
 import com.mrfuzzihead.fuzzicontrols.util.GuiElementActivator;
 import com.mrfuzzihead.fuzzicontrols.util.GuiFocusNavigator;
 import com.mrfuzzihead.fuzzicontrols.util.GuiFocusRenderer;
@@ -187,7 +193,84 @@ public final class ClientSelfTest {
         record("main menu: activating the focused button opens the Options screen", openedOptions);
         if (!openedOptions) return false;
 
+        GuiScreen optionsScreen = mc.currentScreen;
+
         navigator.update(mc.currentScreen);
+        int fuzziIndex = findButtonIndex("FuzziControls");
+        record("options screen: FuzziControls button reachable by D-pad focus", fuzziIndex >= 0);
+        if (fuzziIndex >= 0) {
+            navigator.focusIndex(fuzziIndex);
+            GuiElementActivator.activate(navigator, 0, mc, false);
+            record(
+                "options screen: activating FuzziControls opens the settings screen",
+                mc.currentScreen instanceof GuiFuzziControls);
+            if (mc.currentScreen instanceof GuiFuzziControls settings) {
+                navigator.update(settings);
+                record("settings: tab and setting buttons are focusable", navigator.getFocusableCount() >= 9);
+
+                int bindingsIndex = findButtonIndex("Bindings");
+                record("settings: Bindings tab reachable", bindingsIndex >= 0);
+                if (bindingsIndex >= 0) {
+                    navigator.focusIndex(bindingsIndex);
+                    GuiElementActivator.activate(navigator, 0, mc, false);
+                    navigator.update(settings);
+                    record("settings: Bindings tab shows category tabs and rows", findButtonIndex("Move Forward") >= 0);
+
+                    int jumpIndex = findButtonIndex("Move Forward");
+                    if (jumpIndex >= 0) {
+                        navigator.focusIndex(jumpIndex);
+                        GuiElementActivator.activate(navigator, 0, mc, false);
+                        navigator.update(settings);
+                    }
+                    int rebindIndex = findButtonIndex("Rebind");
+                    record("settings: Rebind button reachable", rebindIndex >= 0);
+                    if (rebindIndex >= 0) {
+                        navigator.focusIndex(rebindIndex);
+                        GuiElementActivator.activate(navigator, 0, mc, false);
+                        record(
+                            "settings: Rebind enters controller capture mode",
+                            settings.isCapturingControllerInput());
+                        ((GuiScreenAccessors) settings).callKeyTyped(' ', Keyboard.KEY_ESCAPE);
+                        record("settings: Escape cancels capture mode", !settings.isCapturingControllerInput());
+                    }
+                }
+
+                int inputIndex = findButtonIndex("Input");
+                if (inputIndex >= 0) {
+                    navigator.update(settings);
+                    navigator.focusIndex(inputIndex);
+                    GuiElementActivator.activate(navigator, 0, mc, false);
+                    navigator.update(settings);
+                    boolean sliderFound = false;
+                    for (int index = 0; index < navigator.getFocusableCount(); index++) {
+                        navigator.focusIndex(index);
+                        if (navigator.getFocusedButton() instanceof GuiFuzziSlider) {
+                            sliderFound = true;
+                            break;
+                        }
+                    }
+                    record("settings: Input sliders are focusable", sliderFound);
+                }
+
+                int bindingsTab = findButtonIndex("Bindings");
+                if (bindingsTab >= 0) {
+                    navigator.focusIndex(bindingsTab);
+                    GuiElementActivator.activate(navigator, 0, mc, false);
+                    navigator.update(settings);
+                    int keysIndex = findButtonIndex("Keys");
+                    record("settings: Keys category reachable", keysIndex >= 0);
+                    if (keysIndex >= 0) {
+                        navigator.focusIndex(keysIndex);
+                        GuiElementActivator.activate(navigator, 0, mc, false);
+                        navigator.update(settings);
+                        record("settings: keyboard shortcut slots are focusable", findButtonIndex("Shortcut 1") >= 0);
+                    }
+                }
+            }
+            mc.displayGuiScreen(optionsScreen);
+            navigator.update(mc.currentScreen);
+        }
+
         int videoIndex = findButtonIndex(I18n.format("options.video"));
         record("options screen: 'Video Settings...' button reachable by D-pad focus", videoIndex >= 0);
         if (videoIndex < 0) return false;

@@ -70,13 +70,37 @@ only on the virtual cursor:
 
 ---
 
+## 🎛️ Settings screen
+
+Open **Options → FuzziControls**, or use the Forge mod list's Config button. The screen is fully
+navigable with a controller (D-pad focus, A to activate, B/Escape to go back); a mouse works too.
+
+| Tab | What it controls |
+|---|---|
+| **Controller** | Master on/off switch, Automatic/DualSense/XInput driver, XInput slot, connection toasts, live device/transport status, and **Rescan** |
+| **Bindings** | Remap every controller action by pressing a button. Category tabs keep each list short enough to navigate without scrolling. **Rebind**, **Clear**, **Reset**, and two-step **Reset All** are available. Duplicate bindings are allowed and reported. |
+| **Input** | Analogue movement, sneak toggle/hold, stack-vs-single drop, look sensitivity, stick dead zone, and trigger threshold |
+| **Interface** | D-pad navigation, GUI cursor speed, right-stick scrolling, scroll speed, and D-pad slider step |
+
+The **Bindings → Keys** category adds four controller-button → keyboard-key shortcut slots for
+modded `KeyBinding`s. Each slot can be **Hold** or **Tap**, and can drive any registered or arbitrary
+keyboard key. Mods that read raw LWJGL keyboard state without using `KeyBinding` are outside this
+mechanism.
+
+Capture is deliberate: tap a button to bind it, or hold it for one second to cancel. While capture is
+active, normal GUI clicks/navigation are suspended, so binding **B** does not close the screen and
+binding **A** does not activate whatever is behind the overlay. Escape also cancels keyboard capture.
+
+---
+
 ## ⚙️ Configuration
 
-All options live in `config/fuzzicontrols.cfg`:
+All options live in `config/fuzzicontrols.cfg`; the settings screen edits the same file:
 
 | Option | Default | Description |
 |---|---|---|
-| `driver` | `auto` | Force `xinput`, `dualsense`, `none` (disable all controller polling), or let the mod choose |
+| `enabled` | `true` | Master switch for controller input. `false` stops all probing and leaves keyboard/mouse only |
+| `driver` | `auto` | Force `xinput`, `dualsense`, `none` (legacy disable), or let the mod choose |
 | `showControllerToasts` | `true` | Show a modern top-right toast when a controller connects or disconnects |
 | `xInputSlot` | `0` | Controller index (0–3) for XInput |
 | `stickDeadZone` | `0.15` | Stick dead-zone radius (0.0–0.99) |
@@ -91,11 +115,13 @@ All options live in `config/fuzzicontrols.cfg`:
 | `rightStickScrolling` | `true` | `true` = right stick scrolls while a GUI is open |
 | `scrollSensitivity` | `10.0` | Scroll speed in notches/second at full deflection ([1–100]) |
 
-Every button binding can also be remapped via the `[bindings]` section.
+Every button binding can also be remapped via the `[bindings]` section. The `[shortcuts]` section
+stores the four keyboard shortcuts in `BUTTON:KEYCODE:HOLD|TAP` form.
 
 Config edits can be applied without restarting the game with `/fuzzicontrols reload`, which re-reads
-the config file and re-initialises the controller driver. One exception: `analogMovement` is applied
-by a mixin at class load, so **enabling** it needs a restart (disabling it is immediate).
+the config file and re-initialises the controller driver. The settings screen saves immediately.
+One exception: `analogMovement` is applied by a mixin at class load, so **enabling** it needs a
+restart (disabling it is immediate).
 
 ---
 
@@ -114,7 +140,8 @@ by a mixin at class load, so **enabling** it needs a restart (disabling it is im
 
 ## 🗺️ Future Plans
 
-- **In-game key binding GUI** — a dedicated screen accessible from the Options or pause menu for remapping every controller action, with proper button icons (Xbox colours for XInput, PlayStation colours for DualSense), all navigable without a mouse
+- **Controller-type-aware button glyphs** — Xbox colours for XInput and PlayStation shapes for DualSense in the remap screen
+- **Per-controller binding profiles** — separate maps for different pads
 - **Broader controller support** — investigate support for non-XInput controllers (e.g. older DirectInput gamepads) and Linux/macOS environments
 
 ---
@@ -136,9 +163,11 @@ Two layers cover what a plain JVM cannot:
 
 **Client self-test** (`FUZZICONTROLS_SELFTEST=1`). It boots at the main menu (no world needed),
 verifies that every mixin was applied, then drives the real navigation stack the same way the D-pad
-confirm does: focus the **Options…** button and activate it, focus **Video Settings…** and activate
-it, step a real slider, navigate the options list, check the `GuiContainer` slot path (off-panel slots
-filtered, click target at the slot centre), and render the focus border for a couple of frames. It
+confirm does: focus the **Options…** button and activate it, open **FuzziControls**, switch tabs,
+select a binding, enter and cancel capture, focus a settings slider, focus **Video Settings…** and
+activate it, step a real slider, navigate the options list, check the `GuiContainer` slot path
+(off-panel slots filtered, click target at the slot centre), and render the focus border for a couple
+of frames. It
 logs one `PASS`/`FAIL` line per check, prints a summary and exits with the failure count as its exit
 code:
 
