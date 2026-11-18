@@ -3,8 +3,16 @@ package com.mrfuzzihead.fuzzicontrols.controller;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import org.junit.Test;
+
+import com.github.strikerx3.jxinput.XInputDevice;
 
 /**
  * Tests that {@link XInputDriver} degrades gracefully when JXInput's native library is unavailable.
@@ -23,6 +31,23 @@ public class XInputDriverTest {
         boolean first = XInputDriver.isXInputSupported();
         boolean second = XInputDriver.isXInputSupported();
         assertEquals("The probe result must be cached and stable", first, second);
+    }
+
+    @Test
+    public void connectionChecksUseThePolledFlagWithoutCallingTheDevice() {
+        XInputDevice device = mock(XInputDevice.class);
+        when(device.isConnected()).thenReturn(true);
+        XInputDriver driver = new XInputDriver(0, device);
+
+        assertTrue("The constructor captures JXInput's initial connected state", driver.isConnected());
+        verify(device, never()).poll();
+
+        when(device.poll()).thenReturn(false);
+        assertEquals(ControllerState.empty(), driver.poll(0.15f, 0.2f));
+        assertFalse("A failed poll updates the cached connection state", driver.isConnected());
+        verify(device, times(1)).poll();
+
+        driver.close();
     }
 
     @Test

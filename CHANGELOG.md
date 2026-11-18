@@ -43,6 +43,9 @@ Versions are derived from git tags (`git describe`), so a release is published b
 - **Config writes now include settings, not only bindings.** `Config.save()` persists every
   controller/input/interface value and the `[shortcuts]` section, so settings-screen changes survive
   a restart.
+- **XInput connection checks no longer re-poll the native device.** `XInputDriver.isConnected()`
+  now reads the connection flag cached by the last `poll()`, so the manager performs one native
+  XInput poll per tick. Render-frame polls (`pollFresh()`) are unchanged.
 - **Bundled JNA updated to 5.19.1.** The shaded jar now carries the current JNA classes and
   native dispatch libraries, and `THIRD_PARTY_NOTICES.md` is shipped inside the jar for the
   bundled LGPL-2.1 and MIT components.

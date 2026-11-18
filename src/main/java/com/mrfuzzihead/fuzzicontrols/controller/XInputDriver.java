@@ -15,6 +15,9 @@ public class XInputDriver implements IControllerDriver {
     private XInputDevice device;
     private boolean available = false;
 
+    /** JXInput's cached connection state, refreshed only by {@link #poll(float, float)}. */
+    private boolean connected = false;
+
     /** Cached result of the native-library probe; {@code null} until first use. */
     private static Boolean xInputSupported;
 
@@ -52,6 +55,7 @@ public class XInputDriver implements IControllerDriver {
 
         try {
             device = XInputDevice.getDeviceFor(controllerIndex);
+            connected = device.isConnected();
             available = true;
             FuzziControls.LOG.debug("[FuzziControls] XInputDriver initialised for slot {}.", controllerIndex);
         } catch (XInputNotLoadedException e) {
@@ -63,15 +67,18 @@ public class XInputDriver implements IControllerDriver {
         }
     }
 
+    /** Test seam: lets the poll/cache contract run without JXInput's native library. */
+    XInputDriver(int controllerIndex, XInputDevice device) {
+        this.controllerIndex = controllerIndex;
+        this.device = device;
+        this.available = device != null;
+        this.connected = available && device.isConnected();
+    }
+
     @Override
     public boolean isConnected() {
-        if (!available || device == null) return false;
-        try {
-            device.poll();
-            return device.isConnected();
-        } catch (Exception | LinkageError e) {
-            return false;
-        }
+        // The connected flag is refreshed by poll(); checking it must not hit the native device.
+        return available && device != null && connected;
     }
 
     @Override
@@ -79,11 +86,14 @@ public class XInputDriver implements IControllerDriver {
         if (!available || device == null) return ControllerState.empty();
 
         try {
-            if (!device.poll() || !device.isConnected()) {
+            if (!device.poll()) {
+                connected = false;
                 return ControllerState.empty();
             }
+            connected = true;
         } catch (Exception | LinkageError e) {
             // LinkageError covers a native library that disappears mid-session (unplugged dongle etc.).
+            connected = false;
             return ControllerState.empty();
         }
 
@@ -96,6 +106,7 @@ public class XInputDriver implements IControllerDriver {
     public void close() {
         device = null;
         available = false;
+        connected = false;
     }
 
     @Override
