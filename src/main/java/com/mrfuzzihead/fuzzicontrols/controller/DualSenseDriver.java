@@ -272,6 +272,8 @@ public class DualSenseDriver implements IControllerDriver {
                         .info("[FuzziControls] DualSense reports are using the {} transport.", getTransportName());
                 }
 
+                TriggerDiagnostics.logRawReport(layout, reportBuffer, read);
+
                 DualSenseReportParser.Battery battery = DualSenseReportParser.parseBattery(reportBuffer, read, layout);
                 if (battery != null) {
                     batteryPercent = battery.percent();

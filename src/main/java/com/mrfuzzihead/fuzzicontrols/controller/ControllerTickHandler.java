@@ -504,9 +504,9 @@ public class ControllerTickHandler {
         updateAdaptiveTriggers(mc, manager, attacking);
 
         // --- Use item / place (hold) ---
-        driveKey(
-            mc.gameSettings.keyBindUseItem,
-            mapping.isActive(ControllerAction.USE_ITEM, state) && !isActionBlocked(ControllerAction.USE_ITEM, mapping));
+        boolean usingItem = mapping.isActive(ControllerAction.USE_ITEM, state)
+            && !isActionBlocked(ControllerAction.USE_ITEM, mapping);
+        driveKey(mc.gameSettings.keyBindUseItem, usingItem);
 
         // --- Pick block (one-shot) ---
         // Vanilla reads keyBindPickBlock.isPressed(), i.e. the KeyBinding press counter, not the
@@ -527,6 +527,17 @@ public class ControllerTickHandler {
 
         // --- User-defined controller-button → keyboard-key shortcuts ---
         processKeyboardShortcuts(state);
+
+        TriggerDiagnostics.logTick(
+            mc,
+            state,
+            mapping,
+            attacking,
+            usingItem,
+            displayActive,
+            connected,
+            buttonsHeldOnGuiClose,
+            heldKeys.claimed());
     }
 
     /**

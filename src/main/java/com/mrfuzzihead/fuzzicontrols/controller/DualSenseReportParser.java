@@ -100,6 +100,20 @@ final class DualSenseReportParser {
      * @param layout detected layout
      * @return battery data, or {@code null} when this layout carries none
      */
+    /**
+     * Returns the raw trigger byte indices for diagnostics: {@code [left, right, buttons1]}, or
+     * {@code null} when the layout has no trigger bytes.
+     */
+    static int[] triggerIndices(Layout layout) {
+        if (layout == null) return null;
+        return switch (layout) {
+            case USB_0X01 -> new int[] { 5, 6, 9 };
+            case BLUETOOTH_SIMPLE_0X01 -> new int[] { 8, 9, 6 };
+            case BLUETOOTH_ENHANCED_0X31 -> new int[] { 6, 7, 10 };
+            default -> null;
+        };
+    }
+
     static Battery parseBattery(byte[] data, int length, Layout layout) {
         if (data == null || layout == null) return null;
 
