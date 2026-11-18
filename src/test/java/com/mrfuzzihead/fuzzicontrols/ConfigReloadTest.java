@@ -56,6 +56,8 @@ public class ConfigReloadTest {
     public void restoreDefaults() throws Exception {
         Config.controllerEnabled = true;
         Config.controllerDriver = "auto";
+        Config.rumbleEnabled = true;
+        Config.rumbleIntensity = 0.6f;
         Config.synchronizeConfiguration(folder.newFile("defaults.cfg"));
     }
 
@@ -151,6 +153,8 @@ public class ConfigReloadTest {
         Config.triggerThreshold = 0.35f;
         Config.analogMovement = false;
         Config.controllerEnabled = false;
+        Config.rumbleEnabled = false;
+        Config.rumbleIntensity = 0.35f;
         Config.save();
 
         Config.synchronizeConfiguration(configFile);
@@ -160,6 +164,8 @@ public class ConfigReloadTest {
         assertEquals(0.35f, Config.triggerThreshold, 0f);
         assertFalse(Config.analogMovement);
         assertFalse(Config.controllerEnabled);
+        assertFalse(Config.rumbleEnabled);
+        assertEquals(0.35f, Config.rumbleIntensity, 0f);
     }
 
     @Test

@@ -21,6 +21,9 @@ public class XInputDriver implements IControllerDriver {
     /** Cached result of the native-library probe; {@code null} until first use. */
     private static Boolean xInputSupported;
 
+    /** Rate-limits a failing rumble write; a disconnected pad can throw on every pulse. */
+    private boolean rumbleWriteFailedLogged;
+
     /**
      * Returns true when JXInput's native library is usable on this platform.
      *
@@ -103,10 +106,38 @@ public class XInputDriver implements IControllerDriver {
     }
 
     @Override
+    public void setRumble(float left, float right) {
+        if (!available || device == null || !connected) return;
+
+        try {
+            device.setVibration(toMotor(left), toMotor(right));
+        } catch (Exception | LinkageError e) {
+            if (!rumbleWriteFailedLogged) {
+                rumbleWriteFailedLogged = true;
+                FuzziControls.LOG.debug("[FuzziControls] XInput rumble failed: {}", e.toString());
+            }
+        }
+    }
+
+    @Override
     public void close() {
+        if (device != null) {
+            try {
+                device.setVibration(0, 0);
+            } catch (Exception | LinkageError e) {
+                // The controller may already be gone; closing must still succeed.
+            }
+        }
+
         device = null;
         available = false;
         connected = false;
+    }
+
+    /** Converts a normalised motor value to XInput's 0–65535 range. */
+    private static int toMotor(float value) {
+        float clamped = Math.max(0f, Math.min(1f, value));
+        return Math.round(clamped * 65535f);
     }
 
     @Override

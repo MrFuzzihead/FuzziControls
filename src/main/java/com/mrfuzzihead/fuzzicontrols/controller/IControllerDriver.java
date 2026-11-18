@@ -32,6 +32,16 @@ public interface IControllerDriver {
     String getDriverName();
 
     /**
+     * Sets the two rumble motors. Values are normalised to {@code [0, 1]}, where {@code 0} stops
+     * the motor. Drivers that do not support rumble, or are currently disconnected, may ignore
+     * this call. Sending {@code (0, 0)} must always stop any active rumble.
+     *
+     * @param left  low-frequency / strong motor
+     * @param right high-frequency / weak motor
+     */
+    default void setRumble(float left, float right) {}
+
+    /**
      * Human-readable device name for toasts and the settings screen, e.g. {@code DualSense Edge}.
      * Defaults to the driver name for drivers that only expose one device type.
      */

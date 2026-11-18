@@ -353,7 +353,7 @@ if the `after:` dependency stays soft) and `required-project:lwjgl3ify` on Modri
 | Dependency | Current | Latest / verdict | Recommended type |
 |---|---|---|---|
 | `com.github.GTNewHorizons:lwjgl3ify` | `3.1.0:dev` | **3.1.0 latest** (GTNH Maven, Nov 2026) | `implementation`/`api`; `api` publishes a transitive `:dev` dep even though no lwjgl3ify type appears in the public API. `compileOnly` + `devOnlyNonPublishable` is cleanest for a user-provided mod. |
-| `com.xenoamess:JXInput` | `1.0.1` | Latest on Maven Central; 2020 republish of StrikerX3's abandoned **JNI** library (not JNA). | `shadowImplementation` to bundle. Consider replacing with lwjgl3ify's GLFW gamepad API (removes a native JNI library; also gives Linux/macOS gamepad support). |
+| `com.xenoamess:JXInput` | `1.0.1` | Latest on Maven Central; 2020 republish of StrikerX3's abandoned **JNI** library (not JNA). | `shadowImplementation` to bundle. Consider replacing with lwjgl3ify's SDL gamepad API (removes a native JNI library; also gives Linux/macOS gamepad support). |
 | `org.hid4java:hid4java` | `0.8.0` | **0.8.0 latest** (Apr 2024) | `shadowImplementation` correct; only needs JNA core. |
 | `net.java.dev.jna:jna` | `5.19.1` | **Updated** (Jun 2026) | Verified hid4java 0.8.0 works with 5.19.1; the 500 ms enumeration was hidapi, not JNA. |
 | `net.java.dev.jna:jna-platform` | removed | **Done** | Nothing imports `com.sun.jna.platform`; hid4java uses only `com.sun.jna` core. |
@@ -654,10 +654,18 @@ returns.
   three report layouts. They are exposed as `LEFT_PADDLE`, `RIGHT_PADDLE`, `FUNCTION_1` and
   `FUNCTION_2`, appear in the Bindings capture UI, and are unbound by default. Standard
   DualSense controllers ignore those reserved bits.
-- **GLFW gamepad input via lwjgl3ify** instead of JXInput + hid4java: removes one JNI
-  library (JXInput) and gives Linux/macOS gamepad support. hid4java remains for
-  DualSense-specific features. (Also carried over from the previous plan, section 9.)
-- **Rumble/vibration** (XInput `XInputSetState`, DualSense output report).
+- **SDL gamepad input via lwjgl3ify** instead of JXInput + hid4java: removes one JNI
+  library (JXInput) and gives Linux/macOS gamepad support. lwjgl3ify 3.x uses SDL3, not GLFW;
+  `SDL_INIT_GAMEPAD` is initialised, but there is no gamepad wrapper in lwjgl3ify's public API,
+  so this needs a compile-only `lwjgl-sdl` dependency and an SDL gamepad driver. hid4java
+  remains for DualSense-specific features. (Also carried over from the previous plan, section 9.)
+- **Rumble/vibration** — done (this iteration). XInput uses `XInputDevice.setVibration`;
+  DualSense uses a 63-byte USB `0x02` or 78-byte Bluetooth `0x31` output report, with the
+  Bluetooth sequence/tag and output CRC32 seed `0xA2`. `DualSenseOutputReport` builds and signs
+  the reports, and `ControllerManager` schedules short pulses for damage, entity attacks and
+  mining. Values are de-duplicated, refreshed periodically, scaled by `rumbleIntensity`, and
+  stopped on disable, disconnect and shutdown. The settings screen exposes the on/off switch and
+  strength slider. Remaining: hardware validation on XInput and DualSense over USB/Bluetooth.
 - **Controller-type-aware button glyphs** (Xbox vs PlayStation) for the remap screen. The screen
   currently uses text labels; this is the next visual-polish step.
 - **Per-device DualSense calibration** (Sony ships calibration data; raw 0–255 is
@@ -772,9 +780,11 @@ These were not completed by the migration and remain valid:
   - Cursor speed at multiple window sizes (854×480 reference scaling).
   - **New:** no periodic hitch with no controller connected; no recurring
     `DualSense not found` lines; no `hid4java device scanner` thread.
-- **GLFW gamepad backend** (section 7): still the preferred long-term replacement for
+  - Rumble: damage, entity attack and block mining on XInput and DualSense, USB and Bluetooth;
+    verify the strength slider, the on/off switch, and that vibration stops on disconnect.
+- **SDL gamepad backend** (section 7): still the preferred long-term replacement for
   JXInput; keep `ControllerState`/`ControllerMapping` semantics and add normalization parity
-  tests.
+  tests. lwjgl3ify 3.x uses SDL3, so target `org.lwjgl.sdl.SDLGamepad`, not GLFW.
 - **GTNHLib evaluation** — settled. The settings GUI is implemented locally because
   `SimpleGuiConfig` is only a thin `GuiConfig` wrapper and does not provide remap capture, controller
   status, driver switching or keyboard shortcuts. Adding GTNHLib would also add a hard runtime
@@ -819,6 +829,9 @@ These were not completed by the migration and remain valid:
     config load, the sound-slider accessor, the edge-handler consolidation, and cached button/slot
     geometry. The per-tick button-state hash is retained deliberately (dynamic enabled/visible
     changes).
+11. **Rumble — done**: XInput and DualSense output reports, client-side damage/attack/mining
+    feedback, config/UI controls, and manager-level pulse scheduling with stop-on-disconnect.
+    Manual hardware validation remains.
 
 ---
 
@@ -843,4 +856,6 @@ These were not completed by the migration and remain valid:
       button-state hash remainder documented in section 6.
 - [x] New unit tests from section 8 pass; the client self-test still reports
       `Mixin self-test: 9 checks, 0 failures`.
+- [x] Rumble output reports are unit tested for USB/Bluetooth layout, motor offsets, sequence
+      numbers and CRC, and the manager stops pulses on expiry, disable and disconnect.
 - [ ] Manual validation checklist in section 9 completed.
