@@ -18,6 +18,7 @@ import org.lwjgl.opengl.Display;
 
 import com.mrfuzzihead.fuzzicontrols.Config;
 import com.mrfuzzihead.fuzzicontrols.gui.ControllerCaptureScreen;
+import com.mrfuzzihead.fuzzicontrols.gui.GuiFuzziControls;
 import com.mrfuzzihead.fuzzicontrols.util.GuiElementActivator;
 import com.mrfuzzihead.fuzzicontrols.util.GuiFocusNavigator;
 import com.mrfuzzihead.fuzzicontrols.util.GuiFocusRenderer;
@@ -269,6 +270,28 @@ public class ControllerTickHandler {
             // a menu/chat screen owns the keyboard.
             releaseShortcutKeys();
             syncShortcutEdges(state);
+
+            // R1/L1 browse the top-level settings tabs, matching the console-style paging
+            // expected from the bumpers. The normal GUI navigation remains on the D-pad.
+            if (mc.currentScreen instanceof GuiFuzziControls settings) {
+                int nextIdx = ControllerAction.HOTBAR_NEXT.ordinal();
+                boolean next = mapping.isActive(ControllerAction.HOTBAR_NEXT, state);
+                boolean nextRising = next && !wasActive[nextIdx];
+                wasActive[nextIdx] = next;
+                if (nextRising) {
+                    settings.cyclePage(1);
+                    guiFocusNavigator.update(settings);
+                }
+
+                int prevIdx = ControllerAction.HOTBAR_PREV.ordinal();
+                boolean prev = mapping.isActive(ControllerAction.HOTBAR_PREV, state);
+                boolean prevRising = prev && !wasActive[prevIdx];
+                wasActive[prevIdx] = prev;
+                if (prevRising) {
+                    settings.cyclePage(-1);
+                    guiFocusNavigator.update(settings);
+                }
+            }
 
             // Initialize cursor to screen center on first tick a screen is open.
             if (!guiCursorInitialized) {

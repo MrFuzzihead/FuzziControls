@@ -76,7 +76,8 @@ only on the virtual cursor:
 ## 🎛️ Settings screen
 
 Open **Options → FuzziControls**, or use the Forge mod list's Config button. The screen is fully
-navigable with a controller (D-pad focus, A to activate, B/Escape to go back); a mouse works too.
+navigable with a controller (D-pad focus, A to activate, B/Escape to go back, and R1/L1 to cycle
+the top-level tabs); a mouse works too.
 
 | Tab | What it controls |
 |---|---|

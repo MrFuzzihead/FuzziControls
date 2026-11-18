@@ -238,6 +238,17 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
         buttonList.add(done);
     }
 
+    /** Cycles the top-level tabs. Used by R1/L1 while this screen is open. */
+    public void cyclePage(int direction) {
+        if (direction == 0) return;
+        List<Page> pages = visiblePages();
+        int current = pages.indexOf(page);
+        if (current < 0) current = 0;
+        page = pages.get(Math.floorMod(current + direction, pages.size()));
+        resetAllArmed = false;
+        rebuildWidgets();
+    }
+
     private List<Page> visiblePages() {
         List<Page> pages = new ArrayList<>();
         for (Page candidate : Page.values()) {

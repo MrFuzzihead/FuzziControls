@@ -15,6 +15,8 @@ Versions are derived from git tags (`git describe`), so a release is published b
   config file immediately. It exposes a master controller on/off switch, the
   Automatic/DualSense/XInput driver choice, XInput slot, connection toasts, live device/transport
   status, every gameplay/input/interface setting, and a **Rescan** button.
+- **Bumper tab browsing.** While the FuzziControls screen is open, R1/L1 cycle through the
+  top-level tabs. The D-pad/A/B navigation is unchanged.
 - **In-game remapping.** The Bindings tab remaps every controller action with a tap-to-capture
   overlay. Capture suspends normal GUI input so B can be bound without closing the screen; a
   one-second hold cancels. Bindings can be cleared, reset per category, or reset all (two-step
