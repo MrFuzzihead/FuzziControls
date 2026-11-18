@@ -238,7 +238,8 @@ public class DualSenseDriver implements IControllerDriver {
                         .info("[FuzziControls] DualSense reports are using the {} transport.", getTransportName());
                 }
 
-                fresh = DualSenseReportParser.parse(reportBuffer, read, layout, deadZone, triggerThreshold);
+                fresh = DualSenseReportParser
+                    .parse(reportBuffer, read, layout, deadZone, triggerThreshold, transport.isEdge());
             }
 
             if (read < 0) {

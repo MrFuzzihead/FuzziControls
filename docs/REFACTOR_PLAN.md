@@ -647,8 +647,13 @@ returns.
   `0x0CE6`. Bluetooth handles that stop sending reports are treated as disconnected after
   2 seconds. The report layouts live in `DualSenseReportParser` and the HID lifecycle in
   `DualSenseTransport`/`HidApiDualSenseTransport`, both covered by unit tests. Remaining:
-  hardware validation on Windows/Linux/macOS Bluetooth, a USB-vs-Bluetooth preference when
-  both are connected, and Edge paddle/function buttons (not in `ControllerButton`).
+  hardware validation on Windows/Linux/macOS Bluetooth and a USB-vs-Bluetooth preference when
+  both are connected.
+- **DualSense Edge paddles and Fn buttons** — done (this iteration). The Edge's left/right rear
+  paddles and front Fn1/Fn2 buttons are decoded from bits 4-7 of the third button byte in all
+  three report layouts. They are exposed as `LEFT_PADDLE`, `RIGHT_PADDLE`, `FUNCTION_1` and
+  `FUNCTION_2`, appear in the Bindings capture UI, and are unbound by default. Standard
+  DualSense controllers ignore those reserved bits.
 - **GLFW gamepad input via lwjgl3ify** instead of JXInput + hid4java: removes one JNI
   library (JXInput) and gives Linux/macOS gamepad support. hid4java remains for
   DualSense-specific features. (Also carried over from the previous plan, section 9.)
@@ -759,8 +764,8 @@ These were not completed by the migration and remain valid:
   - DualSense Bluetooth: pair in the OS, connect while the game is running, verify sticks,
     buttons and triggers in both simple and enhanced modes, then turn the controller off and
     verify it reconnects without stuck keys (2 s stale-handle timeout).
-  - DualSense Edge (PID `0x0DF2`): standard buttons/sticks/triggers over USB and Bluetooth.
-    Paddles/function buttons are not mapped yet.
+  - DualSense Edge (PID `0x0DF2`): standard buttons/sticks/triggers over USB and Bluetooth,
+    plus left/right paddles and Fn1/Fn2; verify each can be bound and released without sticking.
   - GUI navigation: main menu, inventory, pause, chest, `GuiSlot` world/server lists.
   - Shift-click (LT + A/X), scroll, D-pad focus, sliders.
   - Focus loss/refocus; controller disconnect/reconnect.
@@ -827,6 +832,8 @@ These were not completed by the migration and remain valid:
       B all behave correctly in-game (unit tests cover the parts that do not need a live client).
 - [x] Focus-aware hot-plug detection: 1 s focused, 30 s unfocused, immediate on focus gain (see 2.8).
 - [x] `curseForgeEnvironments = client`; `jna-platform` removed.
+- [x] DualSense Edge paddles and Fn1/Fn2 are decoded on USB and both Bluetooth layouts and can
+      be remapped; standard DualSense reserved bits are ignored.
 - [x] JNA upgraded to 5.19.1 and third-party notices added and shipped in the jar.
 - [x] P2 correctness fixes (keyboard input, GUI edge sync, mouse flags, config parsing, chat
       messages, self-test noise) with tests.

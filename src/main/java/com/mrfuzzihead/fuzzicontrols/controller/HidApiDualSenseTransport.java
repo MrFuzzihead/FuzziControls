@@ -94,6 +94,11 @@ final class HidApiDualSenseTransport implements DualSenseTransport {
     }
 
     @Override
+    public boolean isEdge() {
+        return productId == DUAL_SENSE_EDGE_PRODUCT_ID;
+    }
+
+    @Override
     public String getVersion() {
         return getVersionStatic();
     }

@@ -50,6 +50,8 @@ public class DualSenseDriverTest {
 
         private String deviceName = "DualSense";
 
+        private boolean edge;
+
         FakeTransport enqueue(byte[]... newReports) {
             for (byte[] report : newReports) {
                 reports.add(report);
@@ -102,6 +104,11 @@ public class DualSenseDriverTest {
         @Override
         public String getDeviceName() {
             return deviceName;
+        }
+
+        @Override
+        public boolean isEdge() {
+            return edge;
         }
 
         @Override
@@ -183,6 +190,40 @@ public class DualSenseDriverTest {
         DualSenseDriver driver = new DualSenseDriver(transport, System::nanoTime);
 
         assertEquals("DualSense Edge", driver.getDeviceName());
+    }
+
+    @Test
+    public void edgeExtraButtonsArePassedThroughFromTheTransport() {
+        FakeTransport transport = new FakeTransport();
+        transport.deviceName = "DualSense Edge";
+        transport.edge = true;
+        byte[] report = usbReport();
+        report[10] = (byte) 0xF0;
+        transport.enqueue(report);
+
+        DualSenseDriver driver = new DualSenseDriver(transport, System::nanoTime);
+        ControllerState state = driver.poll(DEAD_ZONE, TRIGGER_THRESHOLD);
+
+        assertTrue(state.isPressed(ControllerButton.LEFT_PADDLE));
+        assertTrue(state.isPressed(ControllerButton.RIGHT_PADDLE));
+        assertTrue(state.isPressed(ControllerButton.FUNCTION_1));
+        assertTrue(state.isPressed(ControllerButton.FUNCTION_2));
+    }
+
+    @Test
+    public void standardDualSenseIgnoresTheEdgeButtonBits() {
+        FakeTransport transport = new FakeTransport();
+        byte[] report = usbReport();
+        report[10] = (byte) 0xF0;
+        transport.enqueue(report);
+
+        DualSenseDriver driver = new DualSenseDriver(transport, System::nanoTime);
+        ControllerState state = driver.poll(DEAD_ZONE, TRIGGER_THRESHOLD);
+
+        assertFalse(state.isPressed(ControllerButton.LEFT_PADDLE));
+        assertFalse(state.isPressed(ControllerButton.RIGHT_PADDLE));
+        assertFalse(state.isPressed(ControllerButton.FUNCTION_1));
+        assertFalse(state.isPressed(ControllerButton.FUNCTION_2));
     }
 
     // -------------------------------------------------------------------------

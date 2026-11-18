@@ -170,6 +170,50 @@ public class DualSenseReportParserTest {
         assertTrue(state.isPressed(ControllerButton.LEFT_TRIGGER));
     }
 
+    // -------------------------------------------------------------------------
+    // DualSense Edge extras
+    // -------------------------------------------------------------------------
+
+    @Test
+    public void edgeButtonsAreDecodedFromAllReportLayouts() {
+        byte[] usb = usbReport();
+        usb[10] = (byte) 0xF0;
+        assertEdgeButtons(parse(usb, DualSenseReportParser.Layout.USB_0X01, true));
+
+        byte[] simple = bluetoothSimpleReport();
+        simple[7] = (byte) 0xF0;
+        assertEdgeButtons(parse(simple, DualSenseReportParser.Layout.BLUETOOTH_SIMPLE_0X01, true));
+
+        byte[] enhanced = enhancedReport();
+        enhanced[11] = (byte) 0xF0;
+        assertEdgeButtons(parse(enhanced, DualSenseReportParser.Layout.BLUETOOTH_ENHANCED_0X31, true));
+    }
+
+    @Test
+    public void edgeButtonBitsAreIgnoredOnAStandardDualSense() {
+        byte[] usb = usbReport();
+        usb[10] = (byte) 0xF0;
+        ControllerState state = parse(usb, DualSenseReportParser.Layout.USB_0X01);
+
+        assertFalse(state.isPressed(ControllerButton.LEFT_PADDLE));
+        assertFalse(state.isPressed(ControllerButton.RIGHT_PADDLE));
+        assertFalse(state.isPressed(ControllerButton.FUNCTION_1));
+        assertFalse(state.isPressed(ControllerButton.FUNCTION_2));
+    }
+
+    @Test
+    public void edgeButtonsAreReleasedWhenTheBitsClear() {
+        byte[] usb = usbReport();
+        usb[10] = (byte) 0x40;
+        ControllerState pressed = parse(usb, DualSenseReportParser.Layout.USB_0X01, true);
+        assertTrue(pressed.isPressed(ControllerButton.LEFT_PADDLE));
+        assertFalse(pressed.isPressed(ControllerButton.RIGHT_PADDLE));
+
+        usb[10] = 0;
+        ControllerState released = parse(usb, DualSenseReportParser.Layout.USB_0X01, true);
+        assertFalse(released.isPressed(ControllerButton.LEFT_PADDLE));
+    }
+
     @Test
     public void bluetoothEnhancedReportMatchesReferenceCrcVector() {
         // Generated with Python: zlib.crc32(b"\xA1" + report[:-4]) == 0x78616D27
@@ -227,7 +271,18 @@ public class DualSenseReportParserTest {
     // -------------------------------------------------------------------------
 
     private static ControllerState parse(byte[] report, DualSenseReportParser.Layout layout) {
-        return DualSenseReportParser.parse(report, report.length, layout, DEAD_ZONE, TRIGGER_THRESHOLD);
+        return parse(report, layout, false);
+    }
+
+    private static ControllerState parse(byte[] report, DualSenseReportParser.Layout layout, boolean edge) {
+        return DualSenseReportParser.parse(report, report.length, layout, DEAD_ZONE, TRIGGER_THRESHOLD, edge);
+    }
+
+    private static void assertEdgeButtons(ControllerState state) {
+        assertTrue(state.isPressed(ControllerButton.LEFT_PADDLE));
+        assertTrue(state.isPressed(ControllerButton.RIGHT_PADDLE));
+        assertTrue(state.isPressed(ControllerButton.FUNCTION_1));
+        assertTrue(state.isPressed(ControllerButton.FUNCTION_2));
     }
 
     /** USB: LX=0, LY=128, RX=255, RY=128, LT=200, RT=0, A + neutral hat, LB. */

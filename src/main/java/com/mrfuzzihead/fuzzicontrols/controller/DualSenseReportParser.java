@@ -49,6 +49,11 @@ import java.util.zip.CRC32;
  * driver owns transport, feature reports and lifecycle.
  *
  * <p>
+ * The DualSense Edge adds Fn1, Fn2, left-paddle and right-paddle bits in the third button byte.
+ * Standard DualSense controllers leave those bits reserved, so they are only decoded when the
+ * caller identifies the device as an Edge.
+ *
+ * <p>
  * Extracted from {@link DualSenseDriver} so every layout (and the CRC) can be exercised by unit
  * tests without hardware.
  */
@@ -135,6 +140,22 @@ final class DualSenseReportParser {
      * @return the decoded state, or {@link ControllerState#empty()} for a malformed/unknown report
      */
     static ControllerState parse(byte[] data, int length, Layout layout, float deadZone, float triggerThreshold) {
+        return parse(data, length, layout, deadZone, triggerThreshold, false);
+    }
+
+    /**
+     * Decodes one report, optionally including the DualSense Edge paddle/Fn buttons.
+     *
+     * @param data             report bytes
+     * @param length           valid length
+     * @param layout           layout returned by {@link #detect(byte[], int)}
+     * @param deadZone         stick dead-zone
+     * @param triggerThreshold trigger threshold
+     * @param edge             true for a DualSense Edge, enabling the extra button byte bits
+     * @return the decoded state, or {@link ControllerState#empty()} for a malformed/unknown report
+     */
+    static ControllerState parse(byte[] data, int length, Layout layout, float deadZone, float triggerThreshold,
+        boolean edge) {
         if (data == null || length <= 0 || length > data.length || layout == null) return ControllerState.empty();
 
         final int leftX;
@@ -145,6 +166,7 @@ final class DualSenseReportParser {
         final int rightTrigger;
         final int buttons0;
         final int buttons1;
+        final int buttons2;
         final int minimumLength;
 
         switch (layout) {
@@ -157,7 +179,8 @@ final class DualSenseReportParser {
                 rightTrigger = 6;
                 buttons0 = 8;
                 buttons1 = 9;
-                minimumLength = 10;
+                buttons2 = 10;
+                minimumLength = 11;
             }
             case BLUETOOTH_SIMPLE_0X01 -> {
                 leftX = 1;
@@ -168,6 +191,7 @@ final class DualSenseReportParser {
                 rightTrigger = 9;
                 buttons0 = 5;
                 buttons1 = 6;
+                buttons2 = 7;
                 minimumLength = 10;
             }
             case BLUETOOTH_ENHANCED_0X31 -> {
@@ -179,6 +203,7 @@ final class DualSenseReportParser {
                 rightTrigger = 7;
                 buttons0 = 9;
                 buttons1 = 10;
+                buttons2 = 11;
                 minimumLength = 12;
             }
             case UNKNOWN -> {
@@ -198,6 +223,7 @@ final class DualSenseReportParser {
 
         int btn0 = data[buttons0] & 0xFF;
         int btn1 = data[buttons1] & 0xFF;
+        int btn2 = data[buttons2] & 0xFF;
 
         float rawLt = byteToTrigger(data[leftTrigger]);
         float rawRt = byteToTrigger(data[rightTrigger]);
@@ -213,6 +239,7 @@ final class DualSenseReportParser {
         addFaceButtons(pressed, btn0);
         addDpad(pressed, btn0 & 0x0F);
         addShoulderAndMenuButtons(pressed, btn1);
+        if (edge) addEdgeButtons(pressed, btn2);
         if (rawLt >= triggerThreshold) pressed.add(ControllerButton.LEFT_TRIGGER);
         if (rawRt >= triggerThreshold) pressed.add(ControllerButton.RIGHT_TRIGGER);
 
@@ -245,6 +272,14 @@ final class DualSenseReportParser {
         if ((buttons1 & 0x20) != 0) pressed.add(ControllerButton.START);
         if ((buttons1 & 0x40) != 0) pressed.add(ControllerButton.LEFT_STICK_CLICK);
         if ((buttons1 & 0x80) != 0) pressed.add(ControllerButton.RIGHT_STICK_CLICK);
+    }
+
+    /** DualSense Edge paddles and front Fn buttons live in bits 4-7 of the third button byte. */
+    private static void addEdgeButtons(Set<ControllerButton> pressed, int buttons2) {
+        if ((buttons2 & 0x10) != 0) pressed.add(ControllerButton.FUNCTION_1);
+        if ((buttons2 & 0x20) != 0) pressed.add(ControllerButton.FUNCTION_2);
+        if ((buttons2 & 0x40) != 0) pressed.add(ControllerButton.LEFT_PADDLE);
+        if ((buttons2 & 0x80) != 0) pressed.add(ControllerButton.RIGHT_PADDLE);
     }
 
     private static float byteToAxis(byte b) {

@@ -44,6 +44,11 @@ interface DualSenseTransport {
     /** Human-readable device name, e.g. {@code DualSense} or {@code DualSense Edge}. */
     String getDeviceName();
 
+    /** Returns true when this transport is a DualSense Edge with the extra paddle/Fn buttons. */
+    default boolean isEdge() {
+        return false;
+    }
+
     /** Underlying hidapi version, for diagnostics. */
     String getVersion();
 }

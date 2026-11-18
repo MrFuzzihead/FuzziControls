@@ -157,6 +157,21 @@ registered them.
 
 ---
 
+## DualSense Edge Extras
+
+| Controller button | Config value | Default | Notes |
+|---|---|---|---|
+| Left rear paddle | `LEFT_PADDLE` | Unbound | Raw HID only |
+| Right rear paddle | `RIGHT_PADDLE` | Unbound | Raw HID only |
+| Front function button 1 | `FUNCTION_1` | Unbound | Labeled **Fn1** in the remap screen |
+| Front function button 2 | `FUNCTION_2` | Unbound | Labeled **Fn2** in the remap screen |
+
+These buttons are available when the DualSense raw-HID driver is active. They are not exposed
+through the XInput fallback. Bind them from **Options → FuzziControls → Bindings → Rebind**;
+the capture overlay recognizes a short tap, and holding for one second cancels.
+
+---
+
 ## Sensitivity & Dead-zone Config (`config/fuzzicontrols.cfg`)
 
 | Key | Default | Description |
@@ -181,6 +196,7 @@ registered them.
 
 | Date | Change |
 |---|---|
+| 2026-11-18 | **DualSense Edge paddles and Fn buttons** — `LEFT_PADDLE`, `RIGHT_PADDLE`, `FUNCTION_1` and `FUNCTION_2` are decoded from the Edge's third button byte and can be bound in the remap screen. They are unbound by default. |
 | 2026-08-23 | **Bug-fix pass over the GUI navigation feature** — slider stepping now walks the option's own value grid (Mipmap Levels and Anisotropic Filtering could not be adjusted at all); right-stick scroll rate is frame-rate independent (`scrollSensitivity` notches/second instead of `sensitivity²/fps`); cached slot geometry is invalidated when a screen is re-initialised (resize / fullscreen / GUI scale) so the highlight and clicks no longer use pre-resize coordinates; D-pad navigation no longer deactivates itself after a slot confirm (the mod's own cursor warps were mistaken for mouse movement); off-panel/non-hoverable container slots are no longer focusable (clicking one used to drop the carried stack into the world); list entries scrolled out of view are never activated and the list scrolls to follow the focus; X and LT now act on the focused element in D-pad mode; lwjgl3ify linkage failures no longer escape into the game loop. |
 | 2026-08-23 | `/fuzzicontrols reload` now re-reads `config/fuzzicontrols.cfg` as well as re-initialising the driver, so config edits apply without restarting. |
 | 2026-03-02 | **Inventory D-pad navigation** — `GuiFocusNavigator` now enumerates inventory `Slot` objects from any `GuiContainer` screen (player inventory, chests, crafting tables, furnaces, and modded containers). D-pad up/down/left/right navigates the slot grid spatially; A/Cross confirms by injecting a click at the focused slot position. `GuiContainerAccessors` mixin added to expose layout fields. |

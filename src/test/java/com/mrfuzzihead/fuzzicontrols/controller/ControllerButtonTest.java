@@ -64,6 +64,14 @@ public class ControllerButtonTest {
         assertFalse(ControllerButton.BACK.isAxis());
     }
 
+    @Test
+    public void isAxis_edgeButtons_returnsFalse() {
+        assertFalse(ControllerButton.LEFT_PADDLE.isAxis());
+        assertFalse(ControllerButton.RIGHT_PADDLE.isAxis());
+        assertFalse(ControllerButton.FUNCTION_1.isAxis());
+        assertFalse(ControllerButton.FUNCTION_2.isAxis());
+    }
+
     /**
      * Sanity check: every {@link ControllerButton} value must return either true or false from
      * {@link ControllerButton#isAxis()} without throwing — ensuring the switch in

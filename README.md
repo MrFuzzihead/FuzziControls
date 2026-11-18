@@ -9,7 +9,7 @@ FuzziControls brings modern, console-quality gamepad support to the classic Mine
 ## ✨ Highlights
 
 - 🎮 **XInput support out of the box** — any Xbox or XInput-compatible controller works immediately on Windows with no extra software
-- 🎯 **DualSense (PS5) support** — native HID support over **USB and Bluetooth**, including the DualSense Edge, detected and prioritized automatically. Bluetooth uses the enhanced 0x31 report when the controller supports it and falls back to the simple report otherwise.
+- 🎯 **DualSense (PS5) support** — native HID support over **USB and Bluetooth**, including the DualSense Edge, detected and prioritized automatically. Bluetooth uses the enhanced 0x31 report when the controller supports it and falls back to the simple report otherwise. The Edge's rear paddles and Fn1/Fn2 buttons are bindable in the remap screen.
 - 🔌 **Hot-plug** — connect or reconnect a controller at any time. An active controller dropping is noticed within one tick; with no controller, probing runs every second while the game window is focused, backs off to 30 s when unfocused, and probes immediately when focus returns.
 - 🔔 **Connection toasts** — a modern top-right toast (160×32, slide-in/out) shows the controller name and USB/Bluetooth transport when it connects or disconnects, with a green/red state title and a DualSense, Xbox or generic controller sprite. It can be disabled with `showControllerToasts = false` in the `[controller]` section.
 - 🖱️ **Full GUI / inventory navigation** — the left stick drives a virtual cursor across every screen (inventory, crafting, chest, pause menu, main menu, and every mod GUI), with no per-screen code required
@@ -39,6 +39,7 @@ Controls follow the [official Minecraft console controller layout](https://minec
 | RS (click) | RS | R3 | Toggle sneak (configurable) |
 | Start | Start | Options | Pause menu |
 | Back | Back | Share | Open chat |
+| DualSense Edge | — | Left/Right paddle, Fn1/Fn2 | Unbound by default; remap in **Options → FuzziControls → Bindings** |
 
 > See [BUTTON_BINDINGS.md](BUTTON_BINDINGS.md) for the full binding reference including GUI mode, shift-click, and D-pad details.
 
