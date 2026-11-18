@@ -25,6 +25,7 @@ import com.mrfuzzihead.fuzzicontrols.controller.KeyboardShortcut;
 import com.mrfuzzihead.fuzzicontrols.gui.widget.GuiFuzziButton;
 import com.mrfuzzihead.fuzzicontrols.gui.widget.GuiFuzziRowButton;
 import com.mrfuzzihead.fuzzicontrols.gui.widget.GuiFuzziSlider;
+import com.mrfuzzihead.fuzzicontrols.util.GuiFocusNavigator;
 
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
@@ -247,6 +248,18 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
         page = pages.get(Math.floorMod(current + direction, pages.size()));
         resetAllArmed = false;
         rebuildWidgets();
+    }
+
+    /** Moves the D-pad highlight onto the currently selected top-level tab. */
+    public void focusActiveTab(GuiFocusNavigator navigator) {
+        if (navigator == null) return;
+        int tabId = ID_TAB_BASE + page.ordinal();
+        for (GuiButton button : buttonList) {
+            if (button.id == tabId) {
+                navigator.focusButton(button);
+                return;
+            }
+        }
     }
 
     private List<Page> visiblePages() {

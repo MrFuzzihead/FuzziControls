@@ -447,6 +447,24 @@ public final class GuiFocusNavigator {
         setFocus(clampIndex(index, focusableItems.size()));
     }
 
+    /**
+     * Moves focus to a specific button if it is present in the current focusable list.
+     *
+     * @param button button to focus
+     * @return true when the button was found and focused
+     */
+    public boolean focusButton(GuiButton button) {
+        if (button == null) return false;
+        for (int i = 0; i < focusableItems.size(); i++) {
+            FocusableItem item = focusableItems.get(i);
+            if (item.type == ItemType.BUTTON && item.button == button) {
+                setFocus(i);
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Number of times the focus list has been built. Test-only diagnostic. */
     int getRebuildCountForTest() {
         return rebuildCount;

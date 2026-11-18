@@ -281,6 +281,7 @@ public class ControllerTickHandler {
                 if (nextRising) {
                     settings.cyclePage(1);
                     guiFocusNavigator.update(settings);
+                    settings.focusActiveTab(guiFocusNavigator);
                 }
 
                 int prevIdx = ControllerAction.HOTBAR_PREV.ordinal();
@@ -290,6 +291,7 @@ public class ControllerTickHandler {
                 if (prevRising) {
                     settings.cyclePage(-1);
                     guiFocusNavigator.update(settings);
+                    settings.focusActiveTab(guiFocusNavigator);
                 }
             }
 
