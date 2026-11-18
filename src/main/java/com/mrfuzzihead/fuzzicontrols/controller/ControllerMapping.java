@@ -101,7 +101,15 @@ public class ControllerMapping {
      */
     public boolean isActive(ControllerAction action, ControllerState state) {
         ControllerButton button = actionToButton.get(action);
-        if (button == null) return false;
+        return button != null && isButtonActive(button, state);
+    }
+
+    /**
+     * Returns true if the given controller button is active in the provided state. This is the
+     * low-level check shared by action mappings, shortcut mappings and the binding-capture GUI.
+     */
+    public static boolean isButtonActive(ControllerButton button, ControllerState state) {
+        if (button == null || state == null) return false;
 
         // Axes and triggers arrive already-normalized: stick axes carry the dead-zone applied
         // by the driver, and triggers carry the trigger threshold applied by the driver. So a

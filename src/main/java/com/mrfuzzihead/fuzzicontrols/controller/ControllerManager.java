@@ -159,6 +159,14 @@ public class ControllerManager {
                 .toLowerCase(Locale.ROOT);
         if (driverPref.isEmpty()) driverPref = "auto";
 
+        if (!Config.controllerEnabled) {
+            driverDisabled = true;
+            lastConnected = false;
+            FuzziControls.LOG.info("[FuzziControls] Controller support disabled in the settings.");
+            if (previousAnnounced) notifyDisconnected(previous);
+            return;
+        }
+
         if ("none".equals(driverPref)) {
             driverDisabled = true;
             lastConnected = false;

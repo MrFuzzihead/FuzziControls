@@ -9,6 +9,18 @@ Versions are derived from git tags (`git describe`), so a release is published b
 
 ### Added
 
+- **FuzziControls settings screen.** Open it from **Options → FuzziControls** or the Forge mod
+  list. It has Controller, Bindings, Input and Interface tabs, is fully D-pad/A/B navigable, and
+  edits the existing config file immediately. It exposes a master controller on/off switch, the
+  Automatic/DualSense/XInput driver choice, XInput slot, connection toasts, live device/transport
+  status, every gameplay/input/interface setting, and a **Rescan** button.
+- **In-game remapping.** The Bindings tab remaps every controller action with a tap-to-capture
+  overlay. Capture suspends normal GUI input so B can be bound without closing the screen; a
+  one-second hold cancels. Bindings can be cleared, reset per category, or reset all (two-step
+  confirmation). Duplicate bindings are allowed and reported.
+- **Controller-button → keyboard-key shortcuts.** Four configurable slots in **Bindings → Keys**
+  can drive arbitrary keyboard keys in **Hold** or **Tap** mode, giving controller access to most
+  modded `KeyBinding`s. Mods that read raw LWJGL keyboard state are outside this mechanism.
 - **DualSense Bluetooth support.** The driver now understands the Bluetooth simple (`0x01`, 10-byte)
   and enhanced (`0x31`, 78-byte, CRC32) input reports as well as the existing USB report. Reading
   feature report `0x05` on connect requests the enhanced report; if the controller stays in simple
@@ -28,6 +40,9 @@ Versions are derived from git tags (`git describe`), so a release is published b
 
 ### Changed
 
+- **Config writes now include settings, not only bindings.** `Config.save()` persists every
+  controller/input/interface value and the `[shortcuts]` section, so settings-screen changes survive
+  a restart.
 - **Bundled JNA updated to 5.19.1.** The shaded jar now carries the current JNA classes and
   native dispatch libraries, and `THIRD_PARTY_NOTICES.md` is shipped inside the jar for the
   bundled LGPL-2.1 and MIT components.

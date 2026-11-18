@@ -22,6 +22,7 @@ import net.minecraft.inventory.Container;
 import net.minecraft.inventory.Slot;
 
 import com.mrfuzzihead.fuzzicontrols.FuzziControls;
+import com.mrfuzzihead.fuzzicontrols.gui.widget.ConfigSlider;
 import com.mrfuzzihead.fuzzicontrols.interfaces.SlotAwareScreen;
 import com.mrfuzzihead.fuzzicontrols.mixins.early.GuiContainerAccessors;
 import com.mrfuzzihead.fuzzicontrols.mixins.early.GuiOptionSliderAccessors;
@@ -886,6 +887,12 @@ public final class GuiFocusNavigator {
         GuiButton button = getFocusedButton();
         if (button == null) return;
 
+        // ---- FuzziControls settings sliders ----
+        if (button instanceof ConfigSlider slider) {
+            slider.step(delta);
+            return;
+        }
+
         // ---- Vanilla GuiOptionSlider (Video Settings sliders) ----
         if (button instanceof GuiOptionSlider slider) {
             GuiOptionSliderAccessors sliderAcc = (GuiOptionSliderAccessors) slider;
@@ -932,6 +939,7 @@ public final class GuiFocusNavigator {
      * {@code GuiScreenOptionsSounds$Button} (Music & Sounds custom slider).
      */
     public static boolean isSliderButton(GuiButton button) {
+        if (button instanceof ConfigSlider) return true;
         if (button instanceof GuiOptionSlider) return true;
         return button instanceof GuiScreenOptionsSoundsButtonAccessors;
     }

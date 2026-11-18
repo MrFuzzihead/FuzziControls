@@ -3,8 +3,9 @@
 Default bindings follow the standard console Minecraft layout documented at
 https://minecraft.fandom.com/wiki/Controls (Controller section).
 
-All bindings are **user-configurable** via `config/fuzzicontrols.cfg` under the `[bindings]` category.
-Each entry uses the `ControllerButton` enum name as its value (e.g. `MOVE_FORWARD = LEFT_STICK_UP`).
+All bindings are **user-configurable** from **Options → FuzziControls → Bindings**, or via
+`config/fuzzicontrols.cfg` under the `[bindings]` category. Each entry uses the `ControllerButton`
+enum name as its value (e.g. `MOVE_FORWARD = LEFT_STICK_UP`).
 
 > **Keep this file up to date** whenever `ControllerMapping.applyDefaults()` is changed.
 
@@ -55,7 +56,7 @@ Camera rotation is applied **every rendered frame** (not via the action mapping)
 | A | Cross (✕) | Jump *(in-world)* / **Left-click** *(in GUI)* | Jump when no screen open; left-clicks at virtual cursor position when a GUI is open |
 | B | Circle (○) | **Close GUI** (when a screen is open) | Closes inventory, chat, pause menu, etc. — no item drop on this press |
 | B | Circle (○) | **Drop one item** (when no screen is open, tap) | Fires on release — holding does NOT drop first |
-| B | Circle (○) | **Drop entire stack** (when no screen is open, hold 0.5 s) | Only when `dropEntireStack = true` in config; tap still drops one item; default is `false` |
+| B | Circle (○) | **Drop entire stack** (when no screen is open, hold 0.5 s) | Only when `dropEntireStack = true` in config; tap still drops one item. Default is `true`. |
 | X | Square (□) | Pick block *(in-world)* / **Right-click** *(in GUI)* | Pick block when no screen open; right-clicks at virtual cursor position when a GUI is open |
 | Y | Triangle (△) | Open inventory (in-world) | Edge-triggered; B closes an open screen |
 
@@ -127,6 +128,22 @@ When any GUI screen is open, the right stick's vertical axis can be used as a sc
 | Right Stick ↓ | Right Stick ↓ | **Scroll down** (in GUI) | Scrolls down. Speed is proportional to deflection squared. |
 
 Scroll behavior is controlled by `rightStickScrolling` (default `true`) and `scrollSensitivity` (default `10.0`, range 1.0–100.0).
+
+---
+
+## Keyboard Shortcuts (modded keys)
+
+The **Bindings → Keys** category provides four controller-button → keyboard-key slots. They exist so
+controller players can drive modded `KeyBinding`s without this mod knowing about the mod that
+registered them.
+
+- Select a slot, choose **Bind**, press the controller button, then press the keyboard key.
+- **Hold** keeps the key held while the controller button is held; **Tap** sends one press edge.
+- **Clear** removes the shortcut.
+- The config stores them in `[shortcuts]` as `slot1 = BUTTON:KEYCODE:HOLD|TAP` (key code is the
+  LWJGL code).
+- Only `KeyBinding`-driven mods are supported. Mods that poll raw LWJGL keyboard state directly
+  cannot be driven this way.
 
 ---
 

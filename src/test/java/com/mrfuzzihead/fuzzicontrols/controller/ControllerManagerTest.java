@@ -161,12 +161,16 @@ public class ControllerManagerTest {
 
     private int originalSlot;
 
+    private boolean originalEnabled;
+
     @Before
     public void setUp() {
         originalDriver = Config.controllerDriver;
         originalSlot = Config.xInputControllerSlot;
+        originalEnabled = Config.controllerEnabled;
         Config.controllerDriver = "auto";
         Config.xInputControllerSlot = 0;
+        Config.controllerEnabled = true;
         factory = new FakeFactory();
         manager = new ControllerManager(factory);
     }
@@ -176,6 +180,7 @@ public class ControllerManagerTest {
     public void restoreConfig() {
         Config.controllerDriver = originalDriver;
         Config.xInputControllerSlot = originalSlot;
+        Config.controllerEnabled = originalEnabled;
     }
 
     // -------------------------------------------------------------------------
@@ -273,6 +278,35 @@ public class ControllerManagerTest {
         assertEquals("None", manager.getActiveDriverName());
         assertEquals("driver=none must never create a DualSense probe", 0, factory.dualSenseRequests);
         assertEquals("driver=none must never create an XInput probe", 0, factory.xInputRequests);
+    }
+
+    @Test
+    public void masterDisableStopsAllProbingEvenWithADriverSelected() {
+        Config.controllerDriver = "auto";
+        Config.controllerEnabled = false;
+
+        manager.init();
+        for (int tick = 0; tick < 200; tick++) {
+            manager.tick();
+        }
+
+        assertFalse(manager.isActive());
+        assertEquals(0, factory.dualSenseRequests);
+        assertEquals(0, factory.xInputRequests);
+    }
+
+    @Test
+    public void masterDisableClosesAnActiveDriver() {
+        FakeDriver driver = new FakeDriver("DualSense", true);
+        factory.queueDualSense(driver);
+        manager.init();
+        assertTrue(manager.isActive());
+
+        Config.controllerEnabled = false;
+        manager.init();
+
+        assertFalse(manager.isActive());
+        assertTrue("Disabling must release the active handle", driver.closed);
     }
 
     @Test

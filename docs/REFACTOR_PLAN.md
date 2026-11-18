@@ -647,7 +647,8 @@ returns.
   library (JXInput) and gives Linux/macOS gamepad support. hid4java remains for
   DualSense-specific features. (Also carried over from the previous plan, section 9.)
 - **Rumble/vibration** (XInput `XInputSetState`, DualSense output report).
-- **Controller-type-aware button glyphs** (Xbox vs PlayStation) for the planned remap GUI.
+- **Controller-type-aware button glyphs** (Xbox vs PlayStation) for the remap screen. The screen
+  currently uses text labels; this is the next visual-polish step.
 - **Per-device DualSense calibration** (Sony ships calibration data; raw 0–255 is
   approximate).
 - **Controller connected/disconnected toast** — done (this iteration). A self-contained modern
@@ -666,9 +667,14 @@ returns.
   (half tilt = quarter speed) while `MixinEntityPlayerSP` keeps keyboard per-axis priority and
   applies sneak/use-item factors once. The camera uses a 25% linear / 75% cubic response curve and
   advances `prevRotation*` with the same per-frame delta as vanilla `setAngles()` for smooth
-  interpolation. Sensitivity sliders remain part of the future settings screen.
-- **In-game remap screen** (already in README future plans), with live “press a button”
-  capture; it would also expose the dead `LOOK_*`/`DPAD_*` actions if kept.
+  interpolation. The look-sensitivity, dead-zone and trigger-threshold sliders are now exposed in the settings screen.
+- **In-game settings/remap screen** — done (this iteration). `GuiFuzziControls` is reachable from
+  Options and Forge's mod list, has Controller/Bindings/Input/Interface tabs, and is fully
+  D-pad/A/B navigable. It exposes the master `enabled` switch, driver/slot/toast/status/rescan
+  controls, every gameplay/input/interface setting, live tap-to-capture remapping with duplicate
+  warnings, and four controller-button → keyboard-key shortcut slots for modded `KeyBinding`s.
+  Capture suspends normal GUI input, so B can be bound without closing the screen; a one-second hold
+  cancels. `Config.save()` now persists settings as well as bindings.
 
 ---
 
@@ -684,8 +690,10 @@ returns.
   `jacocoTestCoverageVerification` (52% line / 52% branch floor). `check` depends on the
   verification. The report analyses the **downgraded** main classes the test JVM actually loads
   (`build/tmp/downgradeMainClasses/main`), not `build/classes/java/main`, and excludes
-  `META-INF/versions/**` so JaCoCo does not see duplicate class names. Current baseline:
-  **55.3% line / 54.0% branch**.
+  `META-INF/versions/**` so JaCoCo does not see duplicate class names. The `gui/**` package is
+  excluded from the headless coverage number because it is a live `GuiScreen`; `ClientSelfTest`
+  covers open/tab/rebind-capture/slider focus in a real client. Current baseline:
+  **61.4% line / 58.0% branch**.
 - **`gameTest` source set** with a never-shipped `@Mod` (`src/gameTest/java`), a common/server
   checker and a client checker. `./gradlew gameTestServer` runs
   `runServer25` with the test mod on the classpath; `./gradlew gameTestClient` does the same for
@@ -695,7 +703,7 @@ returns.
   - Server: config load, config ranges, default bindings (10 checks).
   - Client: all mixins applied, config/default bindings, a no-controller `ControllerManager.tick()`
     (elapsed time logged for the stutter fix), and live `GuiFocusNavigator` enumeration/focus on the
-    real main menu (16 checks).
+    real main menu (24 checks).
 - **CI**: a dedicated `game-test-server-java25` job asserts the server report; the existing
   `client-smoke-test-java25` job runs `gameTestClient` headless after the client self-test and
   asserts the client report. Both upload logs/reports.
@@ -759,9 +767,10 @@ These were not completed by the migration and remain valid:
 - **GLFW gamepad backend** (section 7): still the preferred long-term replacement for
   JXInput; keep `ControllerState`/`ControllerMapping` semantics and add normalization parity
   tests.
-- **GTNHLib evaluation** (from the previous plan): no gamepad API; `SimpleGuiConfig` is the
-  only strong reason to add it, and only when the remap/config GUI is built. Do not add it
-  now.
+- **GTNHLib evaluation** — settled. The settings GUI is implemented locally because
+  `SimpleGuiConfig` is only a thin `GuiConfig` wrapper and does not provide remap capture, controller
+  status, driver switching or keyboard shortcuts. Adding GTNHLib would also add a hard runtime
+  dependency and a version floor that lwjgl3ify does not pull in. Do not add it.
 - **DualSense output-report handshake**: the device may need a best-effort output report
   (e.g. `0x02` lightbar/motor) on open to stream at full rate. Still worth testing if
   latency feels high.

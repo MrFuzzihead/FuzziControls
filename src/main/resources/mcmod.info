@@ -11,6 +11,7 @@
 		"authorList": [ "MrFuzzihead" ],
 		"credits": "",
 		"logoFile": "pack.png",
+		"guiFactory": "com.mrfuzzihead.fuzzicontrols.gui.GuiFuzziControlsFactory",
 		"screenshots": [],
 		"parent": "",
 		"requiredMods": [ "lwjgl3ify" ],

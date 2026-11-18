@@ -35,18 +35,23 @@ public class ControllerManagerMockitoTest {
 
     private int originalSlot;
 
+    private boolean originalEnabled;
+
     @Before
     public void setUp() {
         originalDriver = Config.controllerDriver;
         originalSlot = Config.xInputControllerSlot;
+        originalEnabled = Config.controllerEnabled;
         Config.controllerDriver = "auto";
         Config.xInputControllerSlot = 0;
+        Config.controllerEnabled = true;
     }
 
     @After
     public void restoreConfig() {
         Config.controllerDriver = originalDriver;
         Config.xInputControllerSlot = originalSlot;
+        Config.controllerEnabled = originalEnabled;
     }
 
     @Test

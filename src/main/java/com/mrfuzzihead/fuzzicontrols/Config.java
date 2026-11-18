@@ -8,6 +8,7 @@ import net.minecraftforge.common.config.Configuration;
 import com.mrfuzzihead.fuzzicontrols.controller.ControllerAction;
 import com.mrfuzzihead.fuzzicontrols.controller.ControllerButton;
 import com.mrfuzzihead.fuzzicontrols.controller.ControllerMapping;
+import com.mrfuzzihead.fuzzicontrols.controller.KeyboardShortcut;
 
 public class Config {
 
@@ -15,8 +16,18 @@ public class Config {
     private static final String CAT_GENERAL = Configuration.CATEGORY_GENERAL;
     private static final String CAT_CONTROLLER = "controller";
     private static final String CAT_BINDINGS = "bindings";
+    private static final String CAT_SHORTCUTS = "shortcuts";
+
+    /** Number of controller-button to keyboard-key shortcut slots exposed by the settings GUI. */
+    public static final int SHORTCUT_SLOTS = 4;
 
     // ---- Controller settings ----
+    /**
+     * Master switch for all controller input. When false, the manager does not create or probe a
+     * driver and the game is keyboard/mouse only. The selected {@link #controllerDriver} is kept so
+     * turning input back on restores the player's choice.
+     */
+    public static boolean controllerEnabled = true;
     /**
      * Which driver to use: "auto" (default), "xinput", "dualsense", or "none".
      * "auto" tries DualSense first, then XInput. "none" disables all controller probing.
@@ -113,6 +124,9 @@ public class Config {
     // ---- Action → Button mapping (populated by synchroniseConfiguration) ----
     public static ControllerMapping controllerMapping = new ControllerMapping();
 
+    // ---- Controller-button → keyboard-key shortcuts (modded KeyBinding support) ----
+    public static KeyboardShortcut[] keyboardShortcuts = newShortcutArray();
+
     // ---- Internal config reference ----
     private static Configuration configuration;
 
@@ -124,11 +138,22 @@ public class Config {
         configuration = new Configuration(configFile);
 
         // Controller
+        controllerEnabled = configuration.getBoolean(
+            "enabled",
+            CAT_CONTROLLER,
+            controllerEnabled,
+            "Master switch for controller input. When false, no driver is created or polled.");
+
         controllerDriver = configuration.getString(
             "driver",
             CAT_CONTROLLER,
             controllerDriver,
             "Controller driver to use: auto | xinput | dualsense | none");
+        if ("none".equalsIgnoreCase(controllerDriver == null ? "" : controllerDriver.trim())) {
+            // Keep the legacy driver=none spelling working, but expose it as the master switch in
+            // the settings GUI. The driver value itself is preserved for a later re-enable.
+            controllerEnabled = false;
+        }
 
         xInputControllerSlot = configuration.getInt(
             "xInputSlot",
@@ -252,6 +277,17 @@ public class Config {
             }
         }
 
+        // Shortcuts: fixed slots keep the config format simple and editable by hand.
+        keyboardShortcuts = newShortcutArray();
+        for (int i = 0; i < SHORTCUT_SLOTS; i++) {
+            String stored = configuration.getString(
+                "slot" + (i + 1),
+                CAT_SHORTCUTS,
+                "NONE",
+                "Controller shortcut " + (i + 1) + " in BUTTON:KEYCODE:HOLD|TAP format, or NONE.");
+            keyboardShortcuts[i] = KeyboardShortcut.parse(stored);
+        }
+
         if (configuration.hasChanged()) {
             configuration.save();
         }
@@ -289,17 +325,69 @@ public class Config {
         return true;
     }
 
-    /** Saves the current mapping back to disk (e.g. after GUI remapping). */
+    /**
+     * Saves the current settings, action bindings and keyboard shortcuts back to disk (e.g.
+     * after a change in the settings GUI).
+     */
     public static void save() {
         if (configuration == null) return;
+
+        configuration.get(CAT_CONTROLLER, "enabled", true)
+            .set(controllerEnabled);
+        String savedDriver = controllerDriver == null ? "auto" : controllerDriver;
+        configuration.get(CAT_CONTROLLER, "driver", savedDriver)
+            .set(savedDriver);
+        configuration.get(CAT_CONTROLLER, "xInputSlot", xInputControllerSlot)
+            .set(xInputControllerSlot);
+        configuration.get(CAT_CONTROLLER, "stickDeadZone", stickDeadZone)
+            .set(stickDeadZone);
+        configuration.get(CAT_CONTROLLER, "triggerThreshold", triggerThreshold)
+            .set(triggerThreshold);
+        configuration.get(CAT_CONTROLLER, "lookSensitivity", lookSensitivity)
+            .set(lookSensitivity);
+        configuration.get(CAT_CONTROLLER, "dropEntireStack", dropEntireStack)
+            .set(dropEntireStack);
+        configuration.get(CAT_CONTROLLER, "sneakToggle", sneakToggle)
+            .set(sneakToggle);
+        configuration.get(CAT_CONTROLLER, "inventoryCursorSensitivity", inventoryCursorSensitivity)
+            .set(inventoryCursorSensitivity);
+        configuration.get(CAT_CONTROLLER, "analogMovement", analogMovement)
+            .set(analogMovement);
+        configuration.get(CAT_CONTROLLER, "dpadNavigation", dpadNavigation)
+            .set(dpadNavigation);
+        configuration.get(CAT_CONTROLLER, "dpadSliderStep", dpadSliderStep)
+            .set(dpadSliderStep);
+        configuration.get(CAT_CONTROLLER, "rightStickScrolling", rightStickScrolling)
+            .set(rightStickScrolling);
+        configuration.get(CAT_CONTROLLER, "scrollSensitivity", scrollSensitivity)
+            .set(scrollSensitivity);
+        configuration.get(CAT_CONTROLLER, "showControllerToasts", showControllerToasts)
+            .set(showControllerToasts);
+
         for (ControllerAction action : ControllerAction.values()) {
             ControllerButton btn = controllerMapping.getButton(action);
             configuration.get(CAT_BINDINGS, action.name(), btn != null ? btn.name() : "NONE")
                 .set(btn != null ? btn.name() : "NONE");
         }
+
+        for (int i = 0; i < SHORTCUT_SLOTS; i++) {
+            KeyboardShortcut shortcut = keyboardShortcuts != null && i < keyboardShortcuts.length ? keyboardShortcuts[i]
+                : null;
+            configuration.get(CAT_SHORTCUTS, "slot" + (i + 1), "NONE")
+                .set(shortcut != null ? shortcut.serialise() : "NONE");
+        }
+
         if (configuration.hasChanged()) {
             configuration.save();
         }
+    }
+
+    private static KeyboardShortcut[] newShortcutArray() {
+        KeyboardShortcut[] shortcuts = new KeyboardShortcut[SHORTCUT_SLOTS];
+        for (int i = 0; i < shortcuts.length; i++) {
+            shortcuts[i] = new KeyboardShortcut();
+        }
+        return shortcuts;
     }
 
     // ---- Helpers ----
