@@ -627,12 +627,18 @@ returns.
   second parse when the early mixin loader already read the same file.
 - **`HidManager` vs `new HidServices` — moot**: P0 removed `HidServices`; the driver uses a raw
   `HidApi.open/read/close` handle.
+- [x] **B11 — XInput was polled multiple times per frame — fixed.** `XInputDriver.isConnected()`
+  now returns the connection flag cached by `poll()` instead of calling `device.poll()` again.
+  The manager's tick therefore performs one native XInput poll, and `pollFresh()` remains the
+  intentional per-frame refresh. `XInputDriverTest` pins that a connection check never polls.
 
 ---
 
 ## 7. Features worth adding
 
-- **`driver = none`** — done (see P0): users without a controller pay zero cost; an extra `enabled` toggle is unnecessary.
+- **`driver = none`** — done (see P0): users without a controller pay zero cost. The settings
+  screen also exposes a master `enabled` switch, while `driver = none` remains supported for
+  existing configs.
 - **Bluetooth DualSense support** — done (this iteration). The driver now parses the USB
   `0x01` (64-byte) report, the Bluetooth simple `0x01` (10-byte) report and the Bluetooth
   enhanced `0x31` (78-byte, CRC32 seed `0xA1`) report. Reading feature report `0x05` on
@@ -709,7 +715,8 @@ returns.
   asserts the client report. Both upload logs/reports.
 - **Additional coverage in the cleanup batch**: focus-aware probe cadence, shared
   `ControllerState.EMPTY`, `Config.isLoadedFrom`, padded binding names/`NONE`, the no-lwjgl3ify
-  fallback paths for mouse/key injection, and cached GUI bounds.
+  fallback paths for mouse/key injection, cached GUI bounds, and the XInput polled-connection
+  cache (`isConnected()` must not call `device.poll()`).
 
 - Missing tests — now covered:
   - [x] `DropTapHold.blockNextRelease()` **before** any `update(true)`:
@@ -746,10 +753,6 @@ returns.
 
 These were not completed by the migration and remain valid:
 
-- **B11 — XInput is polled multiple times per frame.** `XInputDriver.isConnected()` calls
-  `device.poll()`, and the manager calls `isConnected()` + `poll()` per tick; `pollFresh()`
-  adds another pair per rendered frame. Measured cost is only ~8 µs per call, so this is a
-  cleanup, not a stutter source. Cache the connected flag per tick.
 - **Manual validation checklist** (still unchecked):
   - Xbox controller: buttons, sticks, triggers, hot-plug.
   - DualSense: face buttons, sticks, triggers, D-pad, share/options; USB unplug/replug.
@@ -781,8 +784,9 @@ These were not completed by the migration and remain valid:
   `minimizeShadowedDependencies=false`, `relocateShadowedDependencies=false` (the old plan
   text said `true`). Verified in the final jar: JNA 5.19.1 classes and all native bundles are
   present and unrelocated, hid4java/JXInput are unrelocated, `jna-platform` is absent, and
-  `THIRD_PARTY_NOTICES.md` plus the JNA license are inside the jar. `BUGS.md`’s “minimize”
-  note is stale.
+  `THIRD_PARTY_NOTICES.md` plus the JNA license are inside the jar. `BUGS.md` now records that
+  `minimizeShadowedDependencies = false` is intentional because JNA/hid4java resolve classes
+  reflectively.
 
 ---
 

@@ -518,8 +518,9 @@ nudge in the preceding frame swallows the first D-pad press (same mechanism as #
   never fail when the real driver breaks.
 * `GuiFocusNavigatorTest` has a stray trailing blank line.
 * `build.gradle.kts` lost its trailing newline.
-* `minimizeShadowedDependencies = false` (committed on this branch) ships all unused
-  JNA/JXInput/hid4java classes.
+* `minimizeShadowedDependencies = false` is intentional: JNA/hid4java/JXInput resolve classes
+  reflectively, so minimization is unsafe. The bundled classes/natives are not an actionable
+  cleanup item.
 * Doc drift:
   * `Config.dpadSliderStep` comment says range `[0.0, 1.0]` while the actual clamp is `[0.01, 0.5]`.
   * `getItemCenter` "centre" comment is wrong (#4).
