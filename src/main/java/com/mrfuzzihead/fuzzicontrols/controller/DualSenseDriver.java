@@ -315,7 +315,7 @@ public class DualSenseDriver implements IControllerDriver {
 
         byte[] report = connectionType == ConnectionType.BLUETOOTH
             ? DualSenseOutputReport.rumbleBluetooth(outputSequence, leftMotor, rightMotor)
-            : DualSenseOutputReport.rumbleUsb(leftMotor, rightMotor);
+            : DualSenseOutputReport.rumbleUsb(leftMotor, rightMotor, transport.getUsbOutputReportSize());
 
         if (!writeReport(report)) return;
         lastRumbleLeft = leftMotor;
@@ -340,7 +340,7 @@ public class DualSenseDriver implements IControllerDriver {
 
         byte[] report = connectionType == ConnectionType.BLUETOOTH
             ? DualSenseOutputReport.triggerBluetooth(outputSequence, trigger, block)
-            : DualSenseOutputReport.triggerUsb(trigger, block);
+            : DualSenseOutputReport.triggerUsb(trigger, block, transport.getUsbOutputReportSize());
 
         if (!writeReport(report)) return;
         if (left) {
@@ -366,7 +366,7 @@ public class DualSenseDriver implements IControllerDriver {
 
         byte[] report = connectionType == ConnectionType.BLUETOOTH
             ? DualSenseOutputReport.lightbarBluetooth(outputSequence, r, g, b, level)
-            : DualSenseOutputReport.lightbarUsb(r, g, b, level);
+            : DualSenseOutputReport.lightbarUsb(r, g, b, level, transport.getUsbOutputReportSize());
 
         if (!writeReport(report)) return;
         lastLightbarRed = r;

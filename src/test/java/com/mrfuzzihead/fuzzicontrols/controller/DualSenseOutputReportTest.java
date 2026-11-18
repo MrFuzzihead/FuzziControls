@@ -107,6 +107,15 @@ public class DualSenseOutputReportTest {
     }
 
     @Test
+    public void usbReportLengthCanMatchTheEdgeDescriptor() {
+        byte[] standard = DualSenseOutputReport.lightbarUsb(1, 2, 3, 1);
+        byte[] edge = DualSenseOutputReport.lightbarUsb(1, 2, 3, 1, DualSenseOutputReport.EDGE_USB_REPORT_SIZE);
+
+        assertEquals(DualSenseOutputReport.STANDARD_USB_REPORT_SIZE, standard.length);
+        assertEquals(DualSenseOutputReport.EDGE_USB_REPORT_SIZE, edge.length);
+    }
+
+    @Test
     public void motorValuesAreClamped() {
         byte[] report = DualSenseOutputReport.rumbleUsb(-1, 999);
 

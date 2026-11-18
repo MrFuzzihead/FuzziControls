@@ -81,6 +81,12 @@ Versions are derived from git tags (`git describe`), so a release is published b
 
 ### Fixed
 
+- **DualSense USB output reports use the model's declared size.** Standard controllers now get the
+  48-byte USB report and the Edge gets the 64-byte form. Sending the oversized Edge form to a
+  standard controller could leave its triggers in a bad state even though hidapi accepted the write.
+- **Adaptive trigger writes only touch the selected trigger.** R2 effects no longer rewrite L2, and
+  an idle trigger is never sent an unnecessary `Off` block. This prevents trigger effects from
+  interfering with held block-breaking or sword blocking.
 - **A disappearing Bluetooth controller could show three toasts.** The immediate reconnect probe
   could open a stale HID handle and treat it as a successful connection before its first read failed.
   Connection notifications now wait for the first valid input report, so only the real disconnect

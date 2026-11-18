@@ -660,7 +660,7 @@ returns.
   so this needs a compile-only `lwjgl-sdl` dependency and an SDL gamepad driver. hid4java
   remains for DualSense-specific features. (Also carried over from the previous plan, section 9.)
 - **Rumble/vibration** — done (this iteration). XInput uses `XInputDevice.setVibration`;
-  DualSense uses a 63-byte USB `0x02` or 78-byte Bluetooth `0x31` output report, with the
+  DualSense uses a 48-byte standard / 64-byte Edge USB `0x02` or 78-byte Bluetooth `0x31` output report, with the
   Bluetooth sequence/tag and output CRC32 seed `0xA2`. `DualSenseOutputReport` builds and signs
   the reports, and `ControllerManager` schedules short pulses for damage, entity attacks and
   mining. Values are de-duplicated, refreshed periodically, scaled by `rumbleIntensity`, and

@@ -47,7 +47,9 @@ final class DualSenseOutputReport {
     static final int USB_REPORT_ID = 0x02;
     static final int BLUETOOTH_REPORT_ID = 0x31;
 
-    static final int USB_REPORT_SIZE = 63;
+    static final int STANDARD_USB_REPORT_SIZE = 48;
+    static final int EDGE_USB_REPORT_SIZE = 64;
+    static final int USB_REPORT_SIZE = STANDARD_USB_REPORT_SIZE;
     static final int BLUETOOTH_REPORT_SIZE = 78;
 
     static final int USB_COMMON_OFFSET = 1;
@@ -88,8 +90,12 @@ final class DualSenseOutputReport {
      * @return complete 63-byte report including the report ID
      */
     static byte[] rumbleUsb(int left, int right) {
-        byte[] report = new byte[USB_REPORT_SIZE];
-        report[0] = (byte) USB_REPORT_ID;
+        return rumbleUsb(left, right, STANDARD_USB_REPORT_SIZE);
+    }
+
+    /** Builds a USB rumble report for the model's declared output-report size. */
+    static byte[] rumbleUsb(int left, int right, int reportSize) {
+        byte[] report = usbReport(reportSize);
         writeRumble(report, USB_COMMON_OFFSET, left, right);
         return report;
     }
@@ -118,7 +124,12 @@ final class DualSenseOutputReport {
      * @return complete 63-byte report including the report ID
      */
     static byte[] triggerUsb(ControllerTrigger trigger, byte[] block) {
-        byte[] report = usbReport();
+        return triggerUsb(trigger, block, STANDARD_USB_REPORT_SIZE);
+    }
+
+    /** Builds a USB trigger report for the model's declared output-report size. */
+    static byte[] triggerUsb(ControllerTrigger trigger, byte[] block, int reportSize) {
+        byte[] report = usbReport(reportSize);
         writeTrigger(report, USB_COMMON_OFFSET, trigger, block);
         return report;
     }
@@ -140,7 +151,12 @@ final class DualSenseOutputReport {
 
     /** Builds a USB lightbar/brightness report. */
     static byte[] lightbarUsb(int red, int green, int blue, int brightness) {
-        byte[] report = usbReport();
+        return lightbarUsb(red, green, blue, brightness, STANDARD_USB_REPORT_SIZE);
+    }
+
+    /** Builds a USB lightbar report for the model's declared output-report size. */
+    static byte[] lightbarUsb(int red, int green, int blue, int brightness, int reportSize) {
+        byte[] report = usbReport(reportSize);
         writeLightbar(report, USB_COMMON_OFFSET, red, green, blue, brightness);
         return report;
     }
@@ -172,8 +188,8 @@ final class DualSenseOutputReport {
         return crc.getValue() == expected;
     }
 
-    private static byte[] usbReport() {
-        byte[] report = new byte[USB_REPORT_SIZE];
+    private static byte[] usbReport(int reportSize) {
+        byte[] report = new byte[Math.max(reportSize, STANDARD_USB_REPORT_SIZE)];
         report[0] = (byte) USB_REPORT_ID;
         return report;
     }
