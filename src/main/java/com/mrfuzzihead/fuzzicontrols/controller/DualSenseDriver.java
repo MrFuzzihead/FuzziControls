@@ -133,6 +133,17 @@ public class DualSenseDriver implements IControllerDriver {
     /** Rate-limits the diagnostic log for a CRC mismatch. */
     private boolean crcMismatchLogged;
 
+    /** Bluetooth output reports carry a wrapping 4-bit sequence number. */
+    private int outputSequence;
+
+    /** Last motor values written, so repeated identical pulses do not spam HID writes. */
+    private int lastRumbleLeft = -1;
+
+    private int lastRumbleRight = -1;
+
+    /** Rate-limits a failing output-report write. */
+    private boolean rumbleWriteFailedLogged;
+
     public DualSenseDriver() {
         this(ensureHid() ? new HidApiDualSenseTransport() : null, System::nanoTime);
     }
@@ -259,6 +270,40 @@ public class DualSenseDriver implements IControllerDriver {
     }
 
     @Override
+    public void setRumble(float left, float right) {
+        if (transport == null || !transport.isOpen() || connectionType == ConnectionType.UNKNOWN) return;
+
+        int leftMotor = toMotor(left);
+        int rightMotor = toMotor(right);
+        if (leftMotor == lastRumbleLeft && rightMotor == lastRumbleRight) return;
+
+        byte[] report = connectionType == ConnectionType.BLUETOOTH
+            ? DualSenseOutputReport.rumbleBluetooth(outputSequence, leftMotor, rightMotor)
+            : DualSenseOutputReport.rumbleUsb(leftMotor, rightMotor);
+
+        int written;
+        try {
+            written = transport.writeOutputReport(report);
+        } catch (Throwable t) {
+            written = -1;
+        }
+
+        if (written < 0) {
+            if (!rumbleWriteFailedLogged) {
+                rumbleWriteFailedLogged = true;
+                FuzziControls.LOG.debug("[FuzziControls] DualSense rumble output report failed; ignoring.");
+            }
+            return;
+        }
+
+        lastRumbleLeft = leftMotor;
+        lastRumbleRight = rightMotor;
+        if (connectionType == ConnectionType.BLUETOOTH) {
+            outputSequence = (outputSequence + 1) & 0x0F;
+        }
+    }
+
+    @Override
     public void close() {
         if (transport != null) {
             try {
@@ -276,6 +321,16 @@ public class DualSenseDriver implements IControllerDriver {
         receivedValidReport = false;
         unknownReportLogged = false;
         crcMismatchLogged = false;
+        outputSequence = 0;
+        lastRumbleLeft = -1;
+        lastRumbleRight = -1;
+        rumbleWriteFailedLogged = false;
+    }
+
+    /** Converts a normalised motor value to the DualSense's 0–255 range. */
+    private static int toMotor(float value) {
+        float clamped = Math.max(0f, Math.min(1f, value));
+        return Math.round(clamped * 255f);
     }
 
     @Override

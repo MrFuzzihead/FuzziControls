@@ -9,6 +9,7 @@ import net.minecraft.client.gui.GuiIngameMenu;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.settings.KeyBinding;
+import net.minecraft.util.MovingObjectPosition;
 
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.input.Mouse;
@@ -484,6 +485,13 @@ public class ControllerTickHandler {
             KeyBinding.onTick(mc.gameSettings.keyBindAttack.getKeyCode());
         }
         wasActive[attackIdx] = attacking;
+
+        // Mining feedback: a light continuous pulse while the player holds attack on a block.
+        // The manager de-duplicates repeated equal values, so this does not write HID every tick.
+        if (attacking && mc.objectMouseOver != null
+            && mc.objectMouseOver.typeOfHit == MovingObjectPosition.MovingObjectType.BLOCK) {
+            manager.pulseRumble(0.28f, 0.14f, 2);
+        }
 
         // --- Use item / place (hold) ---
         driveKey(

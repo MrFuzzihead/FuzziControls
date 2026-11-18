@@ -51,6 +51,41 @@ public class XInputDriverTest {
     }
 
     @Test
+    public void rumbleMapsNormalisedValuesToXInputsRange() {
+        XInputDevice device = mock(XInputDevice.class);
+        when(device.isConnected()).thenReturn(true);
+        XInputDriver driver = new XInputDriver(0, device);
+
+        driver.setRumble(1f, 0.5f);
+        verify(device).setVibration(65535, 32768);
+
+        driver.setRumble(-1f, 2f);
+        verify(device).setVibration(0, 65535);
+    }
+
+    @Test
+    public void closeStopsRumbleBeforeReleasingTheDevice() {
+        XInputDevice device = mock(XInputDevice.class);
+        when(device.isConnected()).thenReturn(true);
+        XInputDriver driver = new XInputDriver(0, device);
+
+        driver.close();
+
+        verify(device).setVibration(0, 0);
+    }
+
+    @Test
+    public void rumbleIsIgnoredWhenDisconnected() {
+        XInputDevice device = mock(XInputDevice.class);
+        when(device.isConnected()).thenReturn(false);
+        XInputDriver driver = new XInputDriver(0, device);
+
+        driver.setRumble(1f, 1f);
+        verify(device, never())
+            .setVibration(org.mockito.ArgumentMatchers.anyInt(), org.mockito.ArgumentMatchers.anyInt());
+    }
+
+    @Test
     public void constructionNeverThrowsWithoutNatives() {
         XInputDriver driver = new XInputDriver(0);
         assertNotNull("The driver must always be constructible", driver.getDriverName());

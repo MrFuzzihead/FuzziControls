@@ -4,6 +4,7 @@ import net.minecraftforge.client.ClientCommandHandler;
 
 import com.mrfuzzihead.fuzzicontrols.command.CommandReloadControllers;
 import com.mrfuzzihead.fuzzicontrols.controller.ControllerManager;
+import com.mrfuzzihead.fuzzicontrols.controller.ControllerRumbleHandler;
 import com.mrfuzzihead.fuzzicontrols.controller.ControllerTickHandler;
 import com.mrfuzzihead.fuzzicontrols.controller.DualSenseDriver;
 import com.mrfuzzihead.fuzzicontrols.gui.OptionsMenuButtonHandler;
@@ -36,6 +37,9 @@ public class ClientProxy extends CommonProxy {
 
         // Register the D-pad focus-highlight renderer (only renders when dpadNavigation is enabled).
         net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(new GuiFocusRenderer());
+
+        // Damage and entity-attack feedback for controller rumble.
+        net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(new ControllerRumbleHandler());
 
         // Connection toasts render over both the HUD and open GUI screens.
         net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(new ToastRenderer());

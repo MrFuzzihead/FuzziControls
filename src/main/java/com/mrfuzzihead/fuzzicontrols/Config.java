@@ -116,6 +116,17 @@ public class Config {
     public static float scrollSensitivity = 10.0f;
 
     /**
+     * When true (default), gameplay events such as taking damage or mining produce controller
+     * vibration on supported pads.
+     */
+    public static boolean rumbleEnabled = true;
+
+    /**
+     * Global rumble strength multiplier in [0.0, 1.0]. Applied to every pulse.
+     */
+    public static float rumbleIntensity = 0.6f;
+
+    /**
      * When true (default), show a modern-style toast in the top-right corner when a controller
      * connects or disconnects.
      */
@@ -247,6 +258,20 @@ public class Config {
             100.0f,
             "Scroll speed in notches per second at full right-stick deflection [1.0 – 100.0].");
 
+        rumbleEnabled = configuration.getBoolean(
+            "rumbleEnabled",
+            CAT_CONTROLLER,
+            rumbleEnabled,
+            "Enable controller vibration for damage, mining and attacks.");
+
+        rumbleIntensity = configuration.getFloat(
+            "rumbleIntensity",
+            CAT_CONTROLLER,
+            rumbleIntensity,
+            0.0f,
+            1.0f,
+            "Controller vibration strength multiplier (0.0 - 1.0).");
+
         showControllerToasts = configuration.getBoolean(
             "showControllerToasts",
             CAT_CONTROLLER,
@@ -361,6 +386,10 @@ public class Config {
             .set(rightStickScrolling);
         configuration.get(CAT_CONTROLLER, "scrollSensitivity", scrollSensitivity)
             .set(scrollSensitivity);
+        configuration.get(CAT_CONTROLLER, "rumbleEnabled", rumbleEnabled)
+            .set(rumbleEnabled);
+        configuration.get(CAT_CONTROLLER, "rumbleIntensity", rumbleIntensity)
+            .set(rumbleIntensity);
         configuration.get(CAT_CONTROLLER, "showControllerToasts", showControllerToasts)
             .set(showControllerToasts);
 

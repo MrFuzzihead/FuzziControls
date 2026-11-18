@@ -31,6 +31,11 @@ Versions are derived from git tags (`git describe`), so a release is published b
   Fn1/Fn2 buttons are decoded from its third button byte and exposed as bindable controller
   buttons in the remap screen. They are unbound by default; standard DualSense controllers
   ignore the reserved bits.
+- **Controller vibration.** XInput controllers use `XInputSetState`, and DualSense controllers
+  use USB (`0x02`) or Bluetooth (`0x31`) output reports with the required sequence number and
+  CRC32. Short pulses fire when the player takes damage, attacks an entity, or mines a block.
+  Vibration is configurable with `rumbleEnabled` and `rumbleIntensity`, is de-duplicated so it
+  does not spam HID writes, and is stopped on disconnect, driver reset, or shutdown.
 - **Controller connection toasts.** A modern top-right notification slides in when a controller
   connects or disconnects, showing the device name and USB/Bluetooth transport. The title is green
   for a connection and red for a disconnect, and the icon follows the controller family

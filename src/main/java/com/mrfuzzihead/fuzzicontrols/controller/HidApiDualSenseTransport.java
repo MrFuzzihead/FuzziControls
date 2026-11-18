@@ -23,6 +23,11 @@ final class HidApiDualSenseTransport implements DualSenseTransport {
 
     private static final int[] PRODUCT_IDS = { DUAL_SENSE_PRODUCT_ID, DUAL_SENSE_EDGE_PRODUCT_ID };
 
+    /** Largest output report is the 78-byte Bluetooth report; hid4java expects the body without ID. */
+    private static final int MAX_OUTPUT_REPORT_BODY_SIZE = 77;
+
+    private final byte[] outputReportBody = new byte[MAX_OUTPUT_REPORT_BODY_SIZE];
+
     /** One-time diagnostic so a present-but-unopenable device is visible in the log. */
     private static boolean openDiagnosticLogged;
 
@@ -67,6 +72,19 @@ final class HidApiDualSenseTransport implements DualSenseTransport {
     public int readFeatureReport(byte[] buffer, int reportId) {
         if (handle == null) return -1;
         return HidApi.getFeatureReport(handle, buffer, (byte) reportId);
+    }
+
+    @Override
+    public int writeOutputReport(byte[] report) {
+        if (handle == null || report == null || report.length < 2) return -1;
+
+        int bodyLength = report.length - 1;
+        if (bodyLength > outputReportBody.length) return -1;
+
+        // hid4java's low-level write prepends the report ID itself and copies from offset 0, so
+        // pass the body without the ID and it separately.
+        System.arraycopy(report, 1, outputReportBody, 0, bodyLength);
+        return HidApi.write(handle, outputReportBody, bodyLength, report[0]);
     }
 
     @Override

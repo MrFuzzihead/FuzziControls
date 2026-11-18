@@ -50,6 +50,10 @@ public class ControllerManagerTest {
 
         private boolean connectionConfirmed = true;
 
+        private float rumbleLeft;
+
+        private float rumbleRight;
+
         FakeDriver(String name, boolean connected) {
             this.name = name;
             this.connected = connected;
@@ -72,6 +76,12 @@ public class ControllerManagerTest {
             pollCount++;
             if (throwOnPoll) throw new IllegalStateException("boom");
             return nextState;
+        }
+
+        @Override
+        public void setRumble(float left, float right) {
+            rumbleLeft = left;
+            rumbleRight = right;
         }
 
         @Override
@@ -163,14 +173,22 @@ public class ControllerManagerTest {
 
     private boolean originalEnabled;
 
+    private boolean originalRumbleEnabled;
+
+    private float originalRumbleIntensity;
+
     @Before
     public void setUp() {
         originalDriver = Config.controllerDriver;
         originalSlot = Config.xInputControllerSlot;
         originalEnabled = Config.controllerEnabled;
+        originalRumbleEnabled = Config.rumbleEnabled;
+        originalRumbleIntensity = Config.rumbleIntensity;
         Config.controllerDriver = "auto";
         Config.xInputControllerSlot = 0;
         Config.controllerEnabled = true;
+        Config.rumbleEnabled = true;
+        Config.rumbleIntensity = 1f;
         factory = new FakeFactory();
         manager = new ControllerManager(factory);
     }
@@ -181,6 +199,73 @@ public class ControllerManagerTest {
         Config.controllerDriver = originalDriver;
         Config.xInputControllerSlot = originalSlot;
         Config.controllerEnabled = originalEnabled;
+        Config.rumbleEnabled = originalRumbleEnabled;
+        Config.rumbleIntensity = originalRumbleIntensity;
+    }
+
+    // -------------------------------------------------------------------------
+    // Rumble scheduling
+    // -------------------------------------------------------------------------
+
+    @Test
+    public void pulseRumbleAppliesTheScaledStrengthAndStopsAfterItsDuration() {
+        FakeDriver ds = new FakeDriver("DualSense (HID)", true);
+        factory.queueDualSense(ds);
+        manager.init();
+        Config.rumbleIntensity = 0.5f;
+
+        manager.pulseRumble(1f, 0.5f, 2);
+
+        assertEquals(0.5f, ds.rumbleLeft, 0.0001f);
+        assertEquals(0.25f, ds.rumbleRight, 0.0001f);
+
+        manager.tick();
+        assertEquals("The pulse is still active on its first tick", 0.5f, ds.rumbleLeft, 0.0001f);
+
+        manager.tick();
+        assertEquals("The pulse must stop when its duration expires", 0f, ds.rumbleLeft, 0.0001f);
+        assertEquals(0f, ds.rumbleRight, 0.0001f);
+    }
+
+    @Test
+    public void weakerPulseDoesNotReplaceOrExtendAStrongerPulse() {
+        FakeDriver ds = new FakeDriver("DualSense (HID)", true);
+        factory.queueDualSense(ds);
+        manager.init();
+
+        manager.pulseRumble(0.9f, 0.7f, 8);
+        manager.pulseRumble(0.2f, 0.1f, 8);
+
+        assertEquals(0.9f, ds.rumbleLeft, 0.0001f);
+        assertEquals(0.7f, ds.rumbleRight, 0.0001f);
+    }
+
+    @Test
+    public void disablingRumbleStopsTheActivePulse() {
+        FakeDriver ds = new FakeDriver("DualSense (HID)", true);
+        factory.queueDualSense(ds);
+        manager.init();
+
+        manager.pulseRumble(1f, 1f, 8);
+        Config.rumbleEnabled = false;
+        manager.tick();
+
+        assertEquals(0f, ds.rumbleLeft, 0.0001f);
+        assertEquals(0f, ds.rumbleRight, 0.0001f);
+    }
+
+    @Test
+    public void disconnectedDriverStopsRumbleBeforeClose() {
+        FakeDriver ds = new FakeDriver("DualSense (HID)", true);
+        factory.queueDualSense(ds);
+        manager.init();
+
+        manager.pulseRumble(1f, 1f, 8);
+        ds.connected = false;
+        manager.tick();
+
+        assertEquals(0f, ds.rumbleLeft, 0.0001f);
+        assertTrue(ds.closed);
     }
 
     // -------------------------------------------------------------------------

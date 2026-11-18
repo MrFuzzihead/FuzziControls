@@ -73,6 +73,27 @@ public class ControllerManager {
     /** UI listeners notified after the first successful poll and whenever the active device goes away. */
     private final List<ConnectionListener> connectionListeners = new CopyOnWriteArrayList<>();
 
+    /** Re-send an active rumble value periodically so a dropped output report cannot stick. */
+    private static final int RUMBLE_REFRESH_TICKS = 10;
+
+    /** Remaining game ticks for the current rumble pulse. */
+    private int rumbleTicks;
+
+    /** Current normalised motor values, already scaled by {@link Config#rumbleIntensity}. */
+    private float rumbleLeft;
+
+    private float rumbleRight;
+
+    /** Last values successfully handed to the driver. */
+    private float appliedRumbleLeft;
+
+    private float appliedRumbleRight;
+
+    private boolean rumbleApplied;
+
+    /** Counts down to the next periodic output-report refresh. */
+    private int rumbleRefreshCooldown;
+
     /**
      * A driver selected by {@link #init()} or a reconnect is not announced until its first poll,
      * so the toast can include the USB/Bluetooth transport that is only known after a report.
@@ -144,6 +165,7 @@ public class ControllerManager {
         boolean previousAnnounced = !connectedNotificationPending;
 
         if (activeDriver != null) {
+            stopRumble();
             safeClose(activeDriver);
             activeDriver = null;
             lastConnected = false;
@@ -261,9 +283,16 @@ public class ControllerManager {
      */
     public void tick() {
         if (driverDisabled) {
+            stopRumble();
             lastState = ControllerState.empty();
             lastConnected = false;
             return;
+        }
+
+        if (activeDriver == null || !lastConnected) {
+            stopRumble();
+        } else {
+            updateRumble();
         }
 
         // If the active driver has disconnected, release it so we attempt a reconnect.
@@ -271,6 +300,7 @@ public class ControllerManager {
             ControllerConnection previous = snapshotConnection(activeDriver);
             boolean previousAnnounced = !connectedNotificationPending;
             FuzziControls.LOG.info("[FuzziControls] Controller disconnected. Will retry.");
+            stopRumble();
             safeClose(activeDriver);
             activeDriver = null;
             lastState = ControllerState.empty();
@@ -312,6 +342,7 @@ public class ControllerManager {
             FuzziControls.LOG.warn("[FuzziControls] Controller poll error: {}", e.toString());
             ControllerConnection previous = snapshotConnection(activeDriver);
             boolean previousAnnounced = !connectedNotificationPending;
+            stopRumble();
             safeClose(activeDriver);
             activeDriver = null;
             lastState = ControllerState.empty();
@@ -377,6 +408,7 @@ public class ControllerManager {
                 FuzziControls.LOG.warn("[FuzziControls] Poll error in pollFresh: {}", e.toString());
                 ControllerConnection previous = snapshotConnection(activeDriver);
                 boolean previousAnnounced = !connectedNotificationPending;
+                stopRumble();
                 safeClose(activeDriver);
                 activeDriver = null;
                 lastState = ControllerState.empty();
@@ -387,6 +419,104 @@ public class ControllerManager {
             }
         }
         return lastState;
+    }
+
+    /**
+     * Starts a short rumble pulse. Overlapping pulses use the stronger value, and a weaker pulse
+     * does not shorten or replace an active stronger one.
+     *
+     * <p>
+     * Called from client-side gameplay feedback only. The value is scaled by
+     * {@link Config#rumbleIntensity}; disabled rumble is a no-op.
+     *
+     * @param left          low-frequency / strong motor in {@code [0, 1]}
+     * @param right         high-frequency / weak motor in {@code [0, 1]}
+     * @param durationTicks pulse length in client ticks
+     */
+    public void pulseRumble(float left, float right, int durationTicks) {
+        if (!Config.rumbleEnabled || durationTicks <= 0 || activeDriver == null || !lastConnected) return;
+
+        float intensity = clamp01(Config.rumbleIntensity);
+        if (intensity <= 0f) return;
+
+        float nextLeft = clamp01(left) * intensity;
+        float nextRight = clamp01(right) * intensity;
+        float nextTotal = nextLeft + nextRight;
+        float currentTotal = rumbleLeft + rumbleRight;
+
+        // A weak pulse (e.g. mining) must not keep a strong damage pulse alive, and must not
+        // override it while it is still active.
+        if (rumbleTicks > 0 && nextTotal + 0.0001f < currentTotal) return;
+
+        rumbleLeft = nextLeft;
+        rumbleRight = nextRight;
+        rumbleTicks = Math.max(rumbleTicks, durationTicks);
+        rumbleRefreshCooldown = RUMBLE_REFRESH_TICKS;
+        applyRumble();
+    }
+
+    /** Stops any active rumble immediately; safe to call when no controller is present. */
+    public void stopRumble() {
+        if (activeDriver != null && rumbleApplied) {
+            try {
+                activeDriver.setRumble(0f, 0f);
+            } catch (Exception | LinkageError e) {
+                FuzziControls.LOG.debug("[FuzziControls] Could not stop controller rumble: {}", e.toString());
+            }
+        }
+
+        rumbleTicks = 0;
+        rumbleLeft = 0f;
+        rumbleRight = 0f;
+        appliedRumbleLeft = 0f;
+        appliedRumbleRight = 0f;
+        rumbleApplied = false;
+        rumbleRefreshCooldown = 0;
+    }
+
+    /** Advances pulse timing and refreshes the hardware value periodically. */
+    private void updateRumble() {
+        if (!Config.rumbleEnabled || Config.rumbleIntensity <= 0f) {
+            stopRumble();
+            return;
+        }
+        if (rumbleTicks <= 0) {
+            stopRumble();
+            return;
+        }
+
+        rumbleTicks--;
+        if (rumbleTicks <= 0) {
+            stopRumble();
+            return;
+        }
+
+        if (--rumbleRefreshCooldown <= 0) {
+            rumbleRefreshCooldown = RUMBLE_REFRESH_TICKS;
+            applyRumble();
+        }
+    }
+
+    /** Sends the current values to the hardware, skipping no-op writes. */
+    private void applyRumble() {
+        if (activeDriver == null || !lastConnected) return;
+        if (rumbleApplied && Math.abs(rumbleLeft - appliedRumbleLeft) < 0.0001f
+            && Math.abs(rumbleRight - appliedRumbleRight) < 0.0001f) {
+            return;
+        }
+
+        try {
+            activeDriver.setRumble(rumbleLeft, rumbleRight);
+            appliedRumbleLeft = rumbleLeft;
+            appliedRumbleRight = rumbleRight;
+            rumbleApplied = true;
+        } catch (Exception | LinkageError e) {
+            FuzziControls.LOG.debug("[FuzziControls] Could not apply controller rumble: {}", e.toString());
+        }
+    }
+
+    private static float clamp01(float value) {
+        return Math.max(0f, Math.min(1f, value));
     }
 
     /** Returns true if an active, connected driver is in use. */
@@ -408,6 +538,7 @@ public class ControllerManager {
     public void shutdown() {
         ControllerConnection previous = snapshotConnection(activeDriver);
         boolean previousAnnounced = !connectedNotificationPending;
+        stopRumble();
         safeClose(activeDriver);
         activeDriver = null;
         lastState = ControllerState.empty();

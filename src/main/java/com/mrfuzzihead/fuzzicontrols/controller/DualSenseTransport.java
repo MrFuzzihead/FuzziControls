@@ -35,6 +35,14 @@ interface DualSenseTransport {
      */
     int readFeatureReport(byte[] buffer, int reportId);
 
+    /**
+     * Writes one output report.
+     *
+     * @param report complete report, including the report ID in {@code report[0]}
+     * @return number of bytes written, or {@code -1} on error
+     */
+    int writeOutputReport(byte[] report);
+
     /** Returns true while a device handle is open. */
     boolean isOpen();
 

@@ -94,6 +94,8 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
     private static final int ID_CONTROLLER_SLOT = 1102;
     private static final int ID_CONTROLLER_TOASTS = 1103;
     private static final int ID_CONTROLLER_RESCAN = 1104;
+    private static final int ID_CONTROLLER_RUMBLE = 1105;
+    private static final int ID_CONTROLLER_RUMBLE_STRENGTH = 1106;
     private static final int ID_INPUT_ANALOG = 1110;
     private static final int ID_INPUT_SNEAK = 1111;
     private static final int ID_INPUT_DROP = 1112;
@@ -232,6 +234,30 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
         y += ROW_HEIGHT + ROW_GAP;
 
         row(ID_CONTROLLER_TOASTS, contentX, y, width, "Connection toasts", Config.showControllerToasts ? "ON" : "OFF");
+        y += ROW_HEIGHT + ROW_GAP;
+
+        GuiFuzziRowButton rumble = row(
+            ID_CONTROLLER_RUMBLE,
+            contentX,
+            y,
+            width,
+            "Controller vibration",
+            Config.rumbleEnabled ? "ON" : "OFF");
+        rumble.enabled = Config.controllerEnabled;
+        y += ROW_HEIGHT + ROW_GAP;
+
+        addSlider(
+            ID_CONTROLLER_RUMBLE_STRENGTH,
+            contentX,
+            y,
+            width,
+            "Vibration strength",
+            0.0f,
+            1.0f,
+            Config.rumbleIntensity,
+            0,
+            100f,
+            "%");
         y += ROW_HEIGHT + ROW_GAP;
 
         GuiFuzziRowButton rescan = row(
@@ -494,6 +520,7 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
             case ID_INPUT_LOOK_SENSITIVITY -> Config.lookSensitivity = slider.getValue();
             case ID_INPUT_DEAD_ZONE -> Config.stickDeadZone = slider.getValue();
             case ID_INPUT_TRIGGER -> Config.triggerThreshold = slider.getValue();
+            case ID_CONTROLLER_RUMBLE_STRENGTH -> Config.rumbleIntensity = slider.getValue();
             case ID_INTERFACE_CURSOR -> Config.inventoryCursorSensitivity = slider.getValue();
             case ID_INTERFACE_SCROLL_SPEED -> Config.scrollSensitivity = slider.getValue();
             case ID_INTERFACE_SLIDER_STEP -> Config.dpadSliderStep = slider.getValue();
@@ -681,6 +708,13 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
             }
             case ID_INPUT_DROP -> {
                 Config.dropEntireStack = !Config.dropEntireStack;
+                Config.save();
+                rebuildWidgets();
+            }
+            case ID_CONTROLLER_RUMBLE -> {
+                Config.rumbleEnabled = !Config.rumbleEnabled;
+                if (!Config.rumbleEnabled) ControllerManager.getInstance()
+                    .stopRumble();
                 Config.save();
                 rebuildWidgets();
             }

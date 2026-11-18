@@ -6,7 +6,9 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.zip.CRC32;
@@ -48,6 +50,10 @@ public class DualSenseDriverTest {
 
         private int closeCount;
 
+        private final List<byte[]> outputReports = new ArrayList<>();
+
+        private boolean failOutputReport;
+
         private String deviceName = "DualSense";
 
         private boolean edge;
@@ -88,6 +94,13 @@ public class DualSenseDriverTest {
             lastFeatureReportId = reportId;
             if (throwOnFeatureReport) throw new IllegalStateException("feature boom");
             return 41;
+        }
+
+        @Override
+        public int writeOutputReport(byte[] report) {
+            if (failOutputReport) return -1;
+            outputReports.add(report.clone());
+            return report.length;
         }
 
         @Override
@@ -224,6 +237,86 @@ public class DualSenseDriverTest {
         assertFalse(state.isPressed(ControllerButton.RIGHT_PADDLE));
         assertFalse(state.isPressed(ControllerButton.FUNCTION_1));
         assertFalse(state.isPressed(ControllerButton.FUNCTION_2));
+    }
+
+    // -------------------------------------------------------------------------
+    // Rumble output reports
+    // -------------------------------------------------------------------------
+
+    @Test
+    public void usbRumbleWritesAUsbOutputReport() {
+        FakeTransport transport = new FakeTransport();
+        transport.enqueue(usbReport());
+
+        DualSenseDriver driver = new DualSenseDriver(transport, System::nanoTime);
+        driver.poll(DEAD_ZONE, TRIGGER_THRESHOLD);
+        driver.setRumble(1f, 0.5f);
+
+        assertEquals(1, transport.outputReports.size());
+        byte[] report = transport.outputReports.get(0);
+        assertEquals(DualSenseOutputReport.USB_REPORT_SIZE, report.length);
+        assertEquals(0x02, report[0] & 0xFF);
+        assertEquals(255, report[4] & 0xFF);
+        assertEquals(128, report[3] & 0xFF);
+    }
+
+    @Test
+    public void bluetoothRumbleUsesSequencedReportsWithValidCrc() {
+        FakeTransport transport = new FakeTransport();
+        transport.enqueue(enhancedReport());
+
+        DualSenseDriver driver = new DualSenseDriver(transport, System::nanoTime);
+        driver.poll(DEAD_ZONE, TRIGGER_THRESHOLD);
+
+        driver.setRumble(1f, 0f);
+        driver.setRumble(0f, 1f);
+
+        assertEquals(2, transport.outputReports.size());
+        byte[] first = transport.outputReports.get(0);
+        byte[] second = transport.outputReports.get(1);
+        assertEquals(0x31, first[0] & 0xFF);
+        assertEquals("First Bluetooth output sequence is zero", 0x00, first[1] & 0xFF);
+        assertEquals("Sequence increments for every report", 0x10, second[1] & 0xFF);
+        assertTrue(DualSenseOutputReport.hasValidBluetoothCrc(first));
+        assertTrue(DualSenseOutputReport.hasValidBluetoothCrc(second));
+    }
+
+    @Test
+    public void identicalRumbleValuesDoNotRewrite() {
+        FakeTransport transport = new FakeTransport();
+        transport.enqueue(usbReport());
+
+        DualSenseDriver driver = new DualSenseDriver(transport, System::nanoTime);
+        driver.poll(DEAD_ZONE, TRIGGER_THRESHOLD);
+
+        driver.setRumble(0.5f, 0.5f);
+        driver.setRumble(0.5f, 0.5f);
+
+        assertEquals(1, transport.outputReports.size());
+    }
+
+    @Test
+    public void rumbleBeforeTheTransportIsKnownIsIgnored() {
+        FakeTransport transport = new FakeTransport();
+
+        DualSenseDriver driver = new DualSenseDriver(transport, System::nanoTime);
+        driver.setRumble(1f, 1f);
+
+        assertEquals(0, transport.outputReports.size());
+    }
+
+    @Test
+    public void failedRumbleWriteDoesNotThrow() {
+        FakeTransport transport = new FakeTransport();
+        transport.enqueue(usbReport());
+        transport.failOutputReport = true;
+
+        DualSenseDriver driver = new DualSenseDriver(transport, System::nanoTime);
+        driver.poll(DEAD_ZONE, TRIGGER_THRESHOLD);
+        driver.setRumble(1f, 1f);
+
+        assertEquals(0, transport.outputReports.size());
+        assertTrue(driver.isConnected());
     }
 
     // -------------------------------------------------------------------------
