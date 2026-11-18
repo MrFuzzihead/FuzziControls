@@ -704,14 +704,21 @@ public class ControllerTickHandler {
         driveKeyCode(binding.getKeyCode(), active);
     }
 
-    /** Drives an arbitrary keyboard key through the same keyboard-preserving claim tracker. */
+    /** Drives an arbitrary key through the same keyboard-preserving claim tracker. */
     private void driveKeyCode(int code, boolean active) {
-        if (code <= 0) return;
+        // Mouse buttons use negative codes in 1.7.10 (attack = -100, use = -99). Rejecting
+        // everything <= 0 silently dropped every held attack/use action.
+        if (!isDriveableKeyCode(code)) return;
         switch (heldKeys.update(code, active)) {
             case PRESS -> KeyBinding.setKeyBindState(code, true);
             case RELEASE -> KeyBinding.setKeyBindState(code, false);
             case NONE -> {}
         }
+    }
+
+    /** Returns true when a KeyBinding code can be driven; mouse buttons are negative. */
+    static boolean isDriveableKeyCode(int code) {
+        return code != 0;
     }
 
     /**

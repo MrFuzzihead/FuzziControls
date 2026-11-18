@@ -101,6 +101,14 @@ public class ControllerTickHandlerTest {
         assertEquals(Collections.singletonList(57), released);
     }
 
+    @Test
+    public void mouseButtonCodesAreDriveable() {
+        assertTrue("attack is a negative mouse-button code", ControllerTickHandler.isDriveableKeyCode(-100));
+        assertTrue("use item is a negative mouse-button code", ControllerTickHandler.isDriveableKeyCode(-99));
+        assertTrue(ControllerTickHandler.isDriveableKeyCode(17));
+        assertFalse("0 means no binding", ControllerTickHandler.isDriveableKeyCode(0));
+    }
+
     private static ControllerState pressed(ControllerButton button) {
         return new ControllerState(0f, 0f, 0f, 0f, 0f, 0f, EnumSet.of(button));
     }
