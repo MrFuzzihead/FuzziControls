@@ -42,6 +42,37 @@ public interface IControllerDriver {
     default void setRumble(float left, float right) {}
 
     /**
+     * Applies an adaptive-trigger effect. Drivers without adaptive-trigger support ignore this.
+     *
+     * @param trigger  which trigger to update
+     * @param effect   effect preset, or {@link ControllerTriggerEffect#OFF}
+     * @param strength strength from 1 to 8; ignored for {@code OFF}
+     */
+    default void setTriggerEffect(ControllerTrigger trigger, ControllerTriggerEffect effect, int strength) {}
+
+    /**
+     * Updates the RGB lightbar and brightness. Drivers without a lightbar ignore this.
+     *
+     * @param red        red channel, 0–255
+     * @param green      green channel, 0–255
+     * @param blue       blue channel, 0–255
+     * @param brightness brightness preset
+     */
+    default void setLightbar(int red, int green, int blue, ControllerLightbarBrightness brightness) {}
+
+    /**
+     * Battery percentage reported by the device, or {@code -1} when unknown/not supported.
+     */
+    default int getBatteryPercent() {
+        return -1;
+    }
+
+    /** Whether the device reports that its battery is charging. */
+    default boolean isBatteryCharging() {
+        return false;
+    }
+
+    /**
      * Human-readable device name for toasts and the settings screen, e.g. {@code DualSense Edge}.
      * Defaults to the driver name for drivers that only expose one device type.
      */

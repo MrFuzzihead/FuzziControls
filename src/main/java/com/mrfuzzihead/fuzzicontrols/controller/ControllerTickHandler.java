@@ -9,6 +9,7 @@ import net.minecraft.client.gui.GuiIngameMenu;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.settings.KeyBinding;
+import net.minecraft.init.Items;
 import net.minecraft.util.MovingObjectPosition;
 
 import org.lwjgl.input.Keyboard;
@@ -222,6 +223,7 @@ public class ControllerTickHandler {
         boolean displayActive = Display.isActive();
         manager.setFocused(displayActive);
         manager.tick();
+        manager.applyLightbar();
         ControllerState state = manager.getState();
         ControllerMapping mapping = Config.controllerMapping;
 
@@ -232,6 +234,7 @@ public class ControllerTickHandler {
             // connected. This prevents cursor/button actions from affecting the game when the
             // player is in another application.
             releaseAllControllerKeys();
+            manager.clearTriggerEffects();
             // Follow the controller state through the skipped period so no stale edge fires.
             syncEdges(state, mapping);
             wasControllerConnected = connected;
@@ -251,6 +254,7 @@ public class ControllerTickHandler {
         if (mc.currentScreen instanceof ControllerCaptureScreen captureScreen
             && captureScreen.isCapturingControllerInput()) {
             captureScreen.captureControllerState(state);
+            manager.clearTriggerEffects();
             syncEdges(state, mapping);
             syncShortcutEdges(state);
             releaseShortcutKeys();
@@ -260,6 +264,7 @@ public class ControllerTickHandler {
         // ---- GUI-only path (main menu, inventory, pause, chat, etc.) ----
         // Runs even when thePlayer is null (e.g. main menu).
         if (mc.currentScreen != null) {
+            manager.clearTriggerEffects();
             // Shortcuts are an in-world input layer; do not leave a held shortcut key active while
             // a menu/chat screen owns the keyboard.
             releaseShortcutKeys();
@@ -425,7 +430,10 @@ public class ControllerTickHandler {
         }
 
         // ---- In-world path (requires a player) ----
-        if (mc.theWorld == null || mc.thePlayer == null) return;
+        if (mc.theWorld == null || mc.thePlayer == null) {
+            manager.clearTriggerEffects();
+            return;
+        }
 
         // --- Movement (left stick → held key bindings) ---
         // driveKey() only asserts a key as true when the controller wants it, and only
@@ -493,6 +501,8 @@ public class ControllerTickHandler {
             manager.pulseRumble(0.28f, 0.14f, 2);
         }
 
+        updateAdaptiveTriggers(mc, manager, attacking);
+
         // --- Use item / place (hold) ---
         driveKey(
             mc.gameSettings.keyBindUseItem,
@@ -517,6 +527,38 @@ public class ControllerTickHandler {
 
         // --- User-defined controller-button → keyboard-key shortcuts ---
         processKeyboardShortcuts(state);
+    }
+
+    /**
+     * Applies the configured adaptive-trigger effects for the current action. A bow draw and
+     * block mining are the only gameplay situations mapped for now; everything else returns the
+     * triggers to their neutral state.
+     */
+    private void updateAdaptiveTriggers(Minecraft mc, ControllerManager manager, boolean attacking) {
+        if (!Config.adaptiveTriggersEnabled) {
+            manager.clearTriggerEffects();
+            return;
+        }
+
+        boolean drawingBow = mc.thePlayer != null && mc.thePlayer.isUsingItem()
+            && mc.thePlayer.getItemInUse() != null
+            && mc.thePlayer.getItemInUse()
+                .getItem() == Items.bow;
+        ControllerTriggerEffect bowEffect = ControllerTriggerEffect
+            .fromName(Config.bowTriggerEffect, ControllerTriggerEffect.BOW);
+        manager.setTriggerEffect(
+            ControllerTrigger.LEFT,
+            drawingBow ? bowEffect : ControllerTriggerEffect.OFF,
+            Config.bowTriggerStrength);
+
+        boolean mining = attacking && mc.objectMouseOver != null
+            && mc.objectMouseOver.typeOfHit == MovingObjectPosition.MovingObjectType.BLOCK;
+        ControllerTriggerEffect miningEffect = ControllerTriggerEffect
+            .fromName(Config.miningTriggerEffect, ControllerTriggerEffect.FEEDBACK);
+        manager.setTriggerEffect(
+            ControllerTrigger.RIGHT,
+            mining ? miningEffect : ControllerTriggerEffect.OFF,
+            Config.miningTriggerStrength);
     }
 
     // -------------------------------------------------------------------------

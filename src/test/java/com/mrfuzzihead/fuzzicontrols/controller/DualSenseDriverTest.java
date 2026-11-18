@@ -319,6 +319,68 @@ public class DualSenseDriverTest {
         assertTrue(driver.isConnected());
     }
 
+    @Test
+    public void batteryStatusIsExposedAfterAParsedReport() {
+        FakeTransport transport = new FakeTransport();
+        byte[] report = usbReport();
+        report[53] = 0x15;
+        transport.enqueue(report);
+
+        DualSenseDriver driver = new DualSenseDriver(transport, System::nanoTime);
+        assertEquals(-1, driver.getBatteryPercent());
+
+        driver.poll(DEAD_ZONE, TRIGGER_THRESHOLD);
+
+        assertEquals(55, driver.getBatteryPercent());
+        assertTrue(driver.isBatteryCharging());
+    }
+
+    @Test
+    public void adaptiveTriggerEffectsAreWrittenAndDeduplicated() {
+        FakeTransport transport = new FakeTransport();
+        transport.enqueue(usbReport());
+
+        DualSenseDriver driver = new DualSenseDriver(transport, System::nanoTime);
+        driver.poll(DEAD_ZONE, TRIGGER_THRESHOLD);
+
+        driver.setTriggerEffect(ControllerTrigger.LEFT, ControllerTriggerEffect.BOW, 6);
+        assertEquals(1, transport.outputReports.size());
+        byte[] report = transport.outputReports.get(0);
+        assertEquals(0x02, report[0] & 0xFF);
+        assertEquals(
+            DualSenseOutputReport.VALID_FLAG0_ALLOW_LEFT_TRIGGER_FFB
+                | DualSenseOutputReport.VALID_FLAG0_ALLOW_RIGHT_TRIGGER_FFB,
+            report[1] & 0xFF);
+        assertEquals(0x22, report[1 + DualSenseOutputReport.L2_TRIGGER_OFFSET] & 0xFF);
+
+        driver.setTriggerEffect(ControllerTrigger.LEFT, ControllerTriggerEffect.BOW, 6);
+        assertEquals("Unchanged effects must not rewrite", 1, transport.outputReports.size());
+
+        driver.setTriggerEffect(ControllerTrigger.RIGHT, ControllerTriggerEffect.FEEDBACK, 5);
+        assertEquals(2, transport.outputReports.size());
+        assertEquals(0x21, transport.outputReports.get(1)[1 + DualSenseOutputReport.R2_TRIGGER_OFFSET] & 0xFF);
+    }
+
+    @Test
+    public void lightbarStateIsWrittenAndDeduplicated() {
+        FakeTransport transport = new FakeTransport();
+        transport.enqueue(usbReport());
+
+        DualSenseDriver driver = new DualSenseDriver(transport, System::nanoTime);
+        driver.poll(DEAD_ZONE, TRIGGER_THRESHOLD);
+
+        driver.setLightbar(10, 20, 30, ControllerLightbarBrightness.LOW);
+        assertEquals(1, transport.outputReports.size());
+        byte[] report = transport.outputReports.get(0);
+        assertEquals(10, report[45] & 0xFF);
+        assertEquals(20, report[46] & 0xFF);
+        assertEquals(30, report[47] & 0xFF);
+        assertEquals(2, report[43] & 0xFF);
+
+        driver.setLightbar(10, 20, 30, ControllerLightbarBrightness.LOW);
+        assertEquals("Unchanged lightbar state must not rewrite", 1, transport.outputReports.size());
+    }
+
     // -------------------------------------------------------------------------
     // Report routing
     // -------------------------------------------------------------------------

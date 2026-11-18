@@ -126,6 +126,41 @@ public class Config {
      */
     public static float rumbleIntensity = 0.6f;
 
+    // ---- DualSense Bluetooth features ----
+    /** Whether adaptive-trigger effects are enabled. Off by default; the triggers are intrusive. */
+    public static boolean adaptiveTriggersEnabled = false;
+
+    /** Mining trigger effect name: off, feedback, vibration or machine. */
+    public static String miningTriggerEffect = "feedback";
+
+    /** Mining trigger strength, 1–8. */
+    public static int miningTriggerStrength = 5;
+
+    /** Bow-draw trigger effect name: off, bow, feedback or weapon. */
+    public static String bowTriggerEffect = "bow";
+
+    /** Bow-draw trigger strength, 1–8. */
+    public static int bowTriggerStrength = 6;
+
+    /** Whether the DualSense lightbar is driven by the mod. */
+    public static boolean lightbarEnabled = true;
+
+    /** Lightbar RGB channels, 0–255. */
+    public static int lightbarRed = 0;
+
+    public static int lightbarGreen = 128;
+
+    public static int lightbarBlue = 255;
+
+    /** Lightbar brightness: 0 high, 1 medium, 2 low. */
+    public static int lightbarBrightness = 1;
+
+    /** Whether a toast appears once when the controller battery crosses the low threshold. */
+    public static boolean lowBatteryToast = true;
+
+    /** Low-battery threshold in percent. */
+    public static int lowBatteryThreshold = 15;
+
     /**
      * When true (default), show a modern-style toast in the top-right corner when a controller
      * connects or disconnects.
@@ -272,6 +307,68 @@ public class Config {
             1.0f,
             "Controller vibration strength multiplier (0.0 - 1.0).");
 
+        adaptiveTriggersEnabled = configuration.getBoolean(
+            "adaptiveTriggersEnabled",
+            CAT_CONTROLLER,
+            adaptiveTriggersEnabled,
+            "Enable DualSense adaptive-trigger effects.");
+        miningTriggerEffect = configuration.getString(
+            "miningTriggerEffect",
+            CAT_CONTROLLER,
+            miningTriggerEffect,
+            "Mining trigger effect: off | feedback | vibration | machine.");
+        miningTriggerStrength = configuration.getInt(
+            "miningTriggerStrength",
+            CAT_CONTROLLER,
+            miningTriggerStrength,
+            1,
+            8,
+            "Mining adaptive-trigger strength (1-8).");
+        bowTriggerEffect = configuration.getString(
+            "bowTriggerEffect",
+            CAT_CONTROLLER,
+            bowTriggerEffect,
+            "Bow-draw trigger effect: off | bow | feedback | weapon.");
+        bowTriggerStrength = configuration.getInt(
+            "bowTriggerStrength",
+            CAT_CONTROLLER,
+            bowTriggerStrength,
+            1,
+            8,
+            "Bow-draw adaptive-trigger strength (1-8).");
+
+        lightbarEnabled = configuration.getBoolean(
+            "lightbarEnabled",
+            CAT_CONTROLLER,
+            lightbarEnabled,
+            "Drive the DualSense RGB lightbar from the mod.");
+        lightbarRed = configuration
+            .getInt("lightbarRed", CAT_CONTROLLER, lightbarRed, 0, 255, "Lightbar red channel (0-255).");
+        lightbarGreen = configuration
+            .getInt("lightbarGreen", CAT_CONTROLLER, lightbarGreen, 0, 255, "Lightbar green channel (0-255).");
+        lightbarBlue = configuration
+            .getInt("lightbarBlue", CAT_CONTROLLER, lightbarBlue, 0, 255, "Lightbar blue channel (0-255).");
+        lightbarBrightness = configuration.getInt(
+            "lightbarBrightness",
+            CAT_CONTROLLER,
+            lightbarBrightness,
+            0,
+            2,
+            "Lightbar brightness: 0 high, 1 medium, 2 low.");
+
+        lowBatteryToast = configuration.getBoolean(
+            "lowBatteryToast",
+            CAT_CONTROLLER,
+            lowBatteryToast,
+            "Show a toast when the controller battery first drops below the threshold.");
+        lowBatteryThreshold = configuration.getInt(
+            "lowBatteryThreshold",
+            CAT_CONTROLLER,
+            lowBatteryThreshold,
+            1,
+            50,
+            "Low-battery toast threshold in percent.");
+
         showControllerToasts = configuration.getBoolean(
             "showControllerToasts",
             CAT_CONTROLLER,
@@ -390,6 +487,30 @@ public class Config {
             .set(rumbleEnabled);
         configuration.get(CAT_CONTROLLER, "rumbleIntensity", rumbleIntensity)
             .set(rumbleIntensity);
+        configuration.get(CAT_CONTROLLER, "adaptiveTriggersEnabled", adaptiveTriggersEnabled)
+            .set(adaptiveTriggersEnabled);
+        configuration.get(CAT_CONTROLLER, "miningTriggerEffect", miningTriggerEffect)
+            .set(miningTriggerEffect);
+        configuration.get(CAT_CONTROLLER, "miningTriggerStrength", miningTriggerStrength)
+            .set(miningTriggerStrength);
+        configuration.get(CAT_CONTROLLER, "bowTriggerEffect", bowTriggerEffect)
+            .set(bowTriggerEffect);
+        configuration.get(CAT_CONTROLLER, "bowTriggerStrength", bowTriggerStrength)
+            .set(bowTriggerStrength);
+        configuration.get(CAT_CONTROLLER, "lightbarEnabled", lightbarEnabled)
+            .set(lightbarEnabled);
+        configuration.get(CAT_CONTROLLER, "lightbarRed", lightbarRed)
+            .set(lightbarRed);
+        configuration.get(CAT_CONTROLLER, "lightbarGreen", lightbarGreen)
+            .set(lightbarGreen);
+        configuration.get(CAT_CONTROLLER, "lightbarBlue", lightbarBlue)
+            .set(lightbarBlue);
+        configuration.get(CAT_CONTROLLER, "lightbarBrightness", lightbarBrightness)
+            .set(lightbarBrightness);
+        configuration.get(CAT_CONTROLLER, "lowBatteryToast", lowBatteryToast)
+            .set(lowBatteryToast);
+        configuration.get(CAT_CONTROLLER, "lowBatteryThreshold", lowBatteryThreshold)
+            .set(lowBatteryThreshold);
         configuration.get(CAT_CONTROLLER, "showControllerToasts", showControllerToasts)
             .set(showControllerToasts);
 

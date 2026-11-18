@@ -58,6 +58,18 @@ public class ConfigReloadTest {
         Config.controllerDriver = "auto";
         Config.rumbleEnabled = true;
         Config.rumbleIntensity = 0.6f;
+        Config.adaptiveTriggersEnabled = false;
+        Config.miningTriggerEffect = "feedback";
+        Config.miningTriggerStrength = 5;
+        Config.bowTriggerEffect = "bow";
+        Config.bowTriggerStrength = 6;
+        Config.lightbarEnabled = true;
+        Config.lightbarRed = 0;
+        Config.lightbarGreen = 128;
+        Config.lightbarBlue = 255;
+        Config.lightbarBrightness = 1;
+        Config.lowBatteryToast = true;
+        Config.lowBatteryThreshold = 15;
         Config.synchronizeConfiguration(folder.newFile("defaults.cfg"));
     }
 
@@ -155,6 +167,18 @@ public class ConfigReloadTest {
         Config.controllerEnabled = false;
         Config.rumbleEnabled = false;
         Config.rumbleIntensity = 0.35f;
+        Config.adaptiveTriggersEnabled = true;
+        Config.miningTriggerEffect = "machine";
+        Config.miningTriggerStrength = 7;
+        Config.bowTriggerEffect = "weapon";
+        Config.bowTriggerStrength = 8;
+        Config.lightbarEnabled = false;
+        Config.lightbarRed = 12;
+        Config.lightbarGreen = 34;
+        Config.lightbarBlue = 56;
+        Config.lightbarBrightness = 2;
+        Config.lowBatteryToast = false;
+        Config.lowBatteryThreshold = 20;
         Config.save();
 
         Config.synchronizeConfiguration(configFile);
@@ -166,6 +190,18 @@ public class ConfigReloadTest {
         assertFalse(Config.controllerEnabled);
         assertFalse(Config.rumbleEnabled);
         assertEquals(0.35f, Config.rumbleIntensity, 0f);
+        assertTrue(Config.adaptiveTriggersEnabled);
+        assertEquals("machine", Config.miningTriggerEffect);
+        assertEquals(7, Config.miningTriggerStrength);
+        assertEquals("weapon", Config.bowTriggerEffect);
+        assertEquals(8, Config.bowTriggerStrength);
+        assertFalse(Config.lightbarEnabled);
+        assertEquals(12, Config.lightbarRed);
+        assertEquals(34, Config.lightbarGreen);
+        assertEquals(56, Config.lightbarBlue);
+        assertEquals(2, Config.lightbarBrightness);
+        assertFalse(Config.lowBatteryToast);
+        assertEquals(20, Config.lowBatteryThreshold);
     }
 
     @Test

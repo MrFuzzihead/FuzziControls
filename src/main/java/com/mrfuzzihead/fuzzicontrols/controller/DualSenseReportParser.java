@@ -59,6 +59,9 @@ import java.util.zip.CRC32;
  */
 final class DualSenseReportParser {
 
+    /** Battery state decoded from the DualSense status byte. */
+    record Battery(int percent, boolean charging, boolean full) {}
+
     /** Which input-report layout the given bytes use. */
     enum Layout {
         USB_0X01,
@@ -78,7 +81,46 @@ final class DualSenseReportParser {
 
     private static final int CRC_SIZE = 4;
 
+    /** Status bytes start at payload offset 52; USB data starts at 1, BT enhanced at 2. */
+    private static final int USB_STATUS_OFFSET = 53;
+
+    private static final int BLUETOOTH_ENHANCED_STATUS_OFFSET = 54;
+
     private DualSenseReportParser() {}
+
+    /**
+     * Decodes the battery percentage and charging state from an input report.
+     *
+     * <p>
+     * The Bluetooth simple report has no status bytes, so it returns {@code null}. The status byte
+     * uses the low nibble for 10%-capacity steps and the high nibble for the charging state.
+     *
+     * @param data   report bytes
+     * @param length valid report length
+     * @param layout detected layout
+     * @return battery data, or {@code null} when this layout carries none
+     */
+    static Battery parseBattery(byte[] data, int length, Layout layout) {
+        if (data == null || layout == null) return null;
+
+        int offset = switch (layout) {
+            case USB_0X01 -> USB_STATUS_OFFSET;
+            case BLUETOOTH_ENHANCED_0X31 -> BLUETOOTH_ENHANCED_STATUS_OFFSET;
+            default -> -1;
+        };
+        if (offset < 0 || length <= offset || offset >= data.length) return null;
+
+        int status = data[offset] & 0xFF;
+        int capacity = status & 0x0F;
+        int chargingStatus = (status >>> 4) & 0x0F;
+
+        return switch (chargingStatus) {
+            case 0x0 -> new Battery(Math.min(capacity * 10 + 5, 100), false, false);
+            case 0x1 -> new Battery(Math.min(capacity * 10 + 5, 100), true, false);
+            case 0x2 -> new Battery(100, false, true);
+            default -> new Battery(0, false, false);
+        };
+    }
 
     /**
      * Identifies the layout of one report.

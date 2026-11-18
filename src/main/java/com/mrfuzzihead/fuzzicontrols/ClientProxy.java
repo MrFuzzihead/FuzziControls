@@ -11,6 +11,7 @@ import com.mrfuzzihead.fuzzicontrols.gui.OptionsMenuButtonHandler;
 import com.mrfuzzihead.fuzzicontrols.selftest.ClientSelfTest;
 import com.mrfuzzihead.fuzzicontrols.selftest.MixinSelfTest;
 import com.mrfuzzihead.fuzzicontrols.toast.ControllerToastListener;
+import com.mrfuzzihead.fuzzicontrols.toast.LowBatteryToastHandler;
 import com.mrfuzzihead.fuzzicontrols.toast.ToastRenderer;
 import com.mrfuzzihead.fuzzicontrols.util.GuiFocusRenderer;
 
@@ -43,6 +44,7 @@ public class ClientProxy extends CommonProxy {
 
         // Connection toasts render over both the HUD and open GUI screens.
         net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(new ToastRenderer());
+        net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(new LowBatteryToastHandler());
 
         // Adds the FuzziControls entry to the vanilla Options screen.
         net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(new OptionsMenuButtonHandler());

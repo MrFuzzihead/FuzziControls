@@ -165,12 +165,18 @@ public final class ToastManager {
 
             FontRenderer font = mc.fontRenderer;
             if (font != null) {
-                String title = I18n.format(
-                    toast.getType() == Toast.Type.CONNECTED ? "fuzzicontrols.toast.connected"
-                        : "fuzzicontrols.toast.disconnected");
+                String title = switch (toast.getType()) {
+                    case CONNECTED -> I18n.format("fuzzicontrols.toast.connected");
+                    case DISCONNECTED -> I18n.format("fuzzicontrols.toast.disconnected");
+                    case LOW_BATTERY -> I18n.format("fuzzicontrols.toast.low_battery");
+                };
                 String subtitle = buildSubtitle(toast);
 
-                int titleColor = toast.getType() == Toast.Type.CONNECTED ? 0xFF55FF55 : 0xFFFF5555;
+                int titleColor = switch (toast.getType()) {
+                    case CONNECTED -> 0xFF55FF55;
+                    case DISCONNECTED -> 0xFFFF5555;
+                    case LOW_BATTERY -> 0xFFFFAA00;
+                };
                 font.drawString(font.trimStringToWidth(title, WIDTH - 38), x + 30, y + 7, titleColor);
                 font.drawString(font.trimStringToWidth(subtitle, WIDTH - 38), x + 30, y + 18, 0xFFFFFFFF);
             }
@@ -191,7 +197,9 @@ public final class ToastManager {
             device = I18n.format("fuzzicontrols.toast.controller");
         }
         String transport = toast.getTransportName();
-        return transport.isEmpty() ? device : device + " (" + transport + ")";
+        String subtitle = transport.isEmpty() ? device : device + " (" + transport + ")";
+        String detail = toast.getDetail();
+        return detail.isEmpty() ? subtitle : subtitle + " - " + detail;
     }
 
     /** A {@link Gui} subclass only so the toast panel can use a high z-level. */

@@ -134,6 +134,14 @@ public class ToastManagerTest {
     }
 
     @Test
+    public void lowBatteryToastCarriesThePercentageDetail() {
+        Toast toast = new Toast(Toast.Type.LOW_BATTERY, Toast.Icon.DUALSENSE, "DualSense", "Bluetooth", "15%");
+
+        assertEquals(Toast.Type.LOW_BATTERY, toast.getType());
+        assertEquals("15%", toast.getDetail());
+    }
+
+    @Test
     public void iconCanBeSelectedForTheDeviceFamily() {
         Toast toast = new Toast(Toast.Type.CONNECTED, Toast.Icon.XBOX, "XInput (slot 0)", "");
 

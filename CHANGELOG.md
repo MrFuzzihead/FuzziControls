@@ -10,8 +10,9 @@ Versions are derived from git tags (`git describe`), so a release is published b
 ### Added
 
 - **FuzziControls settings screen.** Open it from **Options → FuzziControls** or the Forge mod
-  list. It has Controller, Bindings, Input and Interface tabs, is fully D-pad/A/B navigable, and
-  edits the existing config file immediately. It exposes a master controller on/off switch, the
+  list. It has Controller, Bindings, Input and Interface tabs, plus a Bluetooth tab when a
+  controller is connected over Bluetooth. It is fully D-pad/A/B navigable and edits the existing
+  config file immediately. It exposes a master controller on/off switch, the
   Automatic/DualSense/XInput driver choice, XInput slot, connection toasts, live device/transport
   status, every gameplay/input/interface setting, and a **Rescan** button.
 - **In-game remapping.** The Bindings tab remaps every controller action with a tap-to-capture
@@ -36,6 +37,14 @@ Versions are derived from git tags (`git describe`), so a release is published b
   CRC32. Short pulses fire when the player takes damage, attacks an entity, or mines a block.
   Vibration is configurable with `rumbleEnabled` and `rumbleIntensity`, is de-duplicated so it
   does not spam HID writes, and is stopped on disconnect, driver reset, or shutdown.
+- **Bluetooth DualSense feature page.** A Bluetooth-only tab adds adaptive-trigger effects for
+  bow drawing and mining, an RGB lightbar with brightness, and a low-battery toast toggle. Trigger
+  effects use the DualSense 11-byte effect blocks and the existing USB/Bluetooth output report
+  path; lightbar and trigger writes are de-duplicated so the settings screen and per-tick apply
+  calls do not spam HID.
+- **Low-battery toast.** The DualSense battery/charging status is decoded from the input report,
+  and a one-shot toast appears when the battery first drops below the configurable threshold.
+  The toast shows the current percentage and does not repeat while still low or while charging.
 - **Controller connection toasts.** A modern top-right notification slides in when a controller
   connects or disconnects, showing the device name and USB/Bluetooth transport. The title is green
   for a connection and red for a disconnect, and the icon follows the controller family

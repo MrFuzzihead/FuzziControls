@@ -12,7 +12,8 @@ public final class Toast {
 
     public enum Type {
         CONNECTED,
-        DISCONNECTED
+        DISCONNECTED,
+        LOW_BATTERY
     }
 
     /** Which controller family sprite to show in the toast. */
@@ -28,21 +29,31 @@ public final class Toast {
     private final Icon icon;
     private final String deviceName;
     private final String transportName;
+    private final String detail;
     private final long durationMillis;
 
     public Toast(Type type, String deviceName, String transportName) {
-        this(type, Icon.GENERIC, deviceName, transportName, DEFAULT_DURATION_MILLIS);
+        this(type, Icon.GENERIC, deviceName, transportName, "", DEFAULT_DURATION_MILLIS);
     }
 
     public Toast(Type type, Icon icon, String deviceName, String transportName) {
-        this(type, icon, deviceName, transportName, DEFAULT_DURATION_MILLIS);
+        this(type, icon, deviceName, transportName, "", DEFAULT_DURATION_MILLIS);
+    }
+
+    public Toast(Type type, Icon icon, String deviceName, String transportName, String detail) {
+        this(type, icon, deviceName, transportName, detail, DEFAULT_DURATION_MILLIS);
     }
 
     Toast(Type type, Icon icon, String deviceName, String transportName, long durationMillis) {
+        this(type, icon, deviceName, transportName, "", durationMillis);
+    }
+
+    Toast(Type type, Icon icon, String deviceName, String transportName, String detail, long durationMillis) {
         this.type = type != null ? type : Type.DISCONNECTED;
         this.icon = icon != null ? icon : Icon.GENERIC;
         this.deviceName = deviceName != null ? deviceName : "";
         this.transportName = transportName != null ? transportName : "";
+        this.detail = detail != null ? detail : "";
         this.durationMillis = Math.max(1L, durationMillis);
     }
 
@@ -60,6 +71,11 @@ public final class Toast {
 
     public String getTransportName() {
         return transportName;
+    }
+
+    /** Optional short detail, e.g. {@code "15%"} for a low-battery toast. */
+    public String getDetail() {
+        return detail;
     }
 
     public long getDurationMillis() {

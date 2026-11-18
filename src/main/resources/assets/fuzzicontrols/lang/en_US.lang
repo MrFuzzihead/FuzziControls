@@ -1,3 +1,4 @@
 fuzzicontrols.toast.connected=Controller connected
 fuzzicontrols.toast.disconnected=Controller disconnected
 fuzzicontrols.toast.controller=Controller
+fuzzicontrols.toast.low_battery=Controller battery low
