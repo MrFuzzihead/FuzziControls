@@ -109,7 +109,7 @@ All options live in `config/fuzzicontrols.cfg`; the settings screen edits the sa
 | `rumbleEnabled` | `true` | Enable vibration feedback for damage, attacks and mining |
 | `rumbleIntensity` | `0.6` | Vibration strength multiplier (0.0–1.0) |
 | `adaptiveTriggersEnabled` | `false` | Enable DualSense adaptive-trigger effects |
-| `miningTriggerEffect` | `feedback` | Mining effect: `off`, `feedback`, `vibration`, `machine` |
+| `miningTriggerEffect` | `vibration` | Mining effect: `off`, `feedback`, `vibration`, `machine` |
 | `miningTriggerStrength` | `5` | Mining trigger strength (1–8) |
 | `bowTriggerEffect` | `bow` | Bow-draw effect: `off`, `bow`, `feedback`, `weapon` |
 | `bowTriggerStrength` | `6` | Bow-draw trigger strength (1–8) |

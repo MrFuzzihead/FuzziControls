@@ -131,7 +131,7 @@ public class Config {
     public static boolean adaptiveTriggersEnabled = false;
 
     /** Mining trigger effect name: off, feedback, vibration or machine. */
-    public static String miningTriggerEffect = "feedback";
+    public static String miningTriggerEffect = "vibration";
 
     /** Mining trigger strength, 1–8. */
     public static int miningTriggerStrength = 5;

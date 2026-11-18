@@ -61,33 +61,26 @@ public class DualSenseOutputReportTest {
     }
 
     @Test
-    public void usbTriggerReportSetsOnlyTheTriggerFlagsAndBothBlocks() {
-        byte[] left = DualSenseTriggerEffect.bow(1, 6, 6, 8);
-        byte[] right = DualSenseTriggerEffect.feedback(2, 5);
-
-        byte[] report = DualSenseOutputReport.triggersUsb(left, right);
+    public void usbTriggerReportOnlyTouchesTheSelectedTrigger() {
+        byte[] report = DualSenseOutputReport
+            .triggerUsb(ControllerTrigger.LEFT, DualSenseTriggerEffect.bow(1, 6, 6, 8));
 
         assertEquals(DualSenseOutputReport.USB_REPORT_SIZE, report.length);
         assertEquals(0x02, report[0] & 0xFF);
-        assertEquals(
-            DualSenseOutputReport.VALID_FLAG0_ALLOW_LEFT_TRIGGER_FFB
-                | DualSenseOutputReport.VALID_FLAG0_ALLOW_RIGHT_TRIGGER_FFB,
-            report[1] & 0xFF);
+        assertEquals(DualSenseOutputReport.VALID_FLAG0_ALLOW_LEFT_TRIGGER_FFB, report[1] & 0xFF);
         assertEquals(0x22, report[1 + DualSenseOutputReport.L2_TRIGGER_OFFSET] & 0xFF);
-        assertEquals(0x21, report[1 + DualSenseOutputReport.R2_TRIGGER_OFFSET] & 0xFF);
+        assertEquals("R2 must remain untouched", 0, report[1 + DualSenseOutputReport.R2_TRIGGER_OFFSET] & 0xFF);
     }
 
     @Test
-    public void bluetoothTriggerReportIsSigned() {
+    public void bluetoothTriggerReportIsSignedAndOnlyTouchesTheSelectedTrigger() {
         byte[] report = DualSenseOutputReport
-            .triggersBluetooth(3, DualSenseTriggerEffect.bow(1, 6, 6, 8), DualSenseTriggerEffect.feedback(2, 5));
+            .triggerBluetooth(3, ControllerTrigger.RIGHT, DualSenseTriggerEffect.feedback(2, 5));
 
         assertEquals(0x31, report[0] & 0xFF);
         assertEquals(0x30, report[1] & 0xFF);
-        assertEquals(
-            DualSenseOutputReport.VALID_FLAG0_ALLOW_LEFT_TRIGGER_FFB
-                | DualSenseOutputReport.VALID_FLAG0_ALLOW_RIGHT_TRIGGER_FFB,
-            report[3] & 0xFF);
+        assertEquals(DualSenseOutputReport.VALID_FLAG0_ALLOW_RIGHT_TRIGGER_FFB, report[3] & 0xFF);
+        assertEquals("L2 must remain untouched", 0, report[3 + DualSenseOutputReport.L2_TRIGGER_OFFSET] & 0xFF);
         assertTrue(DualSenseOutputReport.hasValidBluetoothCrc(report));
     }
 

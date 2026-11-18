@@ -347,18 +347,32 @@ public class DualSenseDriverTest {
         assertEquals(1, transport.outputReports.size());
         byte[] report = transport.outputReports.get(0);
         assertEquals(0x02, report[0] & 0xFF);
-        assertEquals(
-            DualSenseOutputReport.VALID_FLAG0_ALLOW_LEFT_TRIGGER_FFB
-                | DualSenseOutputReport.VALID_FLAG0_ALLOW_RIGHT_TRIGGER_FFB,
-            report[1] & 0xFF);
+        assertEquals(DualSenseOutputReport.VALID_FLAG0_ALLOW_LEFT_TRIGGER_FFB, report[1] & 0xFF);
         assertEquals(0x22, report[1 + DualSenseOutputReport.L2_TRIGGER_OFFSET] & 0xFF);
+        assertEquals(0, report[1 + DualSenseOutputReport.R2_TRIGGER_OFFSET] & 0xFF);
 
         driver.setTriggerEffect(ControllerTrigger.LEFT, ControllerTriggerEffect.BOW, 6);
         assertEquals("Unchanged effects must not rewrite", 1, transport.outputReports.size());
 
         driver.setTriggerEffect(ControllerTrigger.RIGHT, ControllerTriggerEffect.FEEDBACK, 5);
         assertEquals(2, transport.outputReports.size());
-        assertEquals(0x21, transport.outputReports.get(1)[1 + DualSenseOutputReport.R2_TRIGGER_OFFSET] & 0xFF);
+        byte[] rightReport = transport.outputReports.get(1);
+        assertEquals(DualSenseOutputReport.VALID_FLAG0_ALLOW_RIGHT_TRIGGER_FFB, rightReport[1] & 0xFF);
+        assertEquals(0x21, rightReport[1 + DualSenseOutputReport.R2_TRIGGER_OFFSET] & 0xFF);
+    }
+
+    @Test
+    public void clearingAnIdleTriggerDoesNotWriteAnOffReport() {
+        FakeTransport transport = new FakeTransport();
+        transport.enqueue(usbReport());
+
+        DualSenseDriver driver = new DualSenseDriver(transport, System::nanoTime);
+        driver.poll(DEAD_ZONE, TRIGGER_THRESHOLD);
+
+        driver.setTriggerEffect(ControllerTrigger.LEFT, ControllerTriggerEffect.OFF, 0);
+        driver.setTriggerEffect(ControllerTrigger.RIGHT, ControllerTriggerEffect.OFF, 0);
+
+        assertEquals(0, transport.outputReports.size());
     }
 
     @Test

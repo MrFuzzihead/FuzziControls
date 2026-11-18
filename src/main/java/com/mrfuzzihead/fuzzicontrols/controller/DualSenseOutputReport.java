@@ -110,30 +110,30 @@ final class DualSenseOutputReport {
     }
 
     /**
-     * Builds a USB report that updates both adaptive-trigger effects. Only the trigger valid
-     * flags are set, so active rumble and lighting are retained by the controller.
+     * Builds a USB report that updates one adaptive-trigger effect. Only that trigger's valid
+     * flag is set, so the other trigger, rumble and lighting are retained by the controller.
      *
-     * @param left  left (L2) effect block, 11 bytes
-     * @param right right (R2) effect block, 11 bytes
+     * @param trigger trigger to update
+     * @param block   effect block, 11 bytes
      * @return complete 63-byte report including the report ID
      */
-    static byte[] triggersUsb(byte[] left, byte[] right) {
+    static byte[] triggerUsb(ControllerTrigger trigger, byte[] block) {
         byte[] report = usbReport();
-        writeTriggers(report, USB_COMMON_OFFSET, left, right);
+        writeTrigger(report, USB_COMMON_OFFSET, trigger, block);
         return report;
     }
 
     /**
-     * Builds a Bluetooth report that updates both adaptive-trigger effects.
+     * Builds a Bluetooth report that updates one adaptive-trigger effect.
      *
      * @param sequence sequence number, 0–15; the low four bits are used
-     * @param left     left (L2) effect block, 11 bytes
-     * @param right    right (R2) effect block, 11 bytes
+     * @param trigger  trigger to update
+     * @param block    effect block, 11 bytes
      * @return complete 78-byte report including the report ID and CRC
      */
-    static byte[] triggersBluetooth(int sequence, byte[] left, byte[] right) {
+    static byte[] triggerBluetooth(int sequence, ControllerTrigger trigger, byte[] block) {
         byte[] report = bluetoothReport(sequence);
-        writeTriggers(report, BLUETOOTH_COMMON_OFFSET, left, right);
+        writeTrigger(report, BLUETOOTH_COMMON_OFFSET, trigger, block);
         writeBluetoothCrc(report);
         return report;
     }
@@ -193,11 +193,14 @@ final class DualSenseOutputReport {
         report[commonOffset + MOTOR_LEFT_OFFSET] = (byte) clampMotor(left);
     }
 
-    private static void writeTriggers(byte[] report, int commonOffset, byte[] left, byte[] right) {
-        report[commonOffset
-            + VALID_FLAG0_OFFSET] = (byte) (VALID_FLAG0_ALLOW_LEFT_TRIGGER_FFB | VALID_FLAG0_ALLOW_RIGHT_TRIGGER_FFB);
-        copyBlock(report, commonOffset + L2_TRIGGER_OFFSET, left);
-        copyBlock(report, commonOffset + R2_TRIGGER_OFFSET, right);
+    private static void writeTrigger(byte[] report, int commonOffset, ControllerTrigger trigger, byte[] block) {
+        if (trigger == ControllerTrigger.LEFT) {
+            report[commonOffset + VALID_FLAG0_OFFSET] = (byte) VALID_FLAG0_ALLOW_LEFT_TRIGGER_FFB;
+            copyBlock(report, commonOffset + L2_TRIGGER_OFFSET, block);
+        } else if (trigger == ControllerTrigger.RIGHT) {
+            report[commonOffset + VALID_FLAG0_OFFSET] = (byte) VALID_FLAG0_ALLOW_RIGHT_TRIGGER_FFB;
+            copyBlock(report, commonOffset + R2_TRIGGER_OFFSET, block);
+        }
     }
 
     private static void writeLightbar(byte[] report, int commonOffset, int red, int green, int blue, int brightness) {

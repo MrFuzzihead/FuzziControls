@@ -59,7 +59,7 @@ public class ConfigReloadTest {
         Config.rumbleEnabled = true;
         Config.rumbleIntensity = 0.6f;
         Config.adaptiveTriggersEnabled = false;
-        Config.miningTriggerEffect = "feedback";
+        Config.miningTriggerEffect = "vibration";
         Config.miningTriggerStrength = 5;
         Config.bowTriggerEffect = "bow";
         Config.bowTriggerStrength = 6;

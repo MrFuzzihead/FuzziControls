@@ -331,18 +331,23 @@ public class DualSenseDriver implements IControllerDriver {
         byte[] previous = left ? lastLeftTrigger : lastRightTrigger;
         if (Arrays.equals(previous, block)) return;
 
-        byte[] leftBlock = left ? block : lastLeftTrigger;
-        byte[] rightBlock = left ? lastRightTrigger : block;
-        if (leftBlock == null) leftBlock = DualSenseTriggerEffect.off();
-        if (rightBlock == null) rightBlock = DualSenseTriggerEffect.off();
+        // Do not send an Off block when this trigger never had an effect. Touching an idle
+        // trigger can interfere with its analogue input on some firmware.
+        if (block[0] == DualSenseTriggerEffect.MODE_OFF
+            && (previous == null || previous[0] == DualSenseTriggerEffect.MODE_OFF)) {
+            return;
+        }
 
         byte[] report = connectionType == ConnectionType.BLUETOOTH
-            ? DualSenseOutputReport.triggersBluetooth(outputSequence, leftBlock, rightBlock)
-            : DualSenseOutputReport.triggersUsb(leftBlock, rightBlock);
+            ? DualSenseOutputReport.triggerBluetooth(outputSequence, trigger, block)
+            : DualSenseOutputReport.triggerUsb(trigger, block);
 
         if (!writeReport(report)) return;
-        lastLeftTrigger = leftBlock;
-        lastRightTrigger = rightBlock;
+        if (left) {
+            lastLeftTrigger = block;
+        } else {
+            lastRightTrigger = block;
+        }
     }
 
     @Override
