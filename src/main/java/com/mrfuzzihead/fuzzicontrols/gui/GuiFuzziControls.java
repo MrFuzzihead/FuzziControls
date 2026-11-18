@@ -16,13 +16,16 @@ import org.lwjgl.input.Keyboard;
 import com.mrfuzzihead.fuzzicontrols.Config;
 import com.mrfuzzihead.fuzzicontrols.controller.ControllerAction;
 import com.mrfuzzihead.fuzzicontrols.controller.ControllerButton;
+import com.mrfuzzihead.fuzzicontrols.controller.ControllerLightbarBrightness;
 import com.mrfuzzihead.fuzzicontrols.controller.ControllerManager;
 import com.mrfuzzihead.fuzzicontrols.controller.ControllerMapping;
 import com.mrfuzzihead.fuzzicontrols.controller.ControllerState;
+import com.mrfuzzihead.fuzzicontrols.controller.ControllerTriggerEffect;
 import com.mrfuzzihead.fuzzicontrols.controller.KeyboardShortcut;
 import com.mrfuzzihead.fuzzicontrols.gui.widget.GuiFuzziButton;
 import com.mrfuzzihead.fuzzicontrols.gui.widget.GuiFuzziRowButton;
 import com.mrfuzzihead.fuzzicontrols.gui.widget.GuiFuzziSlider;
+import com.mrfuzzihead.fuzzicontrols.util.GuiFocusNavigator;
 
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
@@ -42,6 +45,7 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
     private enum Page {
 
         CONTROLLER("Controller"),
+        DUALSENSE("DualSense"),
         BINDINGS("Bindings"),
         INPUT("Input"),
         INTERFACE("Interface");
@@ -80,6 +84,18 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
         }
     }
 
+    private enum DualSenseSection {
+
+        TRIGGERS("Triggers"),
+        LIGHT("Light & Battery");
+
+        final String label;
+
+        DualSenseSection(String label) {
+            this.label = label;
+        }
+    }
+
     private enum CaptureMode {
         NONE,
         BIND_ACTION,
@@ -96,6 +112,18 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
     private static final int ID_CONTROLLER_RESCAN = 1104;
     private static final int ID_CONTROLLER_RUMBLE = 1105;
     private static final int ID_CONTROLLER_RUMBLE_STRENGTH = 1106;
+    private static final int ID_DUALSENSE_SECTION_BASE = 1600;
+    private static final int ID_DUALSENSE_ADAPTIVE = 1610;
+    private static final int ID_DUALSENSE_MINING_EFFECT = 1611;
+    private static final int ID_DUALSENSE_MINING_STRENGTH = 1612;
+    private static final int ID_DUALSENSE_BOW_EFFECT = 1613;
+    private static final int ID_DUALSENSE_BOW_STRENGTH = 1614;
+    private static final int ID_DUALSENSE_LIGHTBAR = 1620;
+    private static final int ID_DUALSENSE_LIGHT_RED = 1621;
+    private static final int ID_DUALSENSE_LIGHT_GREEN = 1622;
+    private static final int ID_DUALSENSE_LIGHT_BLUE = 1623;
+    private static final int ID_DUALSENSE_LIGHT_BRIGHTNESS = 1624;
+    private static final int ID_DUALSENSE_LOW_BATTERY = 1625;
     private static final int ID_INPUT_ANALOG = 1110;
     private static final int ID_INPUT_SNEAK = 1111;
     private static final int ID_INPUT_DROP = 1112;
@@ -122,7 +150,15 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
 
     private final GuiScreen parent;
 
+    private static final ControllerTriggerEffect[] MINING_TRIGGER_EFFECTS = { ControllerTriggerEffect.OFF,
+        ControllerTriggerEffect.FEEDBACK, ControllerTriggerEffect.VIBRATION, ControllerTriggerEffect.MACHINE };
+
+    private static final ControllerTriggerEffect[] BOW_TRIGGER_EFFECTS = { ControllerTriggerEffect.OFF,
+        ControllerTriggerEffect.BOW, ControllerTriggerEffect.FEEDBACK, ControllerTriggerEffect.WEAPON };
+
     private Page page = Page.CONTROLLER;
+    private DualSenseSection dualsenseSection = DualSenseSection.TRIGGERS;
+    private boolean dualsensePageWasAvailable;
     private BindingCategory category = BindingCategory.MOVEMENT;
     private ControllerAction selectedAction = ControllerAction.MOVE_FORWARD;
     private int selectedShortcut = 0;
@@ -150,6 +186,7 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
 
     @Override
     public void initGui() {
+        dualsensePageWasAvailable = isDualSensePageAvailable();
         rebuildWidgets();
     }
 
@@ -166,14 +203,17 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
         // stray mouse click from changing a setting behind the prompt.
         if (captureMode != CaptureMode.NONE) return;
 
+        if (page == Page.DUALSENSE && !isDualSensePageAvailable()) page = Page.CONTROLLER;
+
+        List<Page> pages = visiblePages();
         int contentX = contentX();
         int contentWidth = contentWidth();
         int tabGap = 2;
-        int tabWidth = Math.max(40, (contentWidth - tabGap * (Page.values().length - 1)) / Page.values().length);
-        int tabsWidth = tabWidth * Page.values().length + tabGap * (Page.values().length - 1);
+        int tabWidth = Math.max(40, (contentWidth - tabGap * (pages.size() - 1)) / pages.size());
+        int tabsWidth = tabWidth * pages.size() + tabGap * (pages.size() - 1);
         int tabX = contentX + Math.max(0, (contentWidth - tabsWidth) / 2);
         int tabY = 28;
-        for (Page candidate : Page.values()) {
+        for (Page candidate : pages) {
             GuiFuzziButton button = new GuiFuzziButton(
                 ID_TAB_BASE + candidate.ordinal(),
                 tabX,
@@ -188,6 +228,7 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
 
         switch (page) {
             case CONTROLLER -> buildControllerPage(contentX);
+            case DUALSENSE -> buildDualSensePage(contentX, contentWidth);
             case BINDINGS -> buildBindingsPage(contentX, contentWidth);
             case INPUT -> buildInputPage(contentX, contentWidth);
             case INTERFACE -> buildInterfacePage(contentX, contentWidth);
@@ -196,6 +237,203 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
         GuiFuzziButton done = new GuiFuzziButton(ID_DONE, width / 2 - 50, height - 27, 100, ROW_HEIGHT, "Done");
         done.setActive(false);
         buttonList.add(done);
+    }
+
+    /** Cycles the top-level tabs. Used by R1/L1 while this screen is open. */
+    public void cyclePage(int direction) {
+        if (direction == 0) return;
+        List<Page> pages = visiblePages();
+        int current = pages.indexOf(page);
+        if (current < 0) current = 0;
+        page = pages.get(Math.floorMod(current + direction, pages.size()));
+        resetAllArmed = false;
+        rebuildWidgets();
+    }
+
+    /** Moves the D-pad highlight onto the currently selected top-level tab. */
+    public void focusActiveTab(GuiFocusNavigator navigator) {
+        if (navigator == null) return;
+        int tabId = ID_TAB_BASE + page.ordinal();
+        for (GuiButton button : buttonList) {
+            if (button.id == tabId) {
+                navigator.focusButton(button);
+                return;
+            }
+        }
+    }
+
+    private List<Page> visiblePages() {
+        List<Page> pages = new ArrayList<>();
+        for (Page candidate : Page.values()) {
+            if (candidate != Page.DUALSENSE || isDualSensePageAvailable()) pages.add(candidate);
+        }
+        return pages;
+    }
+
+    private boolean isDualSensePageAvailable() {
+        if (!Config.controllerEnabled) return false;
+        String preference = trim(Config.controllerDriver).toLowerCase(Locale.ROOT);
+        if ("xinput".equals(preference) || "none".equals(preference)) return false;
+        if ("dualsense".equals(preference)) return true;
+
+        ControllerManager manager = ControllerManager.getInstance();
+        String driver = manager.getActiveDriverName()
+            .toLowerCase(Locale.ROOT);
+        String device = manager.getActiveDeviceName()
+            .toLowerCase(Locale.ROOT);
+        return driver.contains("dualsense") || device.contains("dualsense");
+    }
+
+    private void buildDualSensePage(int contentX, int contentWidth) {
+        int tabGap = 2;
+        int tabWidth = Math.max(40, (contentWidth - tabGap) / DualSenseSection.values().length);
+        int tabsWidth = tabWidth * DualSenseSection.values().length + tabGap * (DualSenseSection.values().length - 1);
+        int tabX = contentX + Math.max(0, (contentWidth - tabsWidth) / 2);
+        for (DualSenseSection candidate : DualSenseSection.values()) {
+            GuiFuzziButton button = new GuiFuzziButton(
+                ID_DUALSENSE_SECTION_BASE + candidate.ordinal(),
+                tabX,
+                48,
+                tabWidth,
+                TAB_HEIGHT,
+                candidate.label);
+            button.setActive(candidate == dualsenseSection);
+            buttonList.add(button);
+            tabX += tabWidth + tabGap;
+        }
+
+        switch (dualsenseSection) {
+            case TRIGGERS -> buildDualSenseTriggers(contentX, contentWidth);
+            case LIGHT -> buildDualSenseLight(contentX, contentWidth);
+        }
+    }
+
+    private void buildDualSenseTriggers(int contentX, int contentWidth) {
+        int y = 70;
+        int width = contentWidth;
+
+        row(
+            ID_DUALSENSE_ADAPTIVE,
+            contentX,
+            y,
+            width,
+            "Adaptive triggers",
+            Config.adaptiveTriggersEnabled ? "ON" : "OFF");
+        y += ROW_HEIGHT + ROW_GAP;
+
+        GuiFuzziRowButton mining = row(
+            ID_DUALSENSE_MINING_EFFECT,
+            contentX,
+            y,
+            width,
+            "Mining effect",
+            triggerEffectLabel(Config.miningTriggerEffect, ControllerTriggerEffect.FEEDBACK));
+        mining.enabled = Config.adaptiveTriggersEnabled;
+        y += ROW_HEIGHT + ROW_GAP;
+
+        GuiFuzziSlider miningStrength = addSlider(
+            ID_DUALSENSE_MINING_STRENGTH,
+            contentX,
+            y,
+            width,
+            "Mining strength",
+            1f,
+            8f,
+            Config.miningTriggerStrength,
+            0,
+            1f,
+            "");
+        miningStrength.enabled = Config.adaptiveTriggersEnabled;
+        y += ROW_HEIGHT + ROW_GAP;
+
+        GuiFuzziRowButton bow = row(
+            ID_DUALSENSE_BOW_EFFECT,
+            contentX,
+            y,
+            width,
+            "Bow effect",
+            triggerEffectLabel(Config.bowTriggerEffect, ControllerTriggerEffect.BOW));
+        bow.enabled = Config.adaptiveTriggersEnabled;
+        y += ROW_HEIGHT + ROW_GAP;
+
+        GuiFuzziSlider bowStrength = addSlider(
+            ID_DUALSENSE_BOW_STRENGTH,
+            contentX,
+            y,
+            width,
+            "Bow strength",
+            1f,
+            8f,
+            Config.bowTriggerStrength,
+            0,
+            1f,
+            "");
+        bowStrength.enabled = Config.adaptiveTriggersEnabled;
+    }
+
+    private void buildDualSenseLight(int contentX, int contentWidth) {
+        int y = 70;
+        int width = contentWidth;
+
+        row(ID_DUALSENSE_LIGHTBAR, contentX, y, width, "RGB lightbar", Config.lightbarEnabled ? "ON" : "OFF");
+        y += ROW_HEIGHT + ROW_GAP;
+
+        GuiFuzziSlider red = addSlider(
+            ID_DUALSENSE_LIGHT_RED,
+            contentX,
+            y,
+            width,
+            "Lightbar red",
+            0f,
+            255f,
+            Config.lightbarRed,
+            0,
+            1f,
+            "");
+        red.enabled = Config.lightbarEnabled;
+        y += ROW_HEIGHT + ROW_GAP;
+
+        GuiFuzziSlider green = addSlider(
+            ID_DUALSENSE_LIGHT_GREEN,
+            contentX,
+            y,
+            width,
+            "Lightbar green",
+            0f,
+            255f,
+            Config.lightbarGreen,
+            0,
+            1f,
+            "");
+        green.enabled = Config.lightbarEnabled;
+        y += ROW_HEIGHT + ROW_GAP;
+
+        GuiFuzziSlider blue = addSlider(
+            ID_DUALSENSE_LIGHT_BLUE,
+            contentX,
+            y,
+            width,
+            "Lightbar blue",
+            0f,
+            255f,
+            Config.lightbarBlue,
+            0,
+            1f,
+            "");
+        blue.enabled = Config.lightbarEnabled;
+        y += ROW_HEIGHT + ROW_GAP;
+
+        GuiFuzziRowButton brightness = row(
+            ID_DUALSENSE_LIGHT_BRIGHTNESS,
+            contentX,
+            y,
+            width,
+            "Lightbar brightness",
+            brightnessLabel(Config.lightbarBrightness));
+        brightness.enabled = Config.lightbarEnabled;
+        y += ROW_HEIGHT + ROW_GAP;
+
+        row(ID_DUALSENSE_LOW_BATTERY, contentX, y, width, "Low battery toast", Config.lowBatteryToast ? "ON" : "OFF");
     }
 
     private void buildControllerPage(int contentX) {
@@ -491,7 +729,7 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
         return button;
     }
 
-    private void addSlider(int id, int x, int y, int width, String label, float min, float max, float value,
+    private GuiFuzziSlider addSlider(int id, int x, int y, int width, String label, float min, float max, float value,
         int decimals, float displayFactor, String suffix) {
         GuiFuzziSlider slider = new GuiFuzziSlider(
             id,
@@ -511,6 +749,7 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
                 Config.save();
             });
         buttonList.add(slider);
+        return slider;
     }
 
     private void applySliderValue(int id) {
@@ -521,6 +760,11 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
             case ID_INPUT_DEAD_ZONE -> Config.stickDeadZone = slider.getValue();
             case ID_INPUT_TRIGGER -> Config.triggerThreshold = slider.getValue();
             case ID_CONTROLLER_RUMBLE_STRENGTH -> Config.rumbleIntensity = slider.getValue();
+            case ID_DUALSENSE_MINING_STRENGTH -> Config.miningTriggerStrength = Math.round(slider.getValue());
+            case ID_DUALSENSE_BOW_STRENGTH -> Config.bowTriggerStrength = Math.round(slider.getValue());
+            case ID_DUALSENSE_LIGHT_RED -> Config.lightbarRed = Math.round(slider.getValue());
+            case ID_DUALSENSE_LIGHT_GREEN -> Config.lightbarGreen = Math.round(slider.getValue());
+            case ID_DUALSENSE_LIGHT_BLUE -> Config.lightbarBlue = Math.round(slider.getValue());
             case ID_INTERFACE_CURSOR -> Config.inventoryCursorSensitivity = slider.getValue();
             case ID_INTERFACE_SCROLL_SPEED -> Config.scrollSensitivity = slider.getValue();
             case ID_INTERFACE_SLIDER_STEP -> Config.dpadSliderStep = slider.getValue();
@@ -542,8 +786,17 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
         if (button == null || !button.enabled) return;
 
         if (button.id >= ID_TAB_BASE && button.id < ID_TAB_BASE + Page.values().length) {
-            page = Page.values()[button.id - ID_TAB_BASE];
+            Page candidate = Page.values()[button.id - ID_TAB_BASE];
+            if (candidate == Page.DUALSENSE && !isDualSensePageAvailable()) return;
+            page = candidate;
             resetAllArmed = false;
+            rebuildWidgets();
+            return;
+        }
+
+        if (button.id >= ID_DUALSENSE_SECTION_BASE
+            && button.id < ID_DUALSENSE_SECTION_BASE + DualSenseSection.values().length) {
+            dualsenseSection = DualSenseSection.values()[button.id - ID_DUALSENSE_SECTION_BASE];
             rebuildWidgets();
             return;
         }
@@ -696,6 +949,42 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
         }
 
         switch (button.id) {
+            case ID_DUALSENSE_ADAPTIVE -> {
+                Config.adaptiveTriggersEnabled = !Config.adaptiveTriggersEnabled;
+                if (!Config.adaptiveTriggersEnabled) ControllerManager.getInstance()
+                    .clearTriggerEffects();
+                Config.save();
+                rebuildWidgets();
+            }
+            case ID_DUALSENSE_MINING_EFFECT -> {
+                Config.miningTriggerEffect = nextTriggerEffect(Config.miningTriggerEffect, MINING_TRIGGER_EFFECTS);
+                Config.save();
+                rebuildWidgets();
+            }
+            case ID_DUALSENSE_BOW_EFFECT -> {
+                Config.bowTriggerEffect = nextTriggerEffect(Config.bowTriggerEffect, BOW_TRIGGER_EFFECTS);
+                Config.save();
+                rebuildWidgets();
+            }
+            case ID_DUALSENSE_LIGHTBAR -> {
+                Config.lightbarEnabled = !Config.lightbarEnabled;
+                ControllerManager.getInstance()
+                    .applyLightbar();
+                Config.save();
+                rebuildWidgets();
+            }
+            case ID_DUALSENSE_LIGHT_BRIGHTNESS -> {
+                Config.lightbarBrightness = (Config.lightbarBrightness + 1) % 3;
+                ControllerManager.getInstance()
+                    .applyLightbar();
+                Config.save();
+                rebuildWidgets();
+            }
+            case ID_DUALSENSE_LOW_BATTERY -> {
+                Config.lowBatteryToast = !Config.lowBatteryToast;
+                Config.save();
+                rebuildWidgets();
+            }
             case ID_INPUT_ANALOG -> {
                 Config.analogMovement = !Config.analogMovement;
                 Config.save();
@@ -912,6 +1201,13 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
                 rebuildWidgets();
             }
         }
+
+        boolean dualsenseAvailable = isDualSensePageAvailable();
+        if (dualsenseAvailable != dualsensePageWasAvailable) {
+            dualsensePageWasAvailable = dualsenseAvailable;
+            if (!dualsenseAvailable && page == Page.DUALSENSE) page = Page.CONTROLLER;
+            rebuildWidgets();
+        }
     }
 
     @Override
@@ -1083,6 +1379,37 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
             case "xinput" -> "XInput";
             case "none" -> "None";
             default -> "Automatic";
+        };
+    }
+
+    private static String triggerEffectLabel(String value, ControllerTriggerEffect fallback) {
+        return switch (ControllerTriggerEffect.fromName(value, fallback)) {
+            case OFF -> "Off";
+            case FEEDBACK -> "Feedback";
+            case WEAPON -> "Weapon";
+            case VIBRATION -> "Vibration";
+            case BOW -> "Bow";
+            case MACHINE -> "Machine";
+        };
+    }
+
+    private static String nextTriggerEffect(String current, ControllerTriggerEffect[] options) {
+        ControllerTriggerEffect active = ControllerTriggerEffect.fromName(current, options[0]);
+        for (int i = 0; i < options.length; i++) {
+            if (options[i] == active) {
+                return options[(i + 1) % options.length].name()
+                    .toLowerCase(Locale.ROOT);
+            }
+        }
+        return options[0].name()
+            .toLowerCase(Locale.ROOT);
+    }
+
+    private static String brightnessLabel(int value) {
+        return switch (ControllerLightbarBrightness.fromValue(value)) {
+            case HIGH -> "High";
+            case MEDIUM -> "Medium";
+            case LOW -> "Low";
         };
     }
 

@@ -166,6 +166,7 @@ public class ControllerManager {
 
         if (activeDriver != null) {
             stopRumble();
+            clearTriggerEffects();
             safeClose(activeDriver);
             activeDriver = null;
             lastConnected = false;
@@ -301,6 +302,7 @@ public class ControllerManager {
             boolean previousAnnounced = !connectedNotificationPending;
             FuzziControls.LOG.info("[FuzziControls] Controller disconnected. Will retry.");
             stopRumble();
+            clearTriggerEffects();
             safeClose(activeDriver);
             activeDriver = null;
             lastState = ControllerState.empty();
@@ -343,6 +345,7 @@ public class ControllerManager {
             ControllerConnection previous = snapshotConnection(activeDriver);
             boolean previousAnnounced = !connectedNotificationPending;
             stopRumble();
+            clearTriggerEffects();
             safeClose(activeDriver);
             activeDriver = null;
             lastState = ControllerState.empty();
@@ -409,6 +412,7 @@ public class ControllerManager {
                 ControllerConnection previous = snapshotConnection(activeDriver);
                 boolean previousAnnounced = !connectedNotificationPending;
                 stopRumble();
+                clearTriggerEffects();
                 safeClose(activeDriver);
                 activeDriver = null;
                 lastState = ControllerState.empty();
@@ -453,6 +457,46 @@ public class ControllerManager {
         rumbleTicks = Math.max(rumbleTicks, durationTicks);
         rumbleRefreshCooldown = RUMBLE_REFRESH_TICKS;
         applyRumble();
+    }
+
+    /** Applies one adaptive-trigger effect to the active controller, if supported. */
+    public void setTriggerEffect(ControllerTrigger trigger, ControllerTriggerEffect effect, int strength) {
+        if (activeDriver == null || !lastConnected) return;
+        try {
+            activeDriver.setTriggerEffect(trigger, effect, strength);
+        } catch (Exception | LinkageError e) {
+            FuzziControls.LOG.debug("[FuzziControls] Could not apply adaptive trigger effect: {}", e.toString());
+        }
+    }
+
+    /** Removes both adaptive-trigger effects. */
+    public void clearTriggerEffects() {
+        setTriggerEffect(ControllerTrigger.LEFT, ControllerTriggerEffect.OFF, 0);
+        setTriggerEffect(ControllerTrigger.RIGHT, ControllerTriggerEffect.OFF, 0);
+    }
+
+    /** Applies the configured lightbar color and brightness to the active controller. */
+    public void applyLightbar() {
+        if (activeDriver == null || !lastConnected || !Config.lightbarEnabled) return;
+        try {
+            activeDriver.setLightbar(
+                Config.lightbarRed,
+                Config.lightbarGreen,
+                Config.lightbarBlue,
+                ControllerLightbarBrightness.fromValue(Config.lightbarBrightness));
+        } catch (Exception | LinkageError e) {
+            FuzziControls.LOG.debug("[FuzziControls] Could not apply lightbar state: {}", e.toString());
+        }
+    }
+
+    /** Battery percentage of the active controller, or {@code -1} when unknown/unsupported. */
+    public int getActiveBatteryPercent() {
+        return activeDriver != null && lastConnected ? activeDriver.getBatteryPercent() : -1;
+    }
+
+    /** Whether the active controller reports that it is charging. */
+    public boolean isActiveBatteryCharging() {
+        return activeDriver != null && lastConnected && activeDriver.isBatteryCharging();
     }
 
     /** Stops any active rumble immediately; safe to call when no controller is present. */
@@ -539,6 +583,7 @@ public class ControllerManager {
         ControllerConnection previous = snapshotConnection(activeDriver);
         boolean previousAnnounced = !connectedNotificationPending;
         stopRumble();
+        clearTriggerEffects();
         safeClose(activeDriver);
         activeDriver = null;
         lastState = ControllerState.empty();

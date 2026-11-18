@@ -9,6 +9,7 @@ import net.minecraft.client.gui.GuiIngameMenu;
 import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.ScaledResolution;
 import net.minecraft.client.settings.KeyBinding;
+import net.minecraft.init.Items;
 import net.minecraft.util.MovingObjectPosition;
 
 import org.lwjgl.input.Keyboard;
@@ -17,6 +18,7 @@ import org.lwjgl.opengl.Display;
 
 import com.mrfuzzihead.fuzzicontrols.Config;
 import com.mrfuzzihead.fuzzicontrols.gui.ControllerCaptureScreen;
+import com.mrfuzzihead.fuzzicontrols.gui.GuiFuzziControls;
 import com.mrfuzzihead.fuzzicontrols.util.GuiElementActivator;
 import com.mrfuzzihead.fuzzicontrols.util.GuiFocusNavigator;
 import com.mrfuzzihead.fuzzicontrols.util.GuiFocusRenderer;
@@ -222,6 +224,7 @@ public class ControllerTickHandler {
         boolean displayActive = Display.isActive();
         manager.setFocused(displayActive);
         manager.tick();
+        manager.applyLightbar();
         ControllerState state = manager.getState();
         ControllerMapping mapping = Config.controllerMapping;
 
@@ -232,6 +235,7 @@ public class ControllerTickHandler {
             // connected. This prevents cursor/button actions from affecting the game when the
             // player is in another application.
             releaseAllControllerKeys();
+            manager.clearTriggerEffects();
             // Follow the controller state through the skipped period so no stale edge fires.
             syncEdges(state, mapping);
             wasControllerConnected = connected;
@@ -251,6 +255,7 @@ public class ControllerTickHandler {
         if (mc.currentScreen instanceof ControllerCaptureScreen captureScreen
             && captureScreen.isCapturingControllerInput()) {
             captureScreen.captureControllerState(state);
+            manager.clearTriggerEffects();
             syncEdges(state, mapping);
             syncShortcutEdges(state);
             releaseShortcutKeys();
@@ -260,10 +265,35 @@ public class ControllerTickHandler {
         // ---- GUI-only path (main menu, inventory, pause, chat, etc.) ----
         // Runs even when thePlayer is null (e.g. main menu).
         if (mc.currentScreen != null) {
+            manager.clearTriggerEffects();
             // Shortcuts are an in-world input layer; do not leave a held shortcut key active while
             // a menu/chat screen owns the keyboard.
             releaseShortcutKeys();
             syncShortcutEdges(state);
+
+            // R1/L1 browse the top-level settings tabs, matching the console-style paging
+            // expected from the bumpers. The normal GUI navigation remains on the D-pad.
+            if (mc.currentScreen instanceof GuiFuzziControls settings) {
+                int nextIdx = ControllerAction.HOTBAR_NEXT.ordinal();
+                boolean next = mapping.isActive(ControllerAction.HOTBAR_NEXT, state);
+                boolean nextRising = next && !wasActive[nextIdx];
+                wasActive[nextIdx] = next;
+                if (nextRising) {
+                    settings.cyclePage(1);
+                    guiFocusNavigator.update(settings);
+                    settings.focusActiveTab(guiFocusNavigator);
+                }
+
+                int prevIdx = ControllerAction.HOTBAR_PREV.ordinal();
+                boolean prev = mapping.isActive(ControllerAction.HOTBAR_PREV, state);
+                boolean prevRising = prev && !wasActive[prevIdx];
+                wasActive[prevIdx] = prev;
+                if (prevRising) {
+                    settings.cyclePage(-1);
+                    guiFocusNavigator.update(settings);
+                    settings.focusActiveTab(guiFocusNavigator);
+                }
+            }
 
             // Initialize cursor to screen center on first tick a screen is open.
             if (!guiCursorInitialized) {
@@ -425,7 +455,10 @@ public class ControllerTickHandler {
         }
 
         // ---- In-world path (requires a player) ----
-        if (mc.theWorld == null || mc.thePlayer == null) return;
+        if (mc.theWorld == null || mc.thePlayer == null) {
+            manager.clearTriggerEffects();
+            return;
+        }
 
         // --- Movement (left stick → held key bindings) ---
         // driveKey() only asserts a key as true when the controller wants it, and only
@@ -493,10 +526,12 @@ public class ControllerTickHandler {
             manager.pulseRumble(0.28f, 0.14f, 2);
         }
 
+        updateAdaptiveTriggers(mc, manager, attacking);
+
         // --- Use item / place (hold) ---
-        driveKey(
-            mc.gameSettings.keyBindUseItem,
-            mapping.isActive(ControllerAction.USE_ITEM, state) && !isActionBlocked(ControllerAction.USE_ITEM, mapping));
+        boolean usingItem = mapping.isActive(ControllerAction.USE_ITEM, state)
+            && !isActionBlocked(ControllerAction.USE_ITEM, mapping);
+        driveKey(mc.gameSettings.keyBindUseItem, usingItem);
 
         // --- Pick block (one-shot) ---
         // Vanilla reads keyBindPickBlock.isPressed(), i.e. the KeyBinding press counter, not the
@@ -517,6 +552,49 @@ public class ControllerTickHandler {
 
         // --- User-defined controller-button → keyboard-key shortcuts ---
         processKeyboardShortcuts(state);
+
+        TriggerDiagnostics.logTick(
+            mc,
+            state,
+            mapping,
+            attacking,
+            usingItem,
+            displayActive,
+            connected,
+            buttonsHeldOnGuiClose,
+            heldKeys.claimed());
+    }
+
+    /**
+     * Applies the configured adaptive-trigger effects for the current action. A bow draw and
+     * block mining are the only gameplay situations mapped for now; everything else returns the
+     * triggers to their neutral state.
+     */
+    private void updateAdaptiveTriggers(Minecraft mc, ControllerManager manager, boolean attacking) {
+        if (!Config.adaptiveTriggersEnabled) {
+            manager.clearTriggerEffects();
+            return;
+        }
+
+        boolean drawingBow = mc.thePlayer != null && mc.thePlayer.isUsingItem()
+            && mc.thePlayer.getItemInUse() != null
+            && mc.thePlayer.getItemInUse()
+                .getItem() == Items.bow;
+        ControllerTriggerEffect bowEffect = ControllerTriggerEffect
+            .fromName(Config.bowTriggerEffect, ControllerTriggerEffect.BOW);
+        manager.setTriggerEffect(
+            ControllerTrigger.LEFT,
+            drawingBow ? bowEffect : ControllerTriggerEffect.OFF,
+            Config.bowTriggerStrength);
+
+        boolean mining = attacking && mc.objectMouseOver != null
+            && mc.objectMouseOver.typeOfHit == MovingObjectPosition.MovingObjectType.BLOCK;
+        ControllerTriggerEffect miningEffect = ControllerTriggerEffect
+            .fromName(Config.miningTriggerEffect, ControllerTriggerEffect.FEEDBACK);
+        manager.setTriggerEffect(
+            ControllerTrigger.RIGHT,
+            mining ? miningEffect : ControllerTriggerEffect.OFF,
+            Config.miningTriggerStrength);
     }
 
     // -------------------------------------------------------------------------
@@ -651,14 +729,21 @@ public class ControllerTickHandler {
         driveKeyCode(binding.getKeyCode(), active);
     }
 
-    /** Drives an arbitrary keyboard key through the same keyboard-preserving claim tracker. */
+    /** Drives an arbitrary key through the same keyboard-preserving claim tracker. */
     private void driveKeyCode(int code, boolean active) {
-        if (code <= 0) return;
+        // Mouse buttons use negative codes in 1.7.10 (attack = -100, use = -99). Rejecting
+        // everything <= 0 silently dropped every held attack/use action.
+        if (!isDriveableKeyCode(code)) return;
         switch (heldKeys.update(code, active)) {
             case PRESS -> KeyBinding.setKeyBindState(code, true);
             case RELEASE -> KeyBinding.setKeyBindState(code, false);
             case NONE -> {}
         }
+    }
+
+    /** Returns true when a KeyBinding code can be driven; mouse buttons are negative. */
+    static boolean isDriveableKeyCode(int code) {
+        return code != 0;
     }
 
     /**

@@ -57,6 +57,15 @@ interface DualSenseTransport {
         return false;
     }
 
+    /**
+     * USB output report size expected by this model. The standard DualSense declares a 47-byte
+     * payload (48 wire bytes); the Edge declares 63 (64 wire bytes). Sending the wrong size can
+     * leave the controller in a bad state even when hidapi reports the write as successful.
+     */
+    default int getUsbOutputReportSize() {
+        return DualSenseOutputReport.STANDARD_USB_REPORT_SIZE;
+    }
+
     /** Underlying hidapi version, for diagnostics. */
     String getVersion();
 }

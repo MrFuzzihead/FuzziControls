@@ -99,6 +99,17 @@ public class GuiFocusNavigatorTest {
     }
 
     @Test
+    public void focusButtonSelectsTheRequestedButton() {
+        List<GuiButton> buttons = Arrays.asList(btn(1, 0, 0), btn(2, 0, 20), btn(3, 0, 40));
+        navigator.rebuildForTest(buttons);
+
+        assertTrue(navigator.focusButton(buttons.get(2)));
+        assertEquals(buttons.get(2), navigator.getFocusedButton());
+        assertFalse("A button not in the list must not change focus", navigator.focusButton(btn(99, 0, 0)));
+        assertEquals(buttons.get(2), navigator.getFocusedButton());
+    }
+
+    @Test
     public void focusPrevWrapsFromFirstToLast() {
         List<GuiButton> buttons = Arrays.asList(btn(1, 0, 0), btn(2, 0, 20));
         navigator.rebuildForTest(buttons);

@@ -660,12 +660,20 @@ returns.
   so this needs a compile-only `lwjgl-sdl` dependency and an SDL gamepad driver. hid4java
   remains for DualSense-specific features. (Also carried over from the previous plan, section 9.)
 - **Rumble/vibration** — done (this iteration). XInput uses `XInputDevice.setVibration`;
-  DualSense uses a 63-byte USB `0x02` or 78-byte Bluetooth `0x31` output report, with the
+  DualSense uses a 48-byte standard / 64-byte Edge USB `0x02` or 78-byte Bluetooth `0x31` output report, with the
   Bluetooth sequence/tag and output CRC32 seed `0xA2`. `DualSenseOutputReport` builds and signs
   the reports, and `ControllerManager` schedules short pulses for damage, entity attacks and
   mining. Values are de-duplicated, refreshed periodically, scaled by `rumbleIntensity`, and
   stopped on disable, disconnect and shutdown. The settings screen exposes the on/off switch and
   strength slider. Remaining: hardware validation on XInput and DualSense over USB/Bluetooth.
+- **DualSense feature page** — done (this iteration). A DualSense settings tab appears when
+  controller input is enabled and a DualSense is active over USB or Bluetooth. It exposes
+  adaptive-trigger on/off, mining and bow effect presets and strengths, RGB lightbar on/off and
+  color sliders, brightness, and the low-battery toast toggle. Adaptive triggers use 11-byte
+  effect blocks at payload offsets 10/21 gated by valid-flag bits `0x04`/`0x08`; the lightbar uses
+  payload bytes 44–46 and the brightness byte 42. Bow drawing and block mining drive the effects
+  from the client tick, and trigger effects are cleared in GUIs, on disconnect and on shutdown.
+  Battery status is decoded from the input report and a one-shot toast fires below the threshold.
 - **Controller-type-aware button glyphs** (Xbox vs PlayStation) for the remap screen. The screen
   currently uses text labels; this is the next visual-polish step.
 - **Per-device DualSense calibration** (Sony ships calibration data; raw 0–255 is
@@ -782,6 +790,9 @@ These were not completed by the migration and remain valid:
     `DualSense not found` lines; no `hid4java device scanner` thread.
   - Rumble: damage, entity attack and block mining on XInput and DualSense, USB and Bluetooth;
     verify the strength slider, the on/off switch, and that vibration stops on disconnect.
+  - DualSense tab: confirm it appears over USB and Bluetooth, adaptive triggers fire for bow/mining,
+    each effect preset feels correct, the lightbar color/brightness updates, and the low-battery
+    toast appears once below the threshold.
 - **SDL gamepad backend** (section 7): still the preferred long-term replacement for
   JXInput; keep `ControllerState`/`ControllerMapping` semantics and add normalization parity
   tests. lwjgl3ify 3.x uses SDL3, so target `org.lwjgl.sdl.SDLGamepad`, not GLFW.
@@ -858,4 +869,6 @@ These were not completed by the migration and remain valid:
       `Mixin self-test: 9 checks, 0 failures`.
 - [x] Rumble output reports are unit tested for USB/Bluetooth layout, motor offsets, sequence
       numbers and CRC, and the manager stops pulses on expiry, disable and disconnect.
+- [x] Adaptive-trigger blocks, trigger/lightbar output reports, battery decoding and the
+      one-shot low-battery policy are unit tested; the client self-test remains green.
 - [ ] Manual validation checklist in section 9 completed.

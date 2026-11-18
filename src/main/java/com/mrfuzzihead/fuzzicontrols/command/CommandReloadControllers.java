@@ -7,6 +7,7 @@ import net.minecraft.util.EnumChatFormatting;
 
 import com.mrfuzzihead.fuzzicontrols.Config;
 import com.mrfuzzihead.fuzzicontrols.controller.ControllerManager;
+import com.mrfuzzihead.fuzzicontrols.controller.TriggerDiagnostics;
 
 public class CommandReloadControllers extends CommandBase {
 
@@ -17,7 +18,7 @@ public class CommandReloadControllers extends CommandBase {
 
     @Override
     public String getCommandUsage(ICommandSender sender) {
-        return "/" + getCommandName() + " reload";
+        return "/" + getCommandName() + " reload | triggers";
     }
 
     @Override
@@ -33,8 +34,17 @@ public class CommandReloadControllers extends CommandBase {
 
     @Override
     public void processCommand(ICommandSender sender, String[] args) {
+        if (args.length >= 1 && "triggers".equalsIgnoreCase(args[0])) {
+            TriggerDiagnostics.start();
+            sender.addChatMessage(
+                new ChatComponentText(
+                    EnumChatFormatting.GREEN
+                        + "Trigger diagnostics ON for 15s. Hold R2 and L2 now, then check the client log."));
+            return;
+        }
+
         if (args.length < 1 || !"reload".equalsIgnoreCase(args[0])) {
-            sender.addChatMessage(new ChatComponentText("Usage: /fuzzicontrols reload"));
+            sender.addChatMessage(new ChatComponentText("Usage: /fuzzicontrols reload | triggers"));
             return;
         }
 

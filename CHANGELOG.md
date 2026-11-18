@@ -10,10 +10,13 @@ Versions are derived from git tags (`git describe`), so a release is published b
 ### Added
 
 - **FuzziControls settings screen.** Open it from **Options → FuzziControls** or the Forge mod
-  list. It has Controller, Bindings, Input and Interface tabs, is fully D-pad/A/B navigable, and
-  edits the existing config file immediately. It exposes a master controller on/off switch, the
+  list. It has Controller, DualSense, Bindings, Input and Interface tabs; the DualSense tab
+  appears when a DualSense is active. It is fully D-pad/A/B navigable and edits the existing
+  config file immediately. It exposes a master controller on/off switch, the
   Automatic/DualSense/XInput driver choice, XInput slot, connection toasts, live device/transport
   status, every gameplay/input/interface setting, and a **Rescan** button.
+- **Bumper tab browsing.** While the FuzziControls screen is open, R1/L1 cycle through the
+  top-level tabs. The D-pad/A/B navigation is unchanged.
 - **In-game remapping.** The Bindings tab remaps every controller action with a tap-to-capture
   overlay. Capture suspends normal GUI input so B can be bound without closing the screen; a
   one-second hold cancels. Bindings can be cleared, reset per category, or reset all (two-step
@@ -36,6 +39,15 @@ Versions are derived from git tags (`git describe`), so a release is published b
   CRC32. Short pulses fire when the player takes damage, attacks an entity, or mines a block.
   Vibration is configurable with `rumbleEnabled` and `rumbleIntensity`, is de-duplicated so it
   does not spam HID writes, and is stopped on disconnect, driver reset, or shutdown.
+- **DualSense feature page.** A DualSense tab, available over USB and Bluetooth, adds
+  adaptive-trigger effects for bow drawing and mining, an RGB lightbar with brightness, and a
+  low-battery toast toggle. Trigger
+  effects use the DualSense 11-byte effect blocks and the existing USB/Bluetooth output report
+  path; lightbar and trigger writes are de-duplicated so the settings screen and per-tick apply
+  calls do not spam HID.
+- **Low-battery toast.** The DualSense battery/charging status is decoded from the input report,
+  and a one-shot toast appears when the battery first drops below the configurable threshold.
+  The toast shows the current percentage and does not repeat while still low or while charging.
 - **Controller connection toasts.** A modern top-right notification slides in when a controller
   connects or disconnects, showing the device name and USB/Bluetooth transport. The title is green
   for a connection and red for a disconnect, and the icon follows the controller family
@@ -71,6 +83,12 @@ Versions are derived from git tags (`git describe`), so a release is published b
 
 ### Fixed
 
+- **DualSense USB output reports use the model's declared size.** Standard controllers now get the
+  48-byte USB report and the Edge gets the 64-byte form. Sending the oversized Edge form to a
+  standard controller could leave its triggers in a bad state even though hidapi accepted the write.
+- **Adaptive trigger writes only touch the selected trigger.** R2 effects no longer rewrite L2, and
+  an idle trigger is never sent an unnecessary `Off` block. This prevents trigger effects from
+  interfering with held block-breaking or sword blocking.
 - **A disappearing Bluetooth controller could show three toasts.** The immediate reconnect probe
   could open a stale HID handle and treat it as a successful connection before its first read failed.
   Connection notifications now wait for the first valid input report, so only the real disconnect

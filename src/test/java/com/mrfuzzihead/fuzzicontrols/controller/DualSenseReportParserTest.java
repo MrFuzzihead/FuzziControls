@@ -82,6 +82,45 @@ public class DualSenseReportParserTest {
     }
 
     // -------------------------------------------------------------------------
+    // Battery status
+    // -------------------------------------------------------------------------
+
+    @Test
+    public void usbBatteryStatusDecodesCapacityAndCharging() {
+        byte[] report = usbReport();
+        report[53] = 0x15; // 50-59% band, charging
+
+        DualSenseReportParser.Battery battery = DualSenseReportParser
+            .parseBattery(report, report.length, DualSenseReportParser.Layout.USB_0X01);
+
+        assertEquals(55, battery.percent());
+        assertTrue(battery.charging());
+        assertFalse(battery.full());
+    }
+
+    @Test
+    public void bluetoothEnhancedBatteryStatusUsesTheShiftedOffset() {
+        byte[] report = enhancedReport();
+        report[54] = 0x2A; // full, capacity nibble is ignored for full
+
+        DualSenseReportParser.Battery battery = DualSenseReportParser
+            .parseBattery(report, report.length, DualSenseReportParser.Layout.BLUETOOTH_ENHANCED_0X31);
+
+        assertEquals(100, battery.percent());
+        assertTrue(battery.full());
+    }
+
+    @Test
+    public void simpleBluetoothReportHasNoBatteryStatus() {
+        byte[] report = bluetoothSimpleReport();
+
+        assertEquals(
+            null,
+            DualSenseReportParser
+                .parseBattery(report, report.length, DualSenseReportParser.Layout.BLUETOOTH_SIMPLE_0X01));
+    }
+
+    // -------------------------------------------------------------------------
     // USB layout (regression: existing behaviour)
     // -------------------------------------------------------------------------
 

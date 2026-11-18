@@ -1,5 +1,6 @@
 package com.mrfuzzihead.fuzzicontrols.controller;
 
+import java.util.Arrays;
 import java.util.concurrent.TimeUnit;
 import java.util.function.LongSupplier;
 
@@ -141,8 +142,30 @@ public class DualSenseDriver implements IControllerDriver {
 
     private int lastRumbleRight = -1;
 
+    /** Last adaptive-trigger blocks, so unchanged effects do not rewrite the output report. */
+    private byte[] lastLeftTrigger;
+
+    private byte[] lastRightTrigger;
+
+    /** Last lightbar state, so the per-tick apply call does not spam HID writes. */
+    private int lastLightbarRed = -1;
+
+    private int lastLightbarGreen = -1;
+
+    private int lastLightbarBlue = -1;
+
+    private int lastLightbarBrightness = -1;
+
+    /** Latest battery reading from the input report; -1 until a report with status bytes arrives. */
+    private int batteryPercent = -1;
+
+    private boolean batteryCharging;
+
     /** Rate-limits a failing output-report write. */
-    private boolean rumbleWriteFailedLogged;
+    private boolean outputWriteFailedLogged;
+
+    /** Whether a battery value has been logged for this connection. */
+    private boolean batteryLogged;
 
     public DualSenseDriver() {
         this(ensureHid() ? new HidApiDualSenseTransport() : null, System::nanoTime);
@@ -249,6 +272,21 @@ public class DualSenseDriver implements IControllerDriver {
                         .info("[FuzziControls] DualSense reports are using the {} transport.", getTransportName());
                 }
 
+                TriggerDiagnostics.logRawReport(layout, reportBuffer, read);
+
+                DualSenseReportParser.Battery battery = DualSenseReportParser.parseBattery(reportBuffer, read, layout);
+                if (battery != null) {
+                    batteryPercent = battery.percent();
+                    batteryCharging = battery.charging();
+                    if (!batteryLogged) {
+                        batteryLogged = true;
+                        FuzziControls.LOG.info(
+                            "[FuzziControls] DualSense battery: {}%{}.",
+                            batteryPercent,
+                            batteryCharging ? " (charging)" : "");
+                    }
+                }
+
                 fresh = DualSenseReportParser
                     .parse(reportBuffer, read, layout, deadZone, triggerThreshold, transport.isEdge());
             }
@@ -271,7 +309,7 @@ public class DualSenseDriver implements IControllerDriver {
 
     @Override
     public void setRumble(float left, float right) {
-        if (transport == null || !transport.isOpen() || connectionType == ConnectionType.UNKNOWN) return;
+        if (!canWriteOutput()) return;
 
         int leftMotor = toMotor(left);
         int rightMotor = toMotor(right);
@@ -279,28 +317,74 @@ public class DualSenseDriver implements IControllerDriver {
 
         byte[] report = connectionType == ConnectionType.BLUETOOTH
             ? DualSenseOutputReport.rumbleBluetooth(outputSequence, leftMotor, rightMotor)
-            : DualSenseOutputReport.rumbleUsb(leftMotor, rightMotor);
+            : DualSenseOutputReport.rumbleUsb(leftMotor, rightMotor, transport.getUsbOutputReportSize());
 
-        int written;
-        try {
-            written = transport.writeOutputReport(report);
-        } catch (Throwable t) {
-            written = -1;
-        }
+        if (!writeReport(report)) return;
+        lastRumbleLeft = leftMotor;
+        lastRumbleRight = rightMotor;
+    }
 
-        if (written < 0) {
-            if (!rumbleWriteFailedLogged) {
-                rumbleWriteFailedLogged = true;
-                FuzziControls.LOG.debug("[FuzziControls] DualSense rumble output report failed; ignoring.");
-            }
+    @Override
+    public void setTriggerEffect(ControllerTrigger trigger, ControllerTriggerEffect effect, int strength) {
+        if (!canWriteOutput() || trigger == null) return;
+
+        byte[] block = DualSenseTriggerEffect.from(effect, strength);
+        boolean left = trigger == ControllerTrigger.LEFT;
+        byte[] previous = left ? lastLeftTrigger : lastRightTrigger;
+        if (Arrays.equals(previous, block)) return;
+
+        // Do not send an Off block when this trigger never had an effect. Touching an idle
+        // trigger can interfere with its analogue input on some firmware.
+        if (block[0] == DualSenseTriggerEffect.MODE_OFF
+            && (previous == null || previous[0] == DualSenseTriggerEffect.MODE_OFF)) {
             return;
         }
 
-        lastRumbleLeft = leftMotor;
-        lastRumbleRight = rightMotor;
-        if (connectionType == ConnectionType.BLUETOOTH) {
-            outputSequence = (outputSequence + 1) & 0x0F;
+        byte[] report = connectionType == ConnectionType.BLUETOOTH
+            ? DualSenseOutputReport.triggerBluetooth(outputSequence, trigger, block)
+            : DualSenseOutputReport.triggerUsb(trigger, block, transport.getUsbOutputReportSize());
+
+        if (!writeReport(report)) return;
+        if (left) {
+            lastLeftTrigger = block;
+        } else {
+            lastRightTrigger = block;
         }
+    }
+
+    @Override
+    public void setLightbar(int red, int green, int blue, ControllerLightbarBrightness brightness) {
+        if (!canWriteOutput()) return;
+
+        int r = clampColor(red);
+        int g = clampColor(green);
+        int b = clampColor(blue);
+        int level = brightness != null ? brightness.getValue() : ControllerLightbarBrightness.MEDIUM.getValue();
+        if (r == lastLightbarRed && g == lastLightbarGreen
+            && b == lastLightbarBlue
+            && level == lastLightbarBrightness) {
+            return;
+        }
+
+        byte[] report = connectionType == ConnectionType.BLUETOOTH
+            ? DualSenseOutputReport.lightbarBluetooth(outputSequence, r, g, b, level)
+            : DualSenseOutputReport.lightbarUsb(r, g, b, level, transport.getUsbOutputReportSize());
+
+        if (!writeReport(report)) return;
+        lastLightbarRed = r;
+        lastLightbarGreen = g;
+        lastLightbarBlue = b;
+        lastLightbarBrightness = level;
+    }
+
+    @Override
+    public int getBatteryPercent() {
+        return batteryPercent;
+    }
+
+    @Override
+    public boolean isBatteryCharging() {
+        return batteryCharging;
     }
 
     @Override
@@ -324,13 +408,54 @@ public class DualSenseDriver implements IControllerDriver {
         outputSequence = 0;
         lastRumbleLeft = -1;
         lastRumbleRight = -1;
-        rumbleWriteFailedLogged = false;
+        lastLeftTrigger = null;
+        lastRightTrigger = null;
+        lastLightbarRed = -1;
+        lastLightbarGreen = -1;
+        lastLightbarBlue = -1;
+        lastLightbarBrightness = -1;
+        batteryPercent = -1;
+        batteryCharging = false;
+        outputWriteFailedLogged = false;
+        batteryLogged = false;
+    }
+
+    /** True when an output report can be sent on a known transport. */
+    private boolean canWriteOutput() {
+        return transport != null && transport.isOpen() && connectionType != ConnectionType.UNKNOWN;
+    }
+
+    /** Sends one output report, advancing the Bluetooth sequence only on success. */
+    private boolean writeReport(byte[] report) {
+        int written;
+        try {
+            written = transport.writeOutputReport(report);
+        } catch (Throwable t) {
+            written = -1;
+        }
+
+        if (written < 0) {
+            if (!outputWriteFailedLogged) {
+                outputWriteFailedLogged = true;
+                FuzziControls.LOG.debug("[FuzziControls] DualSense output report failed; ignoring.");
+            }
+            return false;
+        }
+
+        if (connectionType == ConnectionType.BLUETOOTH) {
+            outputSequence = (outputSequence + 1) & 0x0F;
+        }
+        return true;
     }
 
     /** Converts a normalised motor value to the DualSense's 0–255 range. */
     private static int toMotor(float value) {
         float clamped = Math.max(0f, Math.min(1f, value));
         return Math.round(clamped * 255f);
+    }
+
+    private static int clampColor(int value) {
+        return Math.max(0, Math.min(255, value));
     }
 
     @Override

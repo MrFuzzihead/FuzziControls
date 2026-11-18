@@ -117,6 +117,11 @@ final class HidApiDualSenseTransport implements DualSenseTransport {
     }
 
     @Override
+    public int getUsbOutputReportSize() {
+        return isEdge() ? DualSenseOutputReport.EDGE_USB_REPORT_SIZE : DualSenseOutputReport.STANDARD_USB_REPORT_SIZE;
+    }
+
+    @Override
     public String getVersion() {
         return getVersionStatic();
     }

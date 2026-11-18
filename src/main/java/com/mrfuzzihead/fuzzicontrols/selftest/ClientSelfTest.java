@@ -208,6 +208,26 @@ public final class ClientSelfTest {
                 navigator.update(settings);
                 record("settings: tab and setting buttons are focusable", navigator.getFocusableCount() >= 9);
 
+                int dualsenseIndex = findButtonIndex("DualSense");
+                if (dualsenseIndex >= 0) {
+                    record("settings: DualSense tab reachable", true);
+                    navigator.focusIndex(dualsenseIndex);
+                    GuiElementActivator.activate(navigator, 0, mc, false);
+                    navigator.update(settings);
+                    record("settings: DualSense trigger controls reachable", findButtonIndex("Adaptive triggers") >= 0);
+
+                    int lightTab = findButtonIndex("Light & Battery");
+                    record("settings: DualSense light tab reachable", lightTab >= 0);
+                    if (lightTab >= 0) {
+                        navigator.focusIndex(lightTab);
+                        GuiElementActivator.activate(navigator, 0, mc, false);
+                        navigator.update(settings);
+                        record("settings: DualSense light controls reachable", findButtonIndex("RGB lightbar") >= 0);
+                    }
+                } else {
+                    record("settings: DualSense tab hidden without an active pad", true);
+                }
+
                 int bindingsIndex = findButtonIndex("Bindings");
                 record("settings: Bindings tab reachable", bindingsIndex >= 0);
                 if (bindingsIndex >= 0) {
