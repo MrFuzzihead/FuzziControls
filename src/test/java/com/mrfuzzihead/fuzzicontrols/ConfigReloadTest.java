@@ -226,6 +226,15 @@ public class ConfigReloadTest {
     }
 
     @Test
+    public void edgeButtonsCanBeLoadedFromTheConfig() throws Exception {
+        writeConfig("bindings {", "    S:JUMP=LEFT_PADDLE", "}");
+
+        Config.synchronizeConfiguration(configFile);
+
+        assertEquals(ControllerButton.LEFT_PADDLE, Config.controllerMapping.getButton(ControllerAction.JUMP));
+    }
+
+    @Test
     public void bindingNamesAreTrimmedBeforeParsing() throws Exception {
         writeConfig("bindings {", "    S:JUMP=  X  ", "}");
 

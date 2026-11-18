@@ -27,6 +27,10 @@ Versions are derived from git tags (`git describe`), so a release is published b
   mode, sticks, buttons and triggers still work. Bluetooth handles that stop sending reports are
   treated as disconnected after 2 seconds instead of leaving buttons stuck.
 - **DualSense Edge support** (`054C:0DF2`) alongside the standard DualSense (`054C:0CE6`).
+- **DualSense Edge paddles and Fn buttons.** The Edge's left/right rear paddles and front
+  Fn1/Fn2 buttons are decoded from its third button byte and exposed as bindable controller
+  buttons in the remap screen. They are unbound by default; standard DualSense controllers
+  ignore the reserved bits.
 - **Controller connection toasts.** A modern top-right notification slides in when a controller
   connects or disconnects, showing the device name and USB/Bluetooth transport. The title is green
   for a connection and red for a disconnect, and the icon follows the controller family

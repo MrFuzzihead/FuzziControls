@@ -1088,6 +1088,10 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
             case DPAD_RIGHT -> "D-Pad Right";
             case START -> "Start";
             case BACK -> "Back";
+            case LEFT_PADDLE -> "Left Paddle";
+            case RIGHT_PADDLE -> "Right Paddle";
+            case FUNCTION_1 -> "Fn1";
+            case FUNCTION_2 -> "Fn2";
             case LEFT_STICK_UP -> "LS Up";
             case LEFT_STICK_DOWN -> "LS Down";
             case LEFT_STICK_LEFT -> "LS Left";

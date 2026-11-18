@@ -44,6 +44,16 @@ public enum ControllerButton {
     /** Back / Share / Select */
     BACK,
 
+    // DualSense Edge extras (raw HID only; unbound by default)
+    /** Rear left paddle on the DualSense Edge. */
+    LEFT_PADDLE,
+    /** Rear right paddle on the DualSense Edge. */
+    RIGHT_PADDLE,
+    /** Front function button Fn1 on the DualSense Edge. */
+    FUNCTION_1,
+    /** Front function button Fn2 on the DualSense Edge. */
+    FUNCTION_2,
+
     // Axes treated as directional inputs (for action mappings that need a direction)
     LEFT_STICK_UP,
     LEFT_STICK_DOWN,
