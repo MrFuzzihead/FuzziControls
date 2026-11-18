@@ -10,8 +10,8 @@ Versions are derived from git tags (`git describe`), so a release is published b
 ### Added
 
 - **FuzziControls settings screen.** Open it from **Options → FuzziControls** or the Forge mod
-  list. It has Controller, Bindings, Input and Interface tabs, plus a Bluetooth tab when a
-  controller is connected over Bluetooth. It is fully D-pad/A/B navigable and edits the existing
+  list. It has Controller, DualSense, Bindings, Input and Interface tabs; the DualSense tab
+  appears when a DualSense is active. It is fully D-pad/A/B navigable and edits the existing
   config file immediately. It exposes a master controller on/off switch, the
   Automatic/DualSense/XInput driver choice, XInput slot, connection toasts, live device/transport
   status, every gameplay/input/interface setting, and a **Rescan** button.
@@ -37,8 +37,9 @@ Versions are derived from git tags (`git describe`), so a release is published b
   CRC32. Short pulses fire when the player takes damage, attacks an entity, or mines a block.
   Vibration is configurable with `rumbleEnabled` and `rumbleIntensity`, is de-duplicated so it
   does not spam HID writes, and is stopped on disconnect, driver reset, or shutdown.
-- **Bluetooth DualSense feature page.** A Bluetooth-only tab adds adaptive-trigger effects for
-  bow drawing and mining, an RGB lightbar with brightness, and a low-battery toast toggle. Trigger
+- **DualSense feature page.** A DualSense tab, available over USB and Bluetooth, adds
+  adaptive-trigger effects for bow drawing and mining, an RGB lightbar with brightness, and a
+  low-battery toast toggle. Trigger
   effects use the DualSense 11-byte effect blocks and the existing USB/Bluetooth output report
   path; lightbar and trigger writes are de-duplicated so the settings screen and per-tick apply
   calls do not spam HID.

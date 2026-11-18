@@ -126,7 +126,7 @@ public class Config {
      */
     public static float rumbleIntensity = 0.6f;
 
-    // ---- DualSense Bluetooth features ----
+    // ---- DualSense features ----
     /** Whether adaptive-trigger effects are enabled. Off by default; the triggers are intrusive. */
     public static boolean adaptiveTriggersEnabled = false;
 

@@ -44,7 +44,7 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
     private enum Page {
 
         CONTROLLER("Controller"),
-        BLUETOOTH("Bluetooth"),
+        DUALSENSE("DualSense"),
         BINDINGS("Bindings"),
         INPUT("Input"),
         INTERFACE("Interface");
@@ -83,14 +83,14 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
         }
     }
 
-    private enum BluetoothSection {
+    private enum DualSenseSection {
 
         TRIGGERS("Triggers"),
         LIGHT("Light & Battery");
 
         final String label;
 
-        BluetoothSection(String label) {
+        DualSenseSection(String label) {
             this.label = label;
         }
     }
@@ -111,18 +111,18 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
     private static final int ID_CONTROLLER_RESCAN = 1104;
     private static final int ID_CONTROLLER_RUMBLE = 1105;
     private static final int ID_CONTROLLER_RUMBLE_STRENGTH = 1106;
-    private static final int ID_BT_SECTION_BASE = 1600;
-    private static final int ID_BT_ADAPTIVE = 1610;
-    private static final int ID_BT_MINING_EFFECT = 1611;
-    private static final int ID_BT_MINING_STRENGTH = 1612;
-    private static final int ID_BT_BOW_EFFECT = 1613;
-    private static final int ID_BT_BOW_STRENGTH = 1614;
-    private static final int ID_BT_LIGHTBAR = 1620;
-    private static final int ID_BT_LIGHT_RED = 1621;
-    private static final int ID_BT_LIGHT_GREEN = 1622;
-    private static final int ID_BT_LIGHT_BLUE = 1623;
-    private static final int ID_BT_LIGHT_BRIGHTNESS = 1624;
-    private static final int ID_BT_LOW_BATTERY = 1625;
+    private static final int ID_DUALSENSE_SECTION_BASE = 1600;
+    private static final int ID_DUALSENSE_ADAPTIVE = 1610;
+    private static final int ID_DUALSENSE_MINING_EFFECT = 1611;
+    private static final int ID_DUALSENSE_MINING_STRENGTH = 1612;
+    private static final int ID_DUALSENSE_BOW_EFFECT = 1613;
+    private static final int ID_DUALSENSE_BOW_STRENGTH = 1614;
+    private static final int ID_DUALSENSE_LIGHTBAR = 1620;
+    private static final int ID_DUALSENSE_LIGHT_RED = 1621;
+    private static final int ID_DUALSENSE_LIGHT_GREEN = 1622;
+    private static final int ID_DUALSENSE_LIGHT_BLUE = 1623;
+    private static final int ID_DUALSENSE_LIGHT_BRIGHTNESS = 1624;
+    private static final int ID_DUALSENSE_LOW_BATTERY = 1625;
     private static final int ID_INPUT_ANALOG = 1110;
     private static final int ID_INPUT_SNEAK = 1111;
     private static final int ID_INPUT_DROP = 1112;
@@ -156,8 +156,8 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
         ControllerTriggerEffect.BOW, ControllerTriggerEffect.FEEDBACK, ControllerTriggerEffect.WEAPON };
 
     private Page page = Page.CONTROLLER;
-    private BluetoothSection bluetoothSection = BluetoothSection.TRIGGERS;
-    private boolean bluetoothPageWasAvailable;
+    private DualSenseSection dualsenseSection = DualSenseSection.TRIGGERS;
+    private boolean dualsensePageWasAvailable;
     private BindingCategory category = BindingCategory.MOVEMENT;
     private ControllerAction selectedAction = ControllerAction.MOVE_FORWARD;
     private int selectedShortcut = 0;
@@ -185,7 +185,7 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
 
     @Override
     public void initGui() {
-        bluetoothPageWasAvailable = isBluetoothPageAvailable();
+        dualsensePageWasAvailable = isDualSensePageAvailable();
         rebuildWidgets();
     }
 
@@ -202,7 +202,7 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
         // stray mouse click from changing a setting behind the prompt.
         if (captureMode != CaptureMode.NONE) return;
 
-        if (page == Page.BLUETOOTH && !isBluetoothPageAvailable()) page = Page.CONTROLLER;
+        if (page == Page.DUALSENSE && !isDualSensePageAvailable()) page = Page.CONTROLLER;
 
         List<Page> pages = visiblePages();
         int contentX = contentX();
@@ -227,7 +227,7 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
 
         switch (page) {
             case CONTROLLER -> buildControllerPage(contentX);
-            case BLUETOOTH -> buildBluetoothPage(contentX, contentWidth);
+            case DUALSENSE -> buildDualSensePage(contentX, contentWidth);
             case BINDINGS -> buildBindingsPage(contentX, contentWidth);
             case INPUT -> buildInputPage(contentX, contentWidth);
             case INTERFACE -> buildInterfacePage(contentX, contentWidth);
@@ -241,53 +241,64 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
     private List<Page> visiblePages() {
         List<Page> pages = new ArrayList<>();
         for (Page candidate : Page.values()) {
-            if (candidate != Page.BLUETOOTH || isBluetoothPageAvailable()) pages.add(candidate);
+            if (candidate != Page.DUALSENSE || isDualSensePageAvailable()) pages.add(candidate);
         }
         return pages;
     }
 
-    private boolean isBluetoothPageAvailable() {
+    private boolean isDualSensePageAvailable() {
         if (!Config.controllerEnabled) return false;
-        String driver = trim(Config.controllerDriver).toLowerCase(Locale.ROOT);
-        if ("xinput".equals(driver) || "none".equals(driver)) return false;
-        return "Bluetooth".equalsIgnoreCase(
-            ControllerManager.getInstance()
-                .getActiveTransportName());
+        String preference = trim(Config.controllerDriver).toLowerCase(Locale.ROOT);
+        if ("xinput".equals(preference) || "none".equals(preference)) return false;
+        if ("dualsense".equals(preference)) return true;
+
+        ControllerManager manager = ControllerManager.getInstance();
+        String driver = manager.getActiveDriverName()
+            .toLowerCase(Locale.ROOT);
+        String device = manager.getActiveDeviceName()
+            .toLowerCase(Locale.ROOT);
+        return driver.contains("dualsense") || device.contains("dualsense");
     }
 
-    private void buildBluetoothPage(int contentX, int contentWidth) {
+    private void buildDualSensePage(int contentX, int contentWidth) {
         int tabGap = 2;
-        int tabWidth = Math.max(40, (contentWidth - tabGap) / BluetoothSection.values().length);
-        int tabsWidth = tabWidth * BluetoothSection.values().length + tabGap * (BluetoothSection.values().length - 1);
+        int tabWidth = Math.max(40, (contentWidth - tabGap) / DualSenseSection.values().length);
+        int tabsWidth = tabWidth * DualSenseSection.values().length + tabGap * (DualSenseSection.values().length - 1);
         int tabX = contentX + Math.max(0, (contentWidth - tabsWidth) / 2);
-        for (BluetoothSection candidate : BluetoothSection.values()) {
+        for (DualSenseSection candidate : DualSenseSection.values()) {
             GuiFuzziButton button = new GuiFuzziButton(
-                ID_BT_SECTION_BASE + candidate.ordinal(),
+                ID_DUALSENSE_SECTION_BASE + candidate.ordinal(),
                 tabX,
                 48,
                 tabWidth,
                 TAB_HEIGHT,
                 candidate.label);
-            button.setActive(candidate == bluetoothSection);
+            button.setActive(candidate == dualsenseSection);
             buttonList.add(button);
             tabX += tabWidth + tabGap;
         }
 
-        switch (bluetoothSection) {
-            case TRIGGERS -> buildBluetoothTriggers(contentX, contentWidth);
-            case LIGHT -> buildBluetoothLight(contentX, contentWidth);
+        switch (dualsenseSection) {
+            case TRIGGERS -> buildDualSenseTriggers(contentX, contentWidth);
+            case LIGHT -> buildDualSenseLight(contentX, contentWidth);
         }
     }
 
-    private void buildBluetoothTriggers(int contentX, int contentWidth) {
+    private void buildDualSenseTriggers(int contentX, int contentWidth) {
         int y = 70;
         int width = contentWidth;
 
-        row(ID_BT_ADAPTIVE, contentX, y, width, "Adaptive triggers", Config.adaptiveTriggersEnabled ? "ON" : "OFF");
+        row(
+            ID_DUALSENSE_ADAPTIVE,
+            contentX,
+            y,
+            width,
+            "Adaptive triggers",
+            Config.adaptiveTriggersEnabled ? "ON" : "OFF");
         y += ROW_HEIGHT + ROW_GAP;
 
         GuiFuzziRowButton mining = row(
-            ID_BT_MINING_EFFECT,
+            ID_DUALSENSE_MINING_EFFECT,
             contentX,
             y,
             width,
@@ -297,7 +308,7 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
         y += ROW_HEIGHT + ROW_GAP;
 
         GuiFuzziSlider miningStrength = addSlider(
-            ID_BT_MINING_STRENGTH,
+            ID_DUALSENSE_MINING_STRENGTH,
             contentX,
             y,
             width,
@@ -312,7 +323,7 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
         y += ROW_HEIGHT + ROW_GAP;
 
         GuiFuzziRowButton bow = row(
-            ID_BT_BOW_EFFECT,
+            ID_DUALSENSE_BOW_EFFECT,
             contentX,
             y,
             width,
@@ -322,7 +333,7 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
         y += ROW_HEIGHT + ROW_GAP;
 
         GuiFuzziSlider bowStrength = addSlider(
-            ID_BT_BOW_STRENGTH,
+            ID_DUALSENSE_BOW_STRENGTH,
             contentX,
             y,
             width,
@@ -336,15 +347,15 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
         bowStrength.enabled = Config.adaptiveTriggersEnabled;
     }
 
-    private void buildBluetoothLight(int contentX, int contentWidth) {
+    private void buildDualSenseLight(int contentX, int contentWidth) {
         int y = 70;
         int width = contentWidth;
 
-        row(ID_BT_LIGHTBAR, contentX, y, width, "RGB lightbar", Config.lightbarEnabled ? "ON" : "OFF");
+        row(ID_DUALSENSE_LIGHTBAR, contentX, y, width, "RGB lightbar", Config.lightbarEnabled ? "ON" : "OFF");
         y += ROW_HEIGHT + ROW_GAP;
 
         GuiFuzziSlider red = addSlider(
-            ID_BT_LIGHT_RED,
+            ID_DUALSENSE_LIGHT_RED,
             contentX,
             y,
             width,
@@ -359,7 +370,7 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
         y += ROW_HEIGHT + ROW_GAP;
 
         GuiFuzziSlider green = addSlider(
-            ID_BT_LIGHT_GREEN,
+            ID_DUALSENSE_LIGHT_GREEN,
             contentX,
             y,
             width,
@@ -374,7 +385,7 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
         y += ROW_HEIGHT + ROW_GAP;
 
         GuiFuzziSlider blue = addSlider(
-            ID_BT_LIGHT_BLUE,
+            ID_DUALSENSE_LIGHT_BLUE,
             contentX,
             y,
             width,
@@ -389,7 +400,7 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
         y += ROW_HEIGHT + ROW_GAP;
 
         GuiFuzziRowButton brightness = row(
-            ID_BT_LIGHT_BRIGHTNESS,
+            ID_DUALSENSE_LIGHT_BRIGHTNESS,
             contentX,
             y,
             width,
@@ -398,7 +409,7 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
         brightness.enabled = Config.lightbarEnabled;
         y += ROW_HEIGHT + ROW_GAP;
 
-        row(ID_BT_LOW_BATTERY, contentX, y, width, "Low battery toast", Config.lowBatteryToast ? "ON" : "OFF");
+        row(ID_DUALSENSE_LOW_BATTERY, contentX, y, width, "Low battery toast", Config.lowBatteryToast ? "ON" : "OFF");
     }
 
     private void buildControllerPage(int contentX) {
@@ -725,11 +736,11 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
             case ID_INPUT_DEAD_ZONE -> Config.stickDeadZone = slider.getValue();
             case ID_INPUT_TRIGGER -> Config.triggerThreshold = slider.getValue();
             case ID_CONTROLLER_RUMBLE_STRENGTH -> Config.rumbleIntensity = slider.getValue();
-            case ID_BT_MINING_STRENGTH -> Config.miningTriggerStrength = Math.round(slider.getValue());
-            case ID_BT_BOW_STRENGTH -> Config.bowTriggerStrength = Math.round(slider.getValue());
-            case ID_BT_LIGHT_RED -> Config.lightbarRed = Math.round(slider.getValue());
-            case ID_BT_LIGHT_GREEN -> Config.lightbarGreen = Math.round(slider.getValue());
-            case ID_BT_LIGHT_BLUE -> Config.lightbarBlue = Math.round(slider.getValue());
+            case ID_DUALSENSE_MINING_STRENGTH -> Config.miningTriggerStrength = Math.round(slider.getValue());
+            case ID_DUALSENSE_BOW_STRENGTH -> Config.bowTriggerStrength = Math.round(slider.getValue());
+            case ID_DUALSENSE_LIGHT_RED -> Config.lightbarRed = Math.round(slider.getValue());
+            case ID_DUALSENSE_LIGHT_GREEN -> Config.lightbarGreen = Math.round(slider.getValue());
+            case ID_DUALSENSE_LIGHT_BLUE -> Config.lightbarBlue = Math.round(slider.getValue());
             case ID_INTERFACE_CURSOR -> Config.inventoryCursorSensitivity = slider.getValue();
             case ID_INTERFACE_SCROLL_SPEED -> Config.scrollSensitivity = slider.getValue();
             case ID_INTERFACE_SLIDER_STEP -> Config.dpadSliderStep = slider.getValue();
@@ -752,15 +763,16 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
 
         if (button.id >= ID_TAB_BASE && button.id < ID_TAB_BASE + Page.values().length) {
             Page candidate = Page.values()[button.id - ID_TAB_BASE];
-            if (candidate == Page.BLUETOOTH && !isBluetoothPageAvailable()) return;
+            if (candidate == Page.DUALSENSE && !isDualSensePageAvailable()) return;
             page = candidate;
             resetAllArmed = false;
             rebuildWidgets();
             return;
         }
 
-        if (button.id >= ID_BT_SECTION_BASE && button.id < ID_BT_SECTION_BASE + BluetoothSection.values().length) {
-            bluetoothSection = BluetoothSection.values()[button.id - ID_BT_SECTION_BASE];
+        if (button.id >= ID_DUALSENSE_SECTION_BASE
+            && button.id < ID_DUALSENSE_SECTION_BASE + DualSenseSection.values().length) {
+            dualsenseSection = DualSenseSection.values()[button.id - ID_DUALSENSE_SECTION_BASE];
             rebuildWidgets();
             return;
         }
@@ -913,38 +925,38 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
         }
 
         switch (button.id) {
-            case ID_BT_ADAPTIVE -> {
+            case ID_DUALSENSE_ADAPTIVE -> {
                 Config.adaptiveTriggersEnabled = !Config.adaptiveTriggersEnabled;
                 if (!Config.adaptiveTriggersEnabled) ControllerManager.getInstance()
                     .clearTriggerEffects();
                 Config.save();
                 rebuildWidgets();
             }
-            case ID_BT_MINING_EFFECT -> {
+            case ID_DUALSENSE_MINING_EFFECT -> {
                 Config.miningTriggerEffect = nextTriggerEffect(Config.miningTriggerEffect, MINING_TRIGGER_EFFECTS);
                 Config.save();
                 rebuildWidgets();
             }
-            case ID_BT_BOW_EFFECT -> {
+            case ID_DUALSENSE_BOW_EFFECT -> {
                 Config.bowTriggerEffect = nextTriggerEffect(Config.bowTriggerEffect, BOW_TRIGGER_EFFECTS);
                 Config.save();
                 rebuildWidgets();
             }
-            case ID_BT_LIGHTBAR -> {
+            case ID_DUALSENSE_LIGHTBAR -> {
                 Config.lightbarEnabled = !Config.lightbarEnabled;
                 ControllerManager.getInstance()
                     .applyLightbar();
                 Config.save();
                 rebuildWidgets();
             }
-            case ID_BT_LIGHT_BRIGHTNESS -> {
+            case ID_DUALSENSE_LIGHT_BRIGHTNESS -> {
                 Config.lightbarBrightness = (Config.lightbarBrightness + 1) % 3;
                 ControllerManager.getInstance()
                     .applyLightbar();
                 Config.save();
                 rebuildWidgets();
             }
-            case ID_BT_LOW_BATTERY -> {
+            case ID_DUALSENSE_LOW_BATTERY -> {
                 Config.lowBatteryToast = !Config.lowBatteryToast;
                 Config.save();
                 rebuildWidgets();
@@ -1166,10 +1178,10 @@ public class GuiFuzziControls extends GuiScreen implements ControllerCaptureScre
             }
         }
 
-        boolean bluetoothAvailable = isBluetoothPageAvailable();
-        if (bluetoothAvailable != bluetoothPageWasAvailable) {
-            bluetoothPageWasAvailable = bluetoothAvailable;
-            if (!bluetoothAvailable && page == Page.BLUETOOTH) page = Page.CONTROLLER;
+        boolean dualsenseAvailable = isDualSensePageAvailable();
+        if (dualsenseAvailable != dualsensePageWasAvailable) {
+            dualsensePageWasAvailable = dualsenseAvailable;
+            if (!dualsenseAvailable && page == Page.DUALSENSE) page = Page.CONTROLLER;
             rebuildWidgets();
         }
     }

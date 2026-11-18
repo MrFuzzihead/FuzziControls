@@ -666,8 +666,8 @@ returns.
   mining. Values are de-duplicated, refreshed periodically, scaled by `rumbleIntensity`, and
   stopped on disable, disconnect and shutdown. The settings screen exposes the on/off switch and
   strength slider. Remaining: hardware validation on XInput and DualSense over USB/Bluetooth.
-- **Bluetooth DualSense feature page** — done (this iteration). A Bluetooth-only settings tab
-  appears when controller input is enabled and the active transport is Bluetooth. It exposes
+- **DualSense feature page** — done (this iteration). A DualSense settings tab appears when
+  controller input is enabled and a DualSense is active over USB or Bluetooth. It exposes
   adaptive-trigger on/off, mining and bow effect presets and strengths, RGB lightbar on/off and
   color sliders, brightness, and the low-battery toast toggle. Adaptive triggers use 11-byte
   effect blocks at payload offsets 10/21 gated by valid-flag bits `0x04`/`0x08`; the lightbar uses
@@ -790,7 +790,7 @@ These were not completed by the migration and remain valid:
     `DualSense not found` lines; no `hid4java device scanner` thread.
   - Rumble: damage, entity attack and block mining on XInput and DualSense, USB and Bluetooth;
     verify the strength slider, the on/off switch, and that vibration stops on disconnect.
-  - Bluetooth tab: confirm it appears only over Bluetooth, adaptive triggers fire for bow/mining,
+  - DualSense tab: confirm it appears over USB and Bluetooth, adaptive triggers fire for bow/mining,
     each effect preset feels correct, the lightbar color/brightness updates, and the low-battery
     toast appears once below the threshold.
 - **SDL gamepad backend** (section 7): still the preferred long-term replacement for
