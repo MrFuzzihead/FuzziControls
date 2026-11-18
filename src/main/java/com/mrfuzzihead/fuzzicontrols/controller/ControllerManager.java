@@ -477,13 +477,13 @@ public class ControllerManager {
 
     /** Applies the configured lightbar color and brightness to the active controller. */
     public void applyLightbar() {
-        if (activeDriver == null || !lastConnected) return;
+        if (activeDriver == null || !lastConnected || !Config.lightbarEnabled) return;
         try {
-            int red = Config.lightbarEnabled ? Config.lightbarRed : 0;
-            int green = Config.lightbarEnabled ? Config.lightbarGreen : 0;
-            int blue = Config.lightbarEnabled ? Config.lightbarBlue : 0;
-            activeDriver
-                .setLightbar(red, green, blue, ControllerLightbarBrightness.fromValue(Config.lightbarBrightness));
+            activeDriver.setLightbar(
+                Config.lightbarRed,
+                Config.lightbarGreen,
+                Config.lightbarBlue,
+                ControllerLightbarBrightness.fromValue(Config.lightbarBrightness));
         } catch (Exception | LinkageError e) {
             FuzziControls.LOG.debug("[FuzziControls] Could not apply lightbar state: {}", e.toString());
         }
