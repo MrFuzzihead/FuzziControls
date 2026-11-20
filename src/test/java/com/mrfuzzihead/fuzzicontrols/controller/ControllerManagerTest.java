@@ -11,6 +11,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.junit.After;
 import org.junit.Before;
@@ -129,9 +131,9 @@ public class ControllerManagerTest {
     /** Factory that hands out pre-scripted drivers and records what was asked for. */
     private static final class FakeFactory implements ControllerManager.DriverFactory {
 
-        private final List<FakeDriver> dualSense = new ArrayList<>();
+        private final List<IControllerDriver> dualSense = new ArrayList<>();
 
-        private final List<FakeDriver> xInput = new ArrayList<>();
+        private final List<IControllerDriver> xInput = new ArrayList<>();
 
         private int dualSenseRequests;
 
@@ -139,12 +141,12 @@ public class ControllerManagerTest {
 
         private int lastSlot = -1;
 
-        FakeFactory queueDualSense(FakeDriver... drivers) {
+        FakeFactory queueDualSense(IControllerDriver... drivers) {
             Collections.addAll(dualSense, drivers);
             return this;
         }
 
-        FakeFactory queueXInput(FakeDriver... drivers) {
+        FakeFactory queueXInput(IControllerDriver... drivers) {
             Collections.addAll(xInput, drivers);
             return this;
         }
@@ -644,7 +646,7 @@ public class ControllerManagerTest {
     }
 
     @Test
-    public void disconnectAndReconnectInTheSameTickEmitsBothEvents() {
+    public void sameDeviceReconnectInTheSameTickEmitsNoToasts() {
         FakeDriver first = new FakeDriver("DualSense (HID)", true).withDevice("DualSense", "USB");
         FakeDriver second = new FakeDriver("DualSense (HID)", true).withDevice("DualSense", "USB");
         factory.queueDualSense(first, second);
@@ -657,11 +659,135 @@ public class ControllerManagerTest {
         first.connected = false;
         manager.tick();
 
-        assertEquals(Arrays.asList("-DualSense/USB", "+DualSense/USB"), listener.events);
+        assertTrue(
+            "The same pad reopening a tick later is a blip, not a disconnect: the player must not see a toast pair",
+            listener.events.isEmpty());
+        assertTrue(manager.isActive());
     }
 
     @Test
-    public void pollFailureEmitsDisconnected() {
+    public void sameDeviceReconnectInsideTheGraceWindowEmitsNoToasts() {
+        FakeDriver first = new FakeDriver("DualSense (HID)", true).withDevice("DualSense", "USB");
+        factory.queueDualSense(first);
+        RecordingListener listener = new RecordingListener();
+        manager.addConnectionListener(listener);
+        manager.init();
+        manager.tick();
+        listener.events.clear();
+
+        // The handle dies and the re-probe only succeeds a few ticks later.
+        first.connected = false;
+        manager.tick();
+        FakeDriver late = new FakeDriver("DualSense (HID)", true).withDevice("DualSense", "USB");
+        factory.queueDualSense(late);
+        for (int tick = 0; tick < 40 && !manager.isActive(); tick++) {
+            manager.tick();
+        }
+
+        assertTrue("A reconnect inside the two-second window must stay silent", listener.events.isEmpty());
+        assertTrue(manager.isActive());
+    }
+
+    @Test
+    public void stagedDisconnectIsAnnouncedOnceAfterTheGraceWindow() {
+        FakeDriver driver = new FakeDriver("DualSense (HID)", true).withDevice("DualSense", "USB");
+        factory.queueDualSense(driver);
+        RecordingListener listener = new RecordingListener();
+        manager.addConnectionListener(listener);
+        manager.init();
+        manager.tick();
+        listener.events.clear();
+
+        driver.connected = false;
+        manager.tick();
+        assertTrue("the disconnect toast is held back for two seconds", listener.events.isEmpty());
+
+        for (int tick = 0; tick < 39; tick++) {
+            manager.tick();
+        }
+        assertTrue("39 ticks is still inside the grace window", listener.events.isEmpty());
+
+        manager.tick();
+        assertEquals(Collections.singletonList("-DualSense/USB"), listener.events);
+
+        for (int tick = 0; tick < 5; tick++) {
+            manager.tick();
+        }
+        assertEquals("The disconnect must be announced exactly once", 1, listener.events.size());
+    }
+
+    @Test
+    public void aDifferentDeviceInsideTheGraceWindowEmitsDisconnectThenConnect() {
+        FakeDriver dualSense = new FakeDriver("DualSense (HID)", true).withDevice("DualSense", "USB");
+        FakeDriver xInput = new FakeDriver("XInput", true).withDevice("Xbox 360 Controller", "");
+        factory.queueDualSense(dualSense);
+        factory.queueXInput(xInput);
+        RecordingListener listener = new RecordingListener();
+        manager.addConnectionListener(listener);
+        manager.init();
+        manager.tick();
+        listener.events.clear();
+
+        dualSense.connected = false;
+        manager.tick();
+
+        assertEquals(
+            "A handover to a different device is a real change and must be announced in order",
+            Arrays.asList("-DualSense/USB", "+Xbox 360 Controller/"),
+            listener.events);
+    }
+
+    @Test
+    public void aSilentlyRecoveredDeviceCanStillBeDisconnectedLater() {
+        FakeDriver first = new FakeDriver("DualSense (HID)", true).withDevice("DualSense", "USB");
+        FakeDriver second = new FakeDriver("DualSense (HID)", true).withDevice("DualSense", "USB");
+        factory.queueDualSense(first, second);
+        RecordingListener listener = new RecordingListener();
+        manager.addConnectionListener(listener);
+        manager.init();
+        manager.tick();
+        listener.events.clear();
+
+        first.connected = false;
+        manager.tick();
+        assertTrue(listener.events.isEmpty());
+
+        second.connected = false;
+        manager.tick();
+        for (int tick = 0; tick < 40; tick++) {
+            manager.tick();
+        }
+
+        assertEquals(
+            "A silent recovery must not suppress the next genuine disconnect",
+            Collections.singletonList("-DualSense/USB"),
+            listener.events);
+    }
+
+    @Test
+    public void configReloadDuringTheGraceWindowOfTheSameDeviceEmitsNoToasts() {
+        FakeDriver first = new FakeDriver("DualSense (HID)", true).withDevice("DualSense", "USB");
+        factory.queueDualSense(first);
+        RecordingListener listener = new RecordingListener();
+        manager.addConnectionListener(listener);
+        manager.init();
+        manager.tick();
+        listener.events.clear();
+
+        first.connected = false;
+        manager.tick();
+        assertTrue(listener.events.isEmpty());
+
+        FakeDriver second = new FakeDriver("DualSense (HID)", true).withDevice("DualSense", "USB");
+        factory.queueDualSense(second);
+        manager.init();
+        manager.tick();
+
+        assertTrue("An explicit reload must resolve a staged disconnect, not duplicate it", listener.events.isEmpty());
+    }
+
+    @Test
+    public void pollFailureStagesTheDisconnectInsteadOfAnnouncingItImmediately() {
         FakeDriver driver = new FakeDriver("DualSense (HID)", true).withDevice("DualSense", "USB");
         factory.queueDualSense(driver);
         RecordingListener listener = new RecordingListener();
@@ -672,7 +798,11 @@ public class ControllerManagerTest {
 
         driver.throwOnPoll = true;
         manager.tick();
+        assertTrue("a one-off poll error must not toast before the grace window", listener.events.isEmpty());
 
+        for (int tick = 0; tick < 40; tick++) {
+            manager.tick();
+        }
         assertEquals(Collections.singletonList("-DualSense/USB"), listener.events);
     }
 
@@ -720,6 +850,9 @@ public class ControllerManagerTest {
 
         driver.throwOnPoll = true;
         manager.tick();
+        for (int tick = 0; tick < 40; tick++) {
+            manager.tick();
+        }
 
         assertTrue("no connect toast was shown, so there must be no disconnect toast", listener.events.isEmpty());
     }
@@ -734,6 +867,9 @@ public class ControllerManagerTest {
 
         driver.connected = false;
         manager.tick();
+        for (int tick = 0; tick < 40; tick++) {
+            manager.tick();
+        }
 
         assertTrue("no connect toast was shown, so there must be no disconnect toast", listener.events.isEmpty());
     }
@@ -763,6 +899,71 @@ public class ControllerManagerTest {
         manager.pollFresh();
 
         assertEquals(Collections.singletonList("+DualSense/USB"), listener.events);
+    }
+
+    // -------------------------------------------------------------------------
+    // A frozen client thread must not look like an unplugged controller
+    // -------------------------------------------------------------------------
+
+    /**
+     * Wires a real {@link DualSenseDriver} onto a scripted transport and a controllable clock, so the
+     * liveness watchdog behaves exactly as it does in game.
+     */
+    private DualSenseDriver realUsbController(AtomicLong clock, TestDualSense.ScriptedTransport transport) {
+        transport.enqueue(TestDualSense.usbReport());
+        DualSenseDriver driver = new DualSenseDriver(transport, clock::get);
+        factory.queueDualSense(driver);
+        manager.init();
+        manager.tick();
+        return driver;
+    }
+
+    @Test
+    public void aLongFrameFreezeDoesNotDisconnectAHealthyUsbController() {
+        AtomicLong clock = new AtomicLong(TimeUnit.SECONDS.toNanos(1));
+        TestDualSense.ScriptedTransport transport = new TestDualSense.ScriptedTransport();
+        RecordingListener listener = new RecordingListener();
+        manager.addConnectionListener(listener);
+
+        realUsbController(clock, transport);
+        assertEquals(Collections.singletonList("+DualSense/USB"), listener.events);
+        listener.events.clear();
+
+        // Leaving a world saves it and stops the integrated server on the client thread, which is
+        // also the thread that polls. Six seconds later every report is still queued and unread.
+        transport.enqueue(TestDualSense.usbReport());
+        clock.addAndGet(TimeUnit.SECONDS.toNanos(6));
+
+        manager.tick();
+
+        assertTrue("A 6 s freeze must not look like an unplug", listener.events.isEmpty());
+        assertTrue(manager.isActive());
+        assertEquals("The handle must not be released", 0, transport.closeCount);
+        assertEquals("USB", manager.getActiveTransportName());
+    }
+
+    @Test
+    public void aLongFrameFreezeStillDisconnectsAControllerThatReallyWentAway() {
+        AtomicLong clock = new AtomicLong(TimeUnit.SECONDS.toNanos(1));
+        TestDualSense.ScriptedTransport transport = new TestDualSense.ScriptedTransport();
+        RecordingListener listener = new RecordingListener();
+        manager.addConnectionListener(listener);
+
+        realUsbController(clock, transport);
+        listener.events.clear();
+
+        // The controller was unplugged during the freeze: the drain hits the read error instead of
+        // a queued report, so the handle is released and the disconnect is reported (after the
+        // grace window, because the device never comes back).
+        transport.errorNextRead = true;
+        clock.addAndGet(TimeUnit.SECONDS.toNanos(6));
+        manager.tick();
+        for (int tick = 0; tick < 40; tick++) {
+            manager.tick();
+        }
+
+        assertFalse(manager.isActive());
+        assertEquals(Collections.singletonList("-DualSense/USB"), listener.events);
     }
 
     // -------------------------------------------------------------------------

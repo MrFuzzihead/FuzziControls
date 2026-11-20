@@ -21,6 +21,15 @@ import com.mrfuzzihead.fuzzicontrols.FuzziControls;
  * </ol>
  *
  * <p>
+ * <b>Liveness after a freeze:</b> the DualSense driver treats "no report for 2–5 s" as a dead
+ * handle, but the client thread is also the thread that polls, so a long freeze (world save and
+ * integrated-server shutdown when leaving a world, a GC pause, alt-tab) looks exactly like a
+ * disconnect. Two guards keep that silent: the watchdog is never trusted until the driver has been
+ * drained once ({@link #drainStaleDriver()}), and a detected disconnect is held for
+ * {@value #DISCONNECT_ANNOUNCE_DELAY_TICKS} ticks ({@link #stageDisconnect}) so a reconnect of the
+ * same device cancels the toast pair instead of announcing it.
+ *
+ * <p>
  * <b>Hot-plug:</b> While the game window is focused, the manager probes for a controller every
  * {@value #FOCUSED_RECONNECT_TICKS} ticks (~{@value #FOCUSED_RECONNECT_SECONDS} second), so a
  * controller plugged in during play is usable almost immediately. While the window is unfocused or
@@ -100,6 +109,23 @@ public class ControllerManager {
      */
     private boolean connectedNotificationPending = false;
 
+    /**
+     * How long a detected disconnect is held back before it is announced (40 ticks = 2 s).
+     *
+     * <p>
+     * A reconnect of the same device inside this window is reported as neither an event nor a toast,
+     * so a spurious blip never reaches the player. It has to cover at least one failed reconnect probe
+     * ({@value #FOCUSED_RECONNECT_TICKS} ticks): when the handle really did close, the device can only
+     * come back on the next probe.
+     */
+    private static final int DISCONNECT_ANNOUNCE_DELAY_TICKS = FOCUSED_RECONNECT_TICKS * 2;
+
+    /** A detected disconnect whose announcement is still inside the grace window; may be null. */
+    private ControllerConnection pendingDisconnect;
+
+    /** Ticks left before {@link #pendingDisconnect} is announced. */
+    private int pendingDisconnectTicks;
+
     /** Receives connection/disconnection events after the manager has committed the state change. */
     public interface ConnectionListener {
 
@@ -161,8 +187,12 @@ public class ControllerManager {
      * Safe to call more than once (e.g. after a config reload or hot-plug retry).
      */
     public void init() {
-        ControllerConnection previous = snapshotConnection(activeDriver);
-        boolean previousAnnounced = !connectedNotificationPending;
+        // A staged disconnect is the better "previous device": the driver is already gone, so the
+        // snapshot no longer knows its transport. An explicit reload announces it immediately
+        // rather than waiting out the grace window.
+        ControllerConnection staged = takePendingDisconnect();
+        ControllerConnection previous = staged != null ? staged : snapshotConnection(activeDriver);
+        boolean previousAnnounced = staged != null || !connectedNotificationPending;
 
         if (activeDriver != null) {
             stopRumble();
@@ -283,6 +313,8 @@ public class ControllerManager {
      * Must be called from the client tick thread.
      */
     public void tick() {
+        tickPendingDisconnect();
+
         if (driverDisabled) {
             stopRumble();
             lastState = ControllerState.empty();
@@ -298,18 +330,32 @@ public class ControllerManager {
 
         // If the active driver has disconnected, release it so we attempt a reconnect.
         if (activeDriver != null && !activeDriver.isConnected()) {
+            // Snapshot before the drain: a failed read closes the driver and forgets the device
+            // name and transport that the disconnect event has to carry.
             ControllerConnection previous = snapshotConnection(activeDriver);
             boolean previousAnnounced = !connectedNotificationPending;
-            FuzziControls.LOG.info("[FuzziControls] Controller disconnected. Will retry.");
-            stopRumble();
-            clearTriggerEffects();
-            safeClose(activeDriver);
-            activeDriver = null;
-            lastState = ControllerState.empty();
-            lastConnected = false;
-            reconnectCooldown = 0;
-            connectedNotificationPending = false;
-            if (previousAnnounced) notifyDisconnected(previous);
+
+            // The watchdog is time based, so it cannot tell a frozen client thread from a dead
+            // handle. Drain the queued reports once and re-check before believing it.
+            drainStaleDriver();
+
+            if (!activeDriver.isConnected()) {
+                FuzziControls.LOG.info("[FuzziControls] Controller disconnected. Will retry.");
+                stopRumble();
+                clearTriggerEffects();
+                safeClose(activeDriver);
+                activeDriver = null;
+                lastState = ControllerState.empty();
+                lastConnected = false;
+                reconnectCooldown = 0;
+                connectedNotificationPending = false;
+                if (previousAnnounced) stageDisconnect(previous);
+            } else {
+                FuzziControls.LOG.info(
+                    "[FuzziControls] {} was still delivering reports after a liveness gap "
+                        + "(the client thread was frozen); keeping the open handle.",
+                    previous != null ? previous.getDeviceName() : "Controller");
+            }
         }
 
         if (activeDriver == null) {
@@ -332,7 +378,11 @@ public class ControllerManager {
             }
 
             reconnectCooldown = 0;
-            connectedNotificationPending = true;
+            // A device that came back inside the grace window was never announced as gone, so it
+            // must not be announced as connected either: the player saw nothing change.
+            if (!resolvePendingDisconnect(snapshotConnection(activeDriver))) {
+                connectedNotificationPending = true;
+            }
         }
 
         try {
@@ -352,7 +402,7 @@ public class ControllerManager {
             lastConnected = false;
             reconnectCooldown = 0;
             connectedNotificationPending = false;
-            if (previousAnnounced) notifyDisconnected(previous);
+            if (previousAnnounced) stageDisconnect(previous);
         }
     }
 
@@ -390,6 +440,91 @@ public class ControllerManager {
         return selectDriver(driverPref);
     }
 
+    /**
+     * Holds a detected disconnect back for {@value #DISCONNECT_ANNOUNCE_DELAY_TICKS} ticks instead of
+     * announcing it immediately.
+     *
+     * <p>
+     * A detected "disconnect" is usually a timing artefact rather than an unplugged controller: the
+     * client thread froze while saving and unloading the world, so the driver's liveness timestamp
+     * went stale and a healthy handle was released. The manager reconnects on the next tick, so
+     * announcing immediately produced a disconnect toast followed by a connect toast a tick later.
+     * Keeping the snapshot lets {@link #resolvePendingDisconnect} drop both.
+     * </p>
+     */
+    private void stageDisconnect(ControllerConnection connection) {
+        if (connection == null) return;
+
+        if (pendingDisconnect != null && !pendingDisconnect.hasSameDevice(connection)) {
+            // A different device is already waiting, so report it now to keep the event order
+            // correct, then hold this one back.
+            ControllerConnection older = pendingDisconnect;
+            pendingDisconnect = null;
+            notifyDisconnected(older);
+        }
+
+        if (pendingDisconnect == null) pendingDisconnect = connection;
+        pendingDisconnectTicks = DISCONNECT_ANNOUNCE_DELAY_TICKS;
+    }
+
+    /**
+     * Compares a newly adopted driver with a staged disconnect.
+     *
+     * @return true when the staged disconnect described the same physical device, meaning the caller
+     *         must stay silent: no disconnect was ever announced, so announcing the reconnection
+     *         would be the visible half of a toast pair the player should not see
+     */
+    private boolean resolvePendingDisconnect(ControllerConnection reconnected) {
+        ControllerConnection pending = takePendingDisconnect();
+        if (pending == null) return false;
+
+        if (pending.hasSameDevice(reconnected)) {
+            FuzziControls.LOG.info(
+                "[FuzziControls] {} reconnected within {}s; suppressing the disconnect/connect toasts.",
+                pending.getDeviceName(),
+                DISCONNECT_ANNOUNCE_DELAY_TICKS / 20);
+            return true;
+        }
+
+        notifyDisconnected(pending);
+        return false;
+    }
+
+    /** Removes and returns the staged disconnect, cancelling its countdown. */
+    private ControllerConnection takePendingDisconnect() {
+        ControllerConnection pending = pendingDisconnect;
+        pendingDisconnect = null;
+        pendingDisconnectTicks = 0;
+        return pending;
+    }
+
+    /** Advances the grace window and announces a staged disconnect once it expires. */
+    private void tickPendingDisconnect() {
+        if (pendingDisconnect == null) return;
+        if (--pendingDisconnectTicks > 0) return;
+
+        notifyDisconnected(takePendingDisconnect());
+    }
+
+    /**
+     * Polls the driver once when only the time-based liveness watchdog says it is gone.
+     *
+     * <p>
+     * The driver's liveness timestamp is refreshed by reads, and reads only happen while the client
+     * thread is running. A freeze longer than the watchdog (saving and unloading a world is the usual
+     * one, at 2 s for Bluetooth and 5 s for USB) therefore leaves a healthy handle looking dead with
+     * every report still queued in the HID buffer. Draining here proves the handle is alive; a device
+     * that really went away returns a read error and is closed by the driver itself.
+     * </p>
+     */
+    private void drainStaleDriver() {
+        try {
+            lastState = activeDriver.poll(Config.stickDeadZone, Config.triggerThreshold);
+        } catch (Exception | LinkageError e) {
+            FuzziControls.LOG.debug("[FuzziControls] Liveness drain failed: {}", e.toString());
+        }
+    }
+
     /** Returns the most recently polled {@link ControllerState}. Never {@code null}. */
     public ControllerState getState() {
         return lastState;
@@ -419,7 +554,7 @@ public class ControllerManager {
                 lastConnected = false;
                 reconnectCooldown = 0;
                 connectedNotificationPending = false;
-                if (previousAnnounced) notifyDisconnected(previous);
+                if (previousAnnounced) stageDisconnect(previous);
             }
         }
         return lastState;
@@ -580,8 +715,9 @@ public class ControllerManager {
 
     /** Closes and releases the active driver. Called on mod shutdown. */
     public void shutdown() {
-        ControllerConnection previous = snapshotConnection(activeDriver);
-        boolean previousAnnounced = !connectedNotificationPending;
+        ControllerConnection staged = takePendingDisconnect();
+        ControllerConnection previous = staged != null ? staged : snapshotConnection(activeDriver);
+        boolean previousAnnounced = staged != null || !connectedNotificationPending;
         stopRumble();
         clearTriggerEffects();
         safeClose(activeDriver);

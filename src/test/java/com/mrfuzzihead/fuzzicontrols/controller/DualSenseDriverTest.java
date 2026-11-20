@@ -1,23 +1,21 @@
 package com.mrfuzzihead.fuzzicontrols.controller;
 
+import static com.mrfuzzihead.fuzzicontrols.controller.TestDualSense.bluetoothSimpleReport;
+import static com.mrfuzzihead.fuzzicontrols.controller.TestDualSense.enhancedReport;
+import static com.mrfuzzihead.fuzzicontrols.controller.TestDualSense.usbReport;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Deque;
-import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.zip.CRC32;
 
 import org.junit.Test;
 
 /**
- * Tests the {@link DualSenseDriver} read loop, transport lifecycle and stale-handle handling with a
- * scripted {@link DualSenseTransport} (no hidapi or hardware).
+ * Tests the {@link DualSenseDriver} read loop, transport lifecycle and stale-handle handling with the
+ * scripted {@link DualSenseTransport} from {@link TestDualSense} (no hidapi or hardware).
  */
 public class DualSenseDriverTest {
 
@@ -27,116 +25,13 @@ public class DualSenseDriverTest {
 
     private static final long START_NANOS = TimeUnit.SECONDS.toNanos(1);
 
-    /** Scripted transport: queues reports and records feature-report calls. */
-    private static final class FakeTransport implements DualSenseTransport {
-
-        private final Deque<byte[]> reports = new ArrayDeque<>();
-
-        private boolean open;
-
-        private boolean openResult = true;
-
-        private boolean throwOnOpen;
-
-        private boolean throwOnFeatureReport;
-
-        private boolean errorNextRead;
-
-        private boolean throwOnRead;
-
-        private int featureReads;
-
-        private int lastFeatureReportId = -1;
-
-        private int closeCount;
-
-        private final List<byte[]> outputReports = new ArrayList<>();
-
-        private boolean failOutputReport;
-
-        private String deviceName = "DualSense";
-
-        private boolean edge;
-
-        FakeTransport enqueue(byte[]... newReports) {
-            for (byte[] report : newReports) {
-                reports.add(report);
-            }
-            return this;
-        }
-
-        @Override
-        public boolean open() {
-            if (throwOnOpen) throw new IllegalStateException("open boom");
-            open = openResult;
-            return open;
-        }
-
-        @Override
-        public int read(byte[] buffer) {
-            if (!open) return -1;
-            if (throwOnRead) throw new IllegalStateException("read boom");
-            if (errorNextRead) {
-                errorNextRead = false;
-                return -1;
-            }
-
-            byte[] report = reports.poll();
-            if (report == null) return 0;
-
-            System.arraycopy(report, 0, buffer, 0, report.length);
-            return report.length;
-        }
-
-        @Override
-        public int readFeatureReport(byte[] buffer, int reportId) {
-            featureReads++;
-            lastFeatureReportId = reportId;
-            if (throwOnFeatureReport) throw new IllegalStateException("feature boom");
-            return 41;
-        }
-
-        @Override
-        public int writeOutputReport(byte[] report) {
-            if (failOutputReport) return -1;
-            outputReports.add(report.clone());
-            return report.length;
-        }
-
-        @Override
-        public boolean isOpen() {
-            return open;
-        }
-
-        @Override
-        public void close() {
-            open = false;
-            closeCount++;
-        }
-
-        @Override
-        public String getDeviceName() {
-            return deviceName;
-        }
-
-        @Override
-        public boolean isEdge() {
-            return edge;
-        }
-
-        @Override
-        public String getVersion() {
-            return "test";
-        }
-    }
-
     // -------------------------------------------------------------------------
     // Open / feature report
     // -------------------------------------------------------------------------
 
     @Test
     public void openReadsTheCalibrationFeatureReport() {
-        FakeTransport transport = new FakeTransport();
+        TestDualSense.ScriptedTransport transport = new TestDualSense.ScriptedTransport();
 
         DualSenseDriver driver = new DualSenseDriver(transport, System::nanoTime);
 
@@ -149,7 +44,7 @@ public class DualSenseDriverTest {
 
     @Test
     public void featureReportFailureDoesNotPreventInput() {
-        FakeTransport transport = new FakeTransport();
+        TestDualSense.ScriptedTransport transport = new TestDualSense.ScriptedTransport();
         transport.throwOnFeatureReport = true;
         transport.enqueue(usbReport());
 
@@ -162,7 +57,7 @@ public class DualSenseDriverTest {
 
     @Test
     public void openFailureLeavesTheDriverInactive() {
-        FakeTransport transport = new FakeTransport();
+        TestDualSense.ScriptedTransport transport = new TestDualSense.ScriptedTransport();
         transport.openResult = false;
 
         DualSenseDriver driver = new DualSenseDriver(transport, System::nanoTime);
@@ -175,7 +70,7 @@ public class DualSenseDriverTest {
 
     @Test
     public void openExceptionIsCaughtAndClosesTheTransport() {
-        FakeTransport transport = new FakeTransport();
+        TestDualSense.ScriptedTransport transport = new TestDualSense.ScriptedTransport();
         transport.throwOnOpen = true;
 
         DualSenseDriver driver = new DualSenseDriver(transport, System::nanoTime);
@@ -197,7 +92,7 @@ public class DualSenseDriverTest {
 
     @Test
     public void deviceNameIsForwardedToTheDriver() {
-        FakeTransport transport = new FakeTransport();
+        TestDualSense.ScriptedTransport transport = new TestDualSense.ScriptedTransport();
         transport.deviceName = "DualSense Edge";
 
         DualSenseDriver driver = new DualSenseDriver(transport, System::nanoTime);
@@ -207,7 +102,7 @@ public class DualSenseDriverTest {
 
     @Test
     public void edgeExtraButtonsArePassedThroughFromTheTransport() {
-        FakeTransport transport = new FakeTransport();
+        TestDualSense.ScriptedTransport transport = new TestDualSense.ScriptedTransport();
         transport.deviceName = "DualSense Edge";
         transport.edge = true;
         byte[] report = usbReport();
@@ -225,7 +120,7 @@ public class DualSenseDriverTest {
 
     @Test
     public void standardDualSenseIgnoresTheEdgeButtonBits() {
-        FakeTransport transport = new FakeTransport();
+        TestDualSense.ScriptedTransport transport = new TestDualSense.ScriptedTransport();
         byte[] report = usbReport();
         report[10] = (byte) 0xF0;
         transport.enqueue(report);
@@ -245,7 +140,7 @@ public class DualSenseDriverTest {
 
     @Test
     public void usbRumbleWritesAUsbOutputReport() {
-        FakeTransport transport = new FakeTransport();
+        TestDualSense.ScriptedTransport transport = new TestDualSense.ScriptedTransport();
         transport.enqueue(usbReport());
 
         DualSenseDriver driver = new DualSenseDriver(transport, System::nanoTime);
@@ -262,7 +157,7 @@ public class DualSenseDriverTest {
 
     @Test
     public void bluetoothRumbleUsesSequencedReportsWithValidCrc() {
-        FakeTransport transport = new FakeTransport();
+        TestDualSense.ScriptedTransport transport = new TestDualSense.ScriptedTransport();
         transport.enqueue(enhancedReport());
 
         DualSenseDriver driver = new DualSenseDriver(transport, System::nanoTime);
@@ -283,7 +178,7 @@ public class DualSenseDriverTest {
 
     @Test
     public void identicalRumbleValuesDoNotRewrite() {
-        FakeTransport transport = new FakeTransport();
+        TestDualSense.ScriptedTransport transport = new TestDualSense.ScriptedTransport();
         transport.enqueue(usbReport());
 
         DualSenseDriver driver = new DualSenseDriver(transport, System::nanoTime);
@@ -297,7 +192,7 @@ public class DualSenseDriverTest {
 
     @Test
     public void rumbleBeforeTheTransportIsKnownIsIgnored() {
-        FakeTransport transport = new FakeTransport();
+        TestDualSense.ScriptedTransport transport = new TestDualSense.ScriptedTransport();
 
         DualSenseDriver driver = new DualSenseDriver(transport, System::nanoTime);
         driver.setRumble(1f, 1f);
@@ -307,7 +202,7 @@ public class DualSenseDriverTest {
 
     @Test
     public void failedRumbleWriteDoesNotThrow() {
-        FakeTransport transport = new FakeTransport();
+        TestDualSense.ScriptedTransport transport = new TestDualSense.ScriptedTransport();
         transport.enqueue(usbReport());
         transport.failOutputReport = true;
 
@@ -321,7 +216,7 @@ public class DualSenseDriverTest {
 
     @Test
     public void batteryStatusIsExposedAfterAParsedReport() {
-        FakeTransport transport = new FakeTransport();
+        TestDualSense.ScriptedTransport transport = new TestDualSense.ScriptedTransport();
         byte[] report = usbReport();
         report[53] = 0x15;
         transport.enqueue(report);
@@ -337,7 +232,7 @@ public class DualSenseDriverTest {
 
     @Test
     public void adaptiveTriggerEffectsAreWrittenAndDeduplicated() {
-        FakeTransport transport = new FakeTransport();
+        TestDualSense.ScriptedTransport transport = new TestDualSense.ScriptedTransport();
         transport.enqueue(usbReport());
 
         DualSenseDriver driver = new DualSenseDriver(transport, System::nanoTime);
@@ -363,7 +258,7 @@ public class DualSenseDriverTest {
 
     @Test
     public void clearingAnIdleTriggerDoesNotWriteAnOffReport() {
-        FakeTransport transport = new FakeTransport();
+        TestDualSense.ScriptedTransport transport = new TestDualSense.ScriptedTransport();
         transport.enqueue(usbReport());
 
         DualSenseDriver driver = new DualSenseDriver(transport, System::nanoTime);
@@ -377,7 +272,7 @@ public class DualSenseDriverTest {
 
     @Test
     public void lightbarStateIsWrittenAndDeduplicated() {
-        FakeTransport transport = new FakeTransport();
+        TestDualSense.ScriptedTransport transport = new TestDualSense.ScriptedTransport();
         transport.enqueue(usbReport());
 
         DualSenseDriver driver = new DualSenseDriver(transport, System::nanoTime);
@@ -401,7 +296,7 @@ public class DualSenseDriverTest {
 
     @Test
     public void usbReportIsParsed() {
-        FakeTransport transport = new FakeTransport();
+        TestDualSense.ScriptedTransport transport = new TestDualSense.ScriptedTransport();
         transport.enqueue(usbReport());
 
         DualSenseDriver driver = new DualSenseDriver(transport, System::nanoTime);
@@ -416,7 +311,7 @@ public class DualSenseDriverTest {
 
     @Test
     public void bluetoothSimpleReportIsParsedAndTriggersOneEnhancedModeRetry() {
-        FakeTransport transport = new FakeTransport();
+        TestDualSense.ScriptedTransport transport = new TestDualSense.ScriptedTransport();
         transport.enqueue(bluetoothSimpleReport());
 
         DualSenseDriver driver = new DualSenseDriver(transport, System::nanoTime);
@@ -435,7 +330,7 @@ public class DualSenseDriverTest {
 
     @Test
     public void bluetoothEnhancedReportIsParsedWithoutARetry() {
-        FakeTransport transport = new FakeTransport();
+        TestDualSense.ScriptedTransport transport = new TestDualSense.ScriptedTransport();
         transport.enqueue(enhancedReport());
 
         DualSenseDriver driver = new DualSenseDriver(transport, System::nanoTime);
@@ -452,7 +347,7 @@ public class DualSenseDriverTest {
         byte[] corrupt = enhancedReport();
         corrupt[2] ^= 0x01;
 
-        FakeTransport transport = new FakeTransport();
+        TestDualSense.ScriptedTransport transport = new TestDualSense.ScriptedTransport();
         transport.enqueue(corrupt);
 
         DualSenseDriver driver = new DualSenseDriver(transport, System::nanoTime);
@@ -473,7 +368,7 @@ public class DualSenseDriverTest {
         byte[] unknown = new byte[DualSenseReportParser.USB_REPORT_SIZE];
         unknown[0] = 0x02;
 
-        FakeTransport transport = new FakeTransport();
+        TestDualSense.ScriptedTransport transport = new TestDualSense.ScriptedTransport();
         transport.enqueue(unknown);
 
         DualSenseDriver driver = new DualSenseDriver(transport, System::nanoTime);
@@ -488,7 +383,7 @@ public class DualSenseDriverTest {
 
     @Test
     public void noReportReturnsTheCachedState() {
-        FakeTransport transport = new FakeTransport();
+        TestDualSense.ScriptedTransport transport = new TestDualSense.ScriptedTransport();
         transport.enqueue(usbReport());
 
         DualSenseDriver driver = new DualSenseDriver(transport, System::nanoTime);
@@ -502,7 +397,7 @@ public class DualSenseDriverTest {
 
     @Test
     public void readErrorClosesTheTransportAndReturnsEmpty() {
-        FakeTransport transport = new FakeTransport();
+        TestDualSense.ScriptedTransport transport = new TestDualSense.ScriptedTransport();
         transport.enqueue(usbReport());
 
         DualSenseDriver driver = new DualSenseDriver(transport, System::nanoTime);
@@ -519,7 +414,7 @@ public class DualSenseDriverTest {
 
     @Test
     public void readExceptionClosesTheTransportAndReturnsEmpty() {
-        FakeTransport transport = new FakeTransport();
+        TestDualSense.ScriptedTransport transport = new TestDualSense.ScriptedTransport();
         transport.enqueue(usbReport());
 
         DualSenseDriver driver = new DualSenseDriver(transport, System::nanoTime);
@@ -537,7 +432,7 @@ public class DualSenseDriverTest {
     @Test
     public void staleBluetoothHandleIsTreatedAsDisconnectedAfterTwoSeconds() {
         AtomicLong clock = new AtomicLong(START_NANOS);
-        FakeTransport transport = new FakeTransport();
+        TestDualSense.ScriptedTransport transport = new TestDualSense.ScriptedTransport();
         transport.enqueue(enhancedReport());
 
         DualSenseDriver driver = new DualSenseDriver(transport, clock::get);
@@ -552,9 +447,30 @@ public class DualSenseDriverTest {
     }
 
     @Test
+    public void drainingABacklogOfReportsRevivesAHandleTheWatchdogGaveUpOn() {
+        AtomicLong clock = new AtomicLong(START_NANOS);
+        TestDualSense.ScriptedTransport transport = new TestDualSense.ScriptedTransport();
+        transport.enqueue(usbReport());
+
+        DualSenseDriver driver = new DualSenseDriver(transport, clock::get);
+        driver.poll(DEAD_ZONE, TRIGGER_THRESHOLD);
+
+        // The client thread froze for longer than the USB watchdog while the controller kept
+        // reporting, so its reports are queued but unread and the timestamp looks stale.
+        transport.enqueue(usbReport());
+        clock.addAndGet(TimeUnit.SECONDS.toNanos(6));
+        assertFalse("The watchdog cannot see a frozen client thread", driver.isConnected());
+
+        driver.poll(DEAD_ZONE, TRIGGER_THRESHOLD);
+
+        assertTrue("Draining the queued report proves the handle is still alive", driver.isConnected());
+        assertEquals("The handle must not have been released", 0, transport.closeCount);
+    }
+
+    @Test
     public void staleUsbHandleUsesTheLongerTimeout() {
         AtomicLong clock = new AtomicLong(START_NANOS);
-        FakeTransport transport = new FakeTransport();
+        TestDualSense.ScriptedTransport transport = new TestDualSense.ScriptedTransport();
         transport.enqueue(usbReport());
 
         DualSenseDriver driver = new DualSenseDriver(transport, clock::get);
@@ -570,7 +486,7 @@ public class DualSenseDriverTest {
 
     @Test
     public void closeReleasesTheTransportAndResetsState() {
-        FakeTransport transport = new FakeTransport();
+        TestDualSense.ScriptedTransport transport = new TestDualSense.ScriptedTransport();
         transport.enqueue(usbReport());
 
         DualSenseDriver driver = new DualSenseDriver(transport, System::nanoTime);
@@ -585,60 +501,4 @@ public class DualSenseDriverTest {
         assertEquals(ControllerState.empty(), driver.poll(DEAD_ZONE, TRIGGER_THRESHOLD));
     }
 
-    // -------------------------------------------------------------------------
-    // Report fixtures
-    // -------------------------------------------------------------------------
-
-    private static byte[] usbReport() {
-        byte[] report = new byte[DualSenseReportParser.USB_REPORT_SIZE];
-        report[0] = 0x01;
-        report[1] = 0;
-        report[2] = (byte) 128;
-        report[3] = (byte) 255;
-        report[4] = (byte) 128;
-        report[5] = (byte) 200;
-        report[6] = 0;
-        report[8] = 0x28;
-        report[9] = 0x01;
-        return report;
-    }
-
-    private static byte[] bluetoothSimpleReport() {
-        byte[] report = new byte[DualSenseReportParser.BLUETOOTH_SIMPLE_REPORT_SIZE];
-        report[0] = 0x01;
-        report[1] = 0;
-        report[2] = (byte) 128;
-        report[3] = (byte) 255;
-        report[4] = (byte) 128;
-        report[5] = 0x28;
-        report[6] = 0x01;
-        report[7] = 0;
-        report[8] = (byte) 200;
-        report[9] = 0;
-        return report;
-    }
-
-    private static byte[] enhancedReport() {
-        byte[] report = new byte[DualSenseReportParser.BLUETOOTH_ENHANCED_REPORT_SIZE];
-        report[0] = 0x31;
-        report[1] = 0x02;
-        report[2] = 0;
-        report[3] = (byte) 128;
-        report[4] = (byte) 255;
-        report[5] = (byte) 128;
-        report[6] = (byte) 200;
-        report[7] = 0;
-        report[9] = 0x28;
-        report[10] = 0x01;
-
-        CRC32 crc = new CRC32();
-        crc.update(DualSenseReportParser.BLUETOOTH_INPUT_CRC_SEED);
-        crc.update(report, 0, report.length - 4);
-        long value = crc.getValue();
-        report[74] = (byte) value;
-        report[75] = (byte) (value >>> 8);
-        report[76] = (byte) (value >>> 16);
-        report[77] = (byte) (value >>> 24);
-        return report;
-    }
 }

@@ -83,6 +83,14 @@ Versions are derived from git tags (`git describe`), so a release is published b
 
 ### Fixed
 
+- **Leaving a singleplayer world no longer shows a disconnect *and* a connect toast.** Quitting a
+  world saves it and stops the integrated server on the client thread, which is also the thread that
+  polls the controller. A freeze longer than the DualSense liveness watchdog (5 s on USB, 2 s on
+  Bluetooth) made a perfectly healthy handle look dead: its reports were still queued and unread.
+  The manager released it, reconnected on the same tick, and the player saw both toasts together in
+  the main menu. The watchdog is now never trusted until the driver has been drained once, and a
+  detected disconnect is held for two seconds so a reconnect of the same device cancels the pair. A
+  controller that really was unplugged still toasts (once, and with the correct transport).
 - **DualSense USB output reports use the model's declared size.** Standard controllers now get the
   48-byte USB report and the Edge gets the 64-byte form. Sending the oversized Edge form to a
   standard controller could leave its triggers in a bad state even though hidapi accepted the write.

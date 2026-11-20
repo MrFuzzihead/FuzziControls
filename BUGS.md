@@ -940,3 +940,86 @@ which
 New `test/controller/AnalogMovementTest.java` — 8 tests pinning the regression
 (`centredStickLeavesKeyboardMovementUntouched`, `centredStickLeavesSneakingKeyboardMovementUntouched`,
 `sneakFactorIsNotDoubleApplied`), plus the response curve and sign mapping.
+
+---
+
+## Reported in-game: leaving a world shows a disconnect *and* a connect toast
+
+> "When I enter a singleplayer world and then quit the singleplayer world, the DualSense controller
+> disconnected and controller connected toasts both pop up in the Minecraft main menu."
+
+**Root cause — a time-based liveness watchdog on a thread that can freeze.** `DualSenseDriver` only
+refreshes its "last report" timestamp when a poll actually drains a report
+(`lastReportNanos = nanoClock.getAsLong()` inside the `read() > 0` loop), and `isConnected()` treats a
+gap of 5 seconds (USB) or 2 seconds (Bluetooth) as a dead handle. Both pollers —
+`ControllerManager.tick()` at 20 Hz and `ControllerManager.pollFresh()` from the render tick — run on
+the **client thread**. Quitting a world saves it and shuts the integrated server down on that same
+thread, freezing it for seconds; the controller keeps streaming into the HID buffer but nothing reads
+it, so the timestamp goes stale.
+
+The first tick after the freeze checked the watchdog *before* polling (`ControllerManager.java:300`),
+so it saw a stale timestamp, emitted the disconnect toast and `safeClose()`d a healthy handle. It also
+set `reconnectCooldown = 0`, so the very same tick fell through to `tryReconnect()`, reopened the same
+pad and queued the connect toast. Both toasts therefore appeared together, first rendered by the main
+menu — exactly what was reported.
+
+A hidapi `read()` returning `-1` (or a `Throwable`) during the transition produced the identical pair
+through the poll-error path, which closed the handle and reconnected on the next tick.
+
+**Fix A — drain before trusting the watchdog (`ControllerManager.drainStaleDriver()`).** When only the
+time-based watchdog says the driver is gone, the manager now polls it once and re-checks. A healthy
+handle has every report still queued, so the drain refreshes the timestamp and the handle is kept
+(`"... was still delivering reports after a liveness gap"` at INFO). A device that really went away
+returns a read error, closes itself, and the disconnect path runs as before. The snapshot for the
+disconnect event is taken *before* the drain, because a failed read clears the transport and would
+otherwise report `DualSense` instead of `DualSense Edge`/`USB`.
+
+**Fix B — stage the disconnect (`ControllerManager.stageDisconnect()`).** A detected disconnect is
+held for `DISCONNECT_ANNOUNCE_DELAY_TICKS` (40 ticks = 2 s, i.e. two focused probe cycles, because a
+handle that really closed can only come back on the next probe). If the same device is re-adopted
+inside that window, `resolvePendingDisconnect()` drops the staged event *and* skips the connect
+announcement: the player never saw a disconnect, so there is nothing to announce. A different device
+still produces `-old` then `+new` in the correct order, and an expired window announces exactly one
+disconnect. `init()` (a `/fuzzicontrols reload` or the settings screen's Rescan) resolves the staged
+event immediately instead of waiting out the window, so the existing "same device, no toast pair"
+rule still applies.
+
+**Coverage.** 8 new tests (510 total, up from 502), and each fix was proven by temporarily reverting
+it:
+
+* Fix A reverted → 1 failure, `aLongFrameFreezeDoesNotDisconnectAHealthyUsbController`. It drives a
+  real `DualSenseDriver` on a scripted transport with a controllable clock: connect, queue a report,
+  advance the clock 6 s (the freeze), `tick()`, then assert no events, `isActive()`, an open handle
+  and `USB` still reported.
+* Fix B reverted (`stageDisconnect` notifying immediately again) → 6 failures:
+  `sameDeviceReconnectInTheSameTickEmitsNoToasts`,
+  `sameDeviceReconnectInsideTheGraceWindowEmitsNoToasts`,
+  `stagedDisconnectIsAnnouncedOnceAfterTheGraceWindow`,
+  `aSilentlyRecoveredDeviceCanStillBeDisconnectedLater`,
+  `pollFailureStagesTheDisconnectInsteadOfAnnouncingItImmediately`,
+  `configReloadDuringTheGraceWindowOfTheSameDeviceEmitsNoToasts`.
+* `aDifferentDeviceInsideTheGraceWindowEmitsDisconnectThenConnect` pins the event *order* for a
+  handover to another pad, so it passes either way — it exists to stop fix B from swallowing a real
+  device change.
+* `aLongFrameFreezeStillDisconnectsAControllerThatReallyWentAway` is the negative control: the same
+  6 s freeze with a read error instead of a queued report still produces exactly one
+  `-DualSense/USB`, so the drain cannot mask a real unplug.
+* `DualSenseDriverTest.drainingABacklogOfReportsRevivesAHandleTheWatchdogGaveUpOn` pins the driver
+  behaviour fix A relies on: `isConnected()` is false after a 6 s gap, true again after one poll.
+* The scripted transport and the three report fixtures moved to `test/controller/TestDualSense.java`
+  so the driver suite and the manager suite share them.
+
+**Behaviour change to be aware of:** a genuine disconnect toast now appears about two seconds after
+the controller goes away rather than instantly. The log line (`Controller disconnected. Will retry.`)
+is still immediate, and a controller that comes back within those two seconds produces no toasts at
+all.
+
+**In-game validation checklist**
+
+1. Enter a singleplayer world with the DualSense connected over USB, wait for the connect toast, quit
+   to the title screen: **no toasts**, and the log shows
+   `DualSense was still delivering reports after a liveness gap`.
+2. Unplug the controller in-game: one red disconnect toast after ~2 s. Replug: one green connect
+   toast with the correct transport.
+3. Pull the cable and push it back in within two seconds: no toasts at all, input keeps working.
+4. On Bluetooth (2 s watchdog) repeat 1 with a world large enough to make the save stall.
